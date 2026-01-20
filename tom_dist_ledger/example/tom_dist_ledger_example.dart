@@ -1,3 +1,11 @@
+/// Basic Ledger API Example
+///
+/// Demonstrates the fundamental operations of the DPL Ledger API:
+/// - Starting an operation
+/// - Tracking call execution
+/// - Completing an operation
+///
+/// Run with: dart run example/tom_dist_ledger_example.dart
 import 'dart:io';
 
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
@@ -5,7 +13,7 @@ import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 void main() async {
   // Create a ledger in a temp directory
   final tempDir = Directory.systemTemp.createTempSync('dpl_example_');
-  
+
   final ledger = Ledger(
     basePath: tempDir.path,
     onBackupCreated: (path) => print('Backup: $path'),

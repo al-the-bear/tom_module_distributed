@@ -21,6 +21,8 @@ export 'src/local_ledger/file_ledger.dart';
 export 'src/simulator/simulation_config.dart';
 export 'src/simulator/async_simulation.dart';
 export 'src/simulator/async_dpl_simulator.dart';
+export 'src/simulator/scenario.dart';
+export 'src/simulator/scenarios.dart';
 export 'src/simulator/participants/async_sim_tom_cli.dart';
 export 'src/simulator/participants/async_sim_dartscript_bridge.dart';
 export 'src/simulator/participants/async_sim_vscode_extension.dart';
