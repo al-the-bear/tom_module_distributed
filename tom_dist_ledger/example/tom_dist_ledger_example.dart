@@ -6,6 +6,8 @@
 /// - Completing an operation
 ///
 /// Run with: dart run example/tom_dist_ledger_example.dart
+library;
+
 import 'dart:io';
 
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';

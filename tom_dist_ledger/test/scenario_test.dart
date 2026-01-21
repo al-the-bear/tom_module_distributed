@@ -1,3 +1,11 @@
+/// Scenario tests with realistic timing to ensure heartbeats occur.
+/// 
+/// These tests run with extended timeouts because scenarios use realistic
+/// 2-second call delays and 10-second external call processing times
+/// to properly exercise heartbeat behavior (heartbeat interval is 4.5s).
+@Timeout(Duration(minutes: 10))
+library;
+
 import 'dart:io';
 
 import 'package:test/test.dart';

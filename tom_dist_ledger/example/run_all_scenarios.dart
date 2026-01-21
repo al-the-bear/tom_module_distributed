@@ -5,6 +5,8 @@
 /// correctly.
 ///
 /// Run with: dart run example/run_all_scenarios.dart
+library;
+
 import 'dart:io';
 
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';

@@ -71,6 +71,10 @@ class Operation {
 
   /// Whether this participant is aborted.
   bool _isAborted = false;
+  
+  /// Staleness threshold in milliseconds for detecting crashed participants.
+  /// If a participant's heartbeat is older than this, it's considered stale.
+  int stalenessThresholdMs = 10000;
 
   /// Callbacks for heartbeat events.
   HeartbeatErrorCallback? onHeartbeatError;
@@ -154,6 +158,7 @@ class Operation {
   Future<void> startCallExecution({
     required String callId,
   }) async {
+    final now = DateTime.now();
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
@@ -162,9 +167,10 @@ class Operation {
           participantId: participantId,
           callId: callId,
           pid: pid,
-          startTime: DateTime.now(),
+          startTime: now,
+          lastHeartbeat: now,
         ));
-        data.lastHeartbeat = DateTime.now();
+        data.lastHeartbeat = now;
         return data;
       },
     );
@@ -373,13 +379,35 @@ class Operation {
       final data =
           LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
 
-      // Calculate heartbeat age before updating
+      // Calculate global heartbeat age before updating (for backward compatibility)
       final heartbeatAge =
           DateTime.now().difference(data.lastHeartbeat).inMilliseconds;
-      final isStale = heartbeatAge > 10000;
+      
+      // Collect per-participant heartbeat ages BEFORE updating
+      final participantAges = <String, int>{};
+      final staleParticipants = <String>[];
+      
+      for (final frame in data.stack) {
+        final age = frame.heartbeatAgeMs;
+        participantAges[frame.participantId] = age;
+        if (age > stalenessThresholdMs) {
+          staleParticipants.add(frame.participantId);
+        }
+      }
+      
+      // Check if any participant OTHER than self is stale
+      final hasStaleOther = staleParticipants.any((p) => p != participantId);
 
-      // Update heartbeat
+      // Update global heartbeat (backward compatibility)
       data.lastHeartbeat = DateTime.now();
+      
+      // Update THIS participant's heartbeat in their stack frame
+      for (final frame in data.stack) {
+        if (frame.participantId == participantId) {
+          frame.lastHeartbeat = DateTime.now();
+          break;
+        }
+      }
 
       // Write back
       final encoder = const JsonEncoder.withIndent('  ');
@@ -395,8 +423,10 @@ class Operation {
         stackDepth: data.stack.length,
         tempResourceCount: data.tempResources.length,
         heartbeatAgeMs: heartbeatAge,
-        isStale: isStale,
+        isStale: hasStaleOther, // Now true only if OTHER participants are stale
         stackParticipants: data.stack.map((f) => f.participantId).toList(),
+        participantHeartbeatAges: participantAges,
+        staleParticipants: staleParticipants.where((p) => p != participantId).toList(),
       );
     } finally {
       await _ledger._releaseLock(operationId);
@@ -407,6 +437,15 @@ class Operation {
   void stopHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+  }
+
+  /// Perform a single heartbeat and return the result.
+  ///
+  /// This is useful for manual heartbeat control in tests or
+  /// when the automatic timer-based heartbeat is not suitable.
+  /// Returns null if the ledger file doesn't exist.
+  Future<HeartbeatResult?> heartbeat() async {
+    return await _performHeartbeatWithChecks();
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -426,6 +465,48 @@ class Operation {
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
     );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Cleanup operations
+  // ─────────────────────────────────────────────────────────────
+
+  /// Lock the operation file for exclusive access during cleanup.
+  ///
+  /// Returns the operation data if lock was acquired.
+  /// Release with [writeAndUnlockOperation] or [unlockOperation].
+  Future<LedgerData?> retrieveAndLockOperation() async {
+    return await _ledger._retrieveAndLockOperation(operationId);
+  }
+
+  /// Unlock the operation file without writing changes.
+  Future<void> unlockOperation() async {
+    await _ledger._releaseLock(operationId);
+  }
+
+  /// Write operation data back and unlock the operation file.
+  Future<void> writeAndUnlockOperation(LedgerData data) async {
+    await _ledger._writeAndUnlockOperation(operationId, data, elapsedFormatted);
+  }
+
+  /// Get the current operation state.
+  Future<OperationState> getOperationState() async {
+    await _refreshCache();
+    return _cachedData?.operationState ?? OperationState.running;
+  }
+
+  /// Set the operation state.
+  Future<void> setOperationState(OperationState state) async {
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        data.operationState = state;
+        data.lastHeartbeat = DateTime.now();
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
   }
 }
 
@@ -581,12 +662,13 @@ class Ledger {
         lastHeartbeat: timestamp,
       );
 
-      // Add initiator frame
+      // Add initiator frame with the actual participant ID
       ledgerData.stack.add(StackFrame(
-        participantId: 'initiator',
+        participantId: participantId,
         callId: 'root',
         pid: initiatorPid,
         startTime: timestamp,
+        lastHeartbeat: timestamp,
       ));
 
       // Write initial file
@@ -701,6 +783,66 @@ class Ledger {
       await file.writeAsString(encoder.convert(updated.toJson()));
 
       return updated;
+    } finally {
+      await _releaseLock(operationId);
+    }
+  }
+
+  /// Lock and retrieve operation for cleanup operations.
+  ///
+  /// Used during cleanup to atomically read the operation file.
+  /// Release with [_writeAndUnlockOperation] or [_releaseLock].
+  Future<LedgerData?> _retrieveAndLockOperation(String operationId) async {
+    final acquired = await _acquireLock(operationId);
+    if (!acquired) return null;
+
+    try {
+      final file = File(_operationPath(operationId));
+      if (!file.existsSync()) {
+        await _releaseLock(operationId);
+        return null;
+      }
+
+      final content = await file.readAsString();
+      return LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
+    } catch (e) {
+      await _releaseLock(operationId);
+      rethrow;
+    }
+  }
+
+  /// Write operation data and unlock after cleanup operations.
+  Future<void> _writeAndUnlockOperation(
+    String operationId,
+    LedgerData data,
+    String elapsedFormatted,
+  ) async {
+    try {
+      // Create backup
+      await _createBackup(operationId, elapsedFormatted);
+
+      // Write updated data
+      final file = File(_operationPath(operationId));
+      final encoder = const JsonEncoder.withIndent('  ');
+      await file.writeAsString(encoder.convert(data.toJson()));
+    } finally {
+      await _releaseLock(operationId);
+    }
+  }
+
+  /// Delete operation file during cleanup (Phase 4).
+  Future<void> _deleteOperation(String operationId) async {
+    final acquired = await _acquireLock(operationId);
+    if (!acquired) return;
+
+    try {
+      final file = File(_operationPath(operationId));
+      if (file.existsSync()) {
+        await file.delete();
+      }
+      
+      // Unregister from operations
+      _unregisterOperation(operationId);
     } finally {
       await _releaseLock(operationId);
     }

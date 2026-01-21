@@ -10,6 +10,8 @@
 /// the DPL system is designed to handle.
 ///
 /// Run with: dart run example/simulation_happy_path.dart
+library;
+
 import 'dart:io';
 
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';

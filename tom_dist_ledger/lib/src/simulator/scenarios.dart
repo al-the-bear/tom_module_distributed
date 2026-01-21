@@ -5,13 +5,24 @@ import 'simulation_config.dart';
 /// 
 /// These scenarios cover various failure modes and edge cases to verify
 /// that the distributed operation ledger handles all situations correctly.
+/// 
+/// TIMING NOTE: All scenarios use realistic timings to ensure heartbeats
+/// actually occur during test execution. The heartbeat interval is 4.5s,
+/// so tests are designed to run long enough for multiple heartbeats.
 class Scenarios {
-  /// Fast test configuration with short delays.
+  /// Realistic test configuration with proper timing for heartbeats.
+  /// 
+  /// - callDelayMs: 2000ms (2 seconds per call)
+  /// - externalCallResponseMs: 10000ms (10 seconds for Copilot)
+  /// - Heartbeat interval: 4500ms (4.5 seconds)
+  /// 
+  /// This ensures heartbeats occur during test execution to catch
+  /// timing-related issues.
   static const _testConfig = SimulationConfig(
-    callDelayMs: 20,
-    externalCallResponseMs: 100,
-    copilotProcessingIntervalMs: 30,
-    copilotPollingIntervalMs: 30,
+    callDelayMs: 2000,
+    externalCallResponseMs: 10000,
+    copilotProcessingIntervalMs: 2000,
+    copilotPollingIntervalMs: 2000,
   );
 
   // ═══════════════════════════════════════════════════════════════════
@@ -28,20 +39,20 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 50,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 50,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'vscode-copilot',
                 caller: FailingParticipant.vscode,
                 callee: FailingParticipant.copilot,
                 isExternal: true,
-                processingMs: 100,
+                processingMs: 10000,
               ),
             ],
           ),
@@ -64,7 +75,7 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 100,
+        processingMs: 5000,
       ),
     ],
     failures: const [
@@ -72,7 +83,7 @@ class Scenarios {
         participant: FailingParticipant.cli,
         type: FailureType.crash,
         phase: FailurePhase.initialization,
-        delayMs: 30,
+        delayMs: 2000,
       ),
     ],
   );
@@ -88,13 +99,13 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 50,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 200,
+            processingMs: 10000,
           ),
         ],
       ),
@@ -104,7 +115,7 @@ class Scenarios {
         participant: FailingParticipant.cli,
         type: FailureType.crash,
         phase: FailurePhase.processing,
-        delayMs: 100,
+        delayMs: 6000,
       ),
     ],
   );
@@ -120,20 +131,20 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 30,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'vscode-copilot',
                 caller: FailingParticipant.vscode,
                 callee: FailingParticipant.copilot,
                 isExternal: true,
-                processingMs: 300,
+                processingMs: 15000,
               ),
             ],
           ),
@@ -145,7 +156,7 @@ class Scenarios {
         participant: FailingParticipant.cli,
         type: FailureType.crash,
         phase: FailurePhase.processing,
-        delayMs: 150,
+        delayMs: 8000,
       ),
     ],
   );
@@ -164,13 +175,13 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 50,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 200,
+            processingMs: 10000,
           ),
         ],
       ),
@@ -180,7 +191,7 @@ class Scenarios {
         participant: FailingParticipant.bridge,
         type: FailureType.crash,
         phase: FailurePhase.initialization,
-        delayMs: 80,
+        delayMs: 3000,
       ),
     ],
   );
@@ -196,20 +207,20 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 30,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'vscode-copilot',
                 caller: FailingParticipant.vscode,
                 callee: FailingParticipant.copilot,
                 isExternal: true,
-                processingMs: 300,
+                processingMs: 15000,
               ),
             ],
           ),
@@ -221,7 +232,7 @@ class Scenarios {
         participant: FailingParticipant.bridge,
         type: FailureType.crash,
         phase: FailurePhase.processing,
-        delayMs: 120,
+        delayMs: 7000,
       ),
     ],
   );
@@ -237,13 +248,13 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 50,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 500, // Long processing simulates hang
+            processingMs: 15000, // Long processing simulates hang
           ),
         ],
       ),
@@ -253,7 +264,7 @@ class Scenarios {
         participant: FailingParticipant.bridge,
         type: FailureType.staleHeartbeat,
         phase: FailurePhase.processing,
-        delayMs: 150,
+        delayMs: 6000,
       ),
     ],
   );
@@ -269,31 +280,31 @@ class Scenarios {
     expectedOutcome:
         'VSCode catches timeout, propagates error up stack, operation fails',
     config: const SimulationConfig(
-      callDelayMs: 20,
-      externalCallResponseMs: 500, // Will time out
-      externalCallTimeoutMs: 100, // Short timeout
-      copilotProcessingIntervalMs: 30,
-      copilotPollingIntervalMs: 30,
+      callDelayMs: 2000,
+      externalCallResponseMs: 20000, // Will time out
+      externalCallTimeoutMs: 5000, // Short timeout
+      copilotProcessingIntervalMs: 2000,
+      copilotPollingIntervalMs: 2000,
       externalCallFails: true,
     ),
     callTree: const [
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 30,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'vscode-copilot',
                 caller: FailingParticipant.vscode,
                 callee: FailingParticipant.copilot,
                 isExternal: true,
-                processingMs: 200,
+                processingMs: 10000,
               ),
             ],
           ),
@@ -313,20 +324,20 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 30,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'vscode-copilot',
                 caller: FailingParticipant.vscode,
                 callee: FailingParticipant.copilot,
                 isExternal: true,
-                processingMs: 100,
+                processingMs: 10000,
               ),
             ],
           ),
@@ -358,13 +369,13 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 200,
+            processingMs: 10000,
           ),
         ],
       ),
@@ -374,7 +385,7 @@ class Scenarios {
         participant: FailingParticipant.cli,
         type: FailureType.userAbort,
         phase: FailurePhase.processing,
-        delayMs: 80,
+        delayMs: 5000,
       ),
     ],
   );
@@ -390,20 +401,20 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 30,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'vscode-copilot',
                 caller: FailingParticipant.vscode,
                 callee: FailingParticipant.copilot,
                 isExternal: true,
-                processingMs: 300,
+                processingMs: 15000,
               ),
             ],
           ),
@@ -415,7 +426,7 @@ class Scenarios {
         participant: FailingParticipant.cli,
         type: FailureType.userAbort,
         phase: FailurePhase.processing,
-        delayMs: 120,
+        delayMs: 7000,
       ),
     ],
   );
@@ -434,14 +445,14 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'vscode-direct',
             caller: FailingParticipant.vscode,
             callee: FailingParticipant.copilot,
             isExternal: true,
-            processingMs: 100,
+            processingMs: 10000,
           ),
         ],
       ),
@@ -458,24 +469,24 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 30,
+            processingMs: 2000,
             nestedCalls: [
               // Simulated parallel calls (will run sequentially in test)
               ScenarioCall(
                 callId: 'vscode-call-1',
                 caller: FailingParticipant.vscode,
-                processingMs: 50,
+                processingMs: 3000,
               ),
               ScenarioCall(
                 callId: 'vscode-call-2',
                 caller: FailingParticipant.vscode,
-                processingMs: 50,
+                processingMs: 3000,
               ),
             ],
           ),
@@ -494,30 +505,30 @@ class Scenarios {
       ScenarioCall(
         callId: 'level-1',
         caller: FailingParticipant.cli,
-        processingMs: 20,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'level-2',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 20,
+            processingMs: 2000,
             nestedCalls: [
               ScenarioCall(
                 callId: 'level-3',
                 caller: FailingParticipant.vscode,
-                processingMs: 20,
+                processingMs: 2000,
                 nestedCalls: [
                   ScenarioCall(
                     callId: 'level-4',
                     caller: FailingParticipant.bridge,
-                    processingMs: 20,
+                    processingMs: 2000,
                     nestedCalls: [
                       ScenarioCall(
                         callId: 'level-5',
                         caller: FailingParticipant.vscode,
                         callee: FailingParticipant.copilot,
                         isExternal: true,
-                        processingMs: 50,
+                        processingMs: 10000,
                       ),
                     ],
                   ),
@@ -540,13 +551,13 @@ class Scenarios {
       ScenarioCall(
         callId: 'cli-main',
         caller: FailingParticipant.cli,
-        processingMs: 30,
+        processingMs: 2000,
         nestedCalls: [
           ScenarioCall(
             callId: 'bridge-process',
             caller: FailingParticipant.bridge,
             spawnsProcess: true,
-            processingMs: 100,
+            processingMs: 5000,
           ),
         ],
       ),
@@ -556,7 +567,7 @@ class Scenarios {
         participant: FailingParticipant.bridge,
         type: FailureType.crash,
         phase: FailurePhase.completion,
-        delayMs: 120,
+        delayMs: 6000,
       ),
     ],
   );
