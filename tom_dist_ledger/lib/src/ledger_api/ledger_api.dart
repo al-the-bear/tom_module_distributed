@@ -308,6 +308,74 @@ class Operation {
     }
   }
 
+  /// Fail a call due to an error.
+  ///
+  /// This removes the stack frame, logs the failure, and calls cleanup.
+  /// If [failOnCrash] was true for this call, it may trigger operation failure.
+  Future<void> failCall({
+    required String callId,
+    required Object error,
+    StackTrace? stackTrace,
+  }) async {
+    final activeCall = _activeCalls.remove(callId);
+    if (activeCall == null) {
+      throw StateError('No active call with ID: $callId');
+    }
+
+    final now = DateTime.now();
+
+    // Pop stack frame
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+        if (index >= 0) {
+          data.stack.removeAt(index);
+        }
+        data.lastHeartbeat = now;
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
+
+    // Log the call failure
+    final duration = now.difference(activeCall.startedAt);
+    await log(
+        'CALL_FAILED callId=$callId duration=${duration.inMilliseconds}ms error=$error',
+        level: LogLevel.error);
+
+    // Call cleanup callback
+    await activeCall.callback.onCleanup();
+
+    // Call onCrashed callback if provided
+    if (activeCall.callback.onCrashed != null) {
+      await activeCall.callback.onCrashed!(CrashedCallInfo(
+        callId: callId,
+        operationId: operationId,
+        participantId: participantId,
+        startedAt: activeCall.startedAt,
+        detectedAt: now,
+        crashReason: error.toString(),
+      ));
+    }
+
+    // If this call had failOnCrash=true, signal operation failure
+    if (activeCall.failOnCrash) {
+      _signalFailure(OperationFailedInfo(
+        operationId: operationId,
+        failedAt: now,
+        reason: 'Call $callId failed: $error',
+        crashedCallIds: [callId],
+      ));
+    }
+
+    // Complete the completer
+    if (!activeCall.completer.isCompleted) {
+      activeCall.completer.complete();
+    }
+  }
+
   /// Spawn a call that runs asynchronously.
   ///
   /// Returns callId immediately without waiting for completion.
@@ -359,9 +427,12 @@ class Operation {
   }
 
   /// Wait for spawned calls to complete.
+  ///
+  /// Note: Individual call crash handling is done via the onCallCrashed callback
+  /// provided to spawnCall() at spawn time. This method only notifies about
+  /// operation-level failures.
   Future<void> sync(
     List<String> callIds, {
-    Future<void> Function(String callId, CrashedCallInfo info)? onCrash,
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
   }) async {
     if (callIds.isEmpty) return;
@@ -391,15 +462,247 @@ class Operation {
   /// If the operation enters cleanup/failed state, the work is interrupted.
   Future<void> waitForCompletion(
     Future<void> Function() work, {
-    Future<void> Function(OperationFailedInfo info)? onCrash,
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
   }) async {
     // Race between work completion and operation failure
     await Future.any([
       work(),
       onFailure.then((info) async {
-        await onCrash?.call(info);
+        await onOperationFailed?.call(info);
       }),
     ]);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Typed Spawned Call API (per specification)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Tracking for typed spawned calls.
+  final Map<String, SpawnedCall> _spawnedCalls = {};
+
+  /// Spawn a typed call that runs asynchronously.
+  ///
+  /// Returns [SpawnedCall<T>] immediately. The call executes `work` asynchronously
+  /// and manages its own lifecycle (no need to call endCall).
+  ///
+  /// If [failOnCrash] is true (default), a crash in this call will fail the
+  /// entire operation. If false, the crash is contained.
+  SpawnedCall<T> spawnTyped<T>({
+    required Future<T> Function() work,
+    Future<T?> Function()? onCallCrashed,
+    Future<void> Function(T result)? onCompletion,
+    String? description,
+    bool failOnCrash = true,
+  }) {
+    final callId = _generateCallId();
+    final now = DateTime.now();
+
+    // Create SpawnedCall instance
+    final spawnedCall = SpawnedCall<T>(
+      callId: callId,
+      description: description,
+    );
+    _spawnedCalls[callId] = spawnedCall;
+
+    // Create callback
+    final callback = CallCallback(
+      onCleanup: () async {}, // Cleanup handled by _runSpawnedCall
+    );
+
+    // Track locally
+    _activeCalls[callId] = _ActiveCall(
+      callId: callId,
+      callback: callback,
+      startedAt: now,
+      description: description,
+      isSpawned: true,
+      failOnCrash: failOnCrash,
+    );
+
+    // Execute asynchronously
+    _runSpawnedCall<T>(
+      callId: callId,
+      work: work,
+      spawnedCall: spawnedCall,
+      onCallCrashed: onCallCrashed,
+      onCompletion: onCompletion,
+      failOnCrash: failOnCrash,
+    );
+
+    return spawnedCall;
+  }
+
+  /// Internal method to run a spawned call.
+  Future<void> _runSpawnedCall<T>({
+    required String callId,
+    required Future<T> Function() work,
+    required SpawnedCall<T> spawnedCall,
+    Future<T?> Function()? onCallCrashed,
+    Future<void> Function(T result)? onCompletion,
+    required bool failOnCrash,
+  }) async {
+    final now = DateTime.now();
+
+    // Push stack frame
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        data.stack.add(StackFrame(
+          participantId: participantId,
+          callId: callId,
+          pid: pid,
+          startTime: now,
+          lastHeartbeat: now,
+          description: spawnedCall.description,
+          failOnCrash: failOnCrash,
+        ));
+        data.lastHeartbeat = now;
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
+
+    await log('CALL_SPAWNED callId=$callId participant=$participantId');
+
+    try {
+      // Execute work
+      final result = await work();
+
+      // Success - store result
+      spawnedCall.complete(result);
+
+      // Remove stack frame
+      await _ledger._modifyOperation(
+        operationId: operationId,
+        elapsedFormatted: elapsedFormatted,
+        updater: (data) {
+          final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+          if (index >= 0) data.stack.removeAt(index);
+          data.lastHeartbeat = DateTime.now();
+          return data;
+        },
+      );
+
+      await log('CALL_COMPLETED callId=$callId');
+
+      // Call onCompletion callback
+      await onCompletion?.call(result);
+
+      // Cleanup active call tracking
+      final activeCall = _activeCalls.remove(callId);
+      if (activeCall != null && !activeCall.completer.isCompleted) {
+        activeCall.completer.complete();
+      }
+    } catch (e, st) {
+      // Failure - try to get fallback from onCallCrashed
+      T? fallbackResult;
+      if (onCallCrashed != null) {
+        try {
+          fallbackResult = await onCallCrashed();
+          if (fallbackResult != null) {
+            // Got a fallback, treat as success
+            spawnedCall.complete(fallbackResult);
+          } else {
+            spawnedCall.fail(e, st);
+          }
+        } catch (_) {
+          spawnedCall.fail(e, st);
+        }
+      } else {
+        spawnedCall.fail(e, st);
+      }
+
+      // Remove stack frame
+      await _ledger._modifyOperation(
+        operationId: operationId,
+        elapsedFormatted: elapsedFormatted,
+        updater: (data) {
+          final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+          if (index >= 0) data.stack.removeAt(index);
+          data.lastHeartbeat = DateTime.now();
+          return data;
+        },
+      );
+
+      await log('CALL_FAILED callId=$callId error=$e', level: LogLevel.error);
+
+      // Cleanup active call tracking
+      final activeCall = _activeCalls.remove(callId);
+      if (activeCall != null && !activeCall.completer.isCompleted) {
+        activeCall.completer.complete();
+      }
+
+      // If failOnCrash is true and we didn't get a fallback, signal operation failure
+      if (failOnCrash && fallbackResult == null) {
+        _signalFailure(OperationFailedInfo(
+          operationId: operationId,
+          failedAt: DateTime.now(),
+          reason: 'Call $callId failed: $e',
+          crashedCallIds: [callId],
+        ));
+      }
+    }
+  }
+
+  /// Sync on typed spawned calls and get a SyncResult.
+  ///
+  /// Waits for all specified calls to complete and returns status.
+  /// 
+  /// Note: Individual call crash handling is done via the onCallCrashed callback
+  /// provided to spawnTyped() at spawn time. This method only notifies about
+  /// operation-level failures.
+  Future<SyncResult> syncTyped(
+    List<SpawnedCall> calls, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<void> Function()? onCompletion,
+  }) async {
+    if (calls.isEmpty) {
+      return SyncResult();
+    }
+
+    final List<SpawnedCall> successful = [];
+    final List<SpawnedCall> failed = [];
+    final List<SpawnedCall> unknown = [];
+
+    // Wait for all calls or operation failure
+    bool operationDidFail = false;
+
+    try {
+      await Future.any([
+        Future.wait(calls.map((c) => c.future)),
+        onFailure.then((info) async {
+          operationDidFail = true;
+          await onOperationFailed?.call(info);
+        }),
+      ]);
+    } catch (_) {
+      // Ignore - we'll categorize below
+    }
+
+    // Categorize results
+    for (final call in calls) {
+      if (call.isCompleted) {
+        if (call.isSuccess) {
+          successful.add(call);
+        } else {
+          failed.add(call);
+          // Note: Individual crash callbacks were handled at spawn time via onCallCrashed
+        }
+      } else {
+        unknown.add(call);
+      }
+    }
+
+    // Call completion callback
+    await onCompletion?.call();
+
+    return SyncResult(
+      successfulCalls: successful,
+      failedCalls: failed,
+      unknownCalls: unknown,
+      operationFailed: operationDidFail,
+    );
   }
 
   // ─────────────────────────────────────────────────────────────

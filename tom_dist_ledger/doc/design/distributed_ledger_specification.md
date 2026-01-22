@@ -275,32 +275,32 @@ Marks the operation as successfully completed.
 3. Moves all operation files to backup folder
 4. Cleans old backups beyond retention limit
 
-#### Wait for Completion with Crash Awareness
+#### Wait for Completion with Operation Failure Awareness
 
 ```dart
 Future<T?> waitForCompletion<T>(
   Future<T> Function() work, {
-  Future<T?> Function(OperationFailedInfo info)? onCrash,
+  Future<T?> Function(OperationFailedInfo info)? onOperationFailed,
 })
 ```
 
-Executes asynchronous work while monitoring operation state. If the operation enters cleanup/failed state, the work is interrupted and `onCrash` is invoked.
+Executes asynchronous work while monitoring operation state. If the operation enters cleanup/failed state, the work is interrupted and `onOperationFailed` is invoked.
 
 **Type Parameter:**
 - `T` - The return type of the work function
 
 **Parameters:**
 - `work` - The async function to execute, returns `Future<T>` (e.g., waiting for workers and collecting results)
-- `onCrash` - Optional callback invoked when operation fails during wait; can return a fallback value of type `T?`
+- `onOperationFailed` - Optional callback invoked when the **operation** enters cleanup/failed state during wait; can return a fallback value of type `T?`
 
 **Returns:** 
 - The result of `work()` if it completes successfully (type `T`)
-- The result of `onCrash()` if operation fails during wait (type `T?`)
-- `null` if operation fails and no `onCrash` is provided
+- The result of `onOperationFailed()` if operation fails during wait (type `T?`)
+- `null` if operation fails and no `onOperationFailed` is provided
 
 **Behavior:**
 - Uses a `Completer` internally to race between work completion and operation failure
-- If `operationState` becomes `cleanup` or `failed`, invokes `onCrash` and returns its result
+- If `operationState` becomes `cleanup` or `failed`, invokes `onOperationFailed` and returns its result
 - If work completes normally, returns its result
 - Does NOT use simple timeout - responds to actual operation state changes
 
@@ -308,7 +308,7 @@ Executes asynchronous work while monitoring operation state. If the operation en
 ```dart
 final results = await operation.waitForCompletion<List<WorkerResult>>(
   () async => await _waitForWorkers(),
-  onCrash: (info) async {
+  onOperationFailed: (info) async {
     print('Operation failed: ${info.reason}');
     await _cleanupPartialWork();
     return []; // Return empty list as fallback
@@ -325,7 +325,7 @@ if (results != null) {
 ```dart
 SpawnedCall<T> spawnCall<T>({
   required Future<T> Function() work,
-  Future<T?> Function()? onCrash,
+  Future<T?> Function()? onCallCrashed,
   Future<void> Function(T result)? onCompletion,
   String? description,
   bool failOnCrash = true,
@@ -339,10 +339,10 @@ Starts a call that runs asynchronously without blocking. The call executes in pa
 
 **Parameters:**
 - `work` - The async function to execute, returns `Future<T>`
-- `onCrash` - Optional callback invoked if this call crashes (e.g., exception thrown); can return a typed fallback value `T?` to use as the result
+- `onCallCrashed` - Optional callback invoked if **this call** crashes (e.g., exception thrown); can return a typed fallback value `T?` to use as the result
 - `onCompletion` - Optional callback invoked when work completes successfully, receives result
 - `description` - Optional human-readable description
-- `failOnCrash` - Whether a crash in this call should fail the entire operation (default: `true`). If `false`, the call fails individually but the operation continues; `onCrash` can provide a fallback value.
+- `failOnCrash` - Whether a crash in this call should fail the entire operation (default: `true`). If `false`, the call fails individually but the operation continues; `onCallCrashed` can provide a fallback value.
 
 **Returns:** `SpawnedCall<T>` object for tracking the call and retrieving its result
 
@@ -352,7 +352,7 @@ Starts a call that runs asynchronously without blocking. The call executes in pa
 3. Returns `SpawnedCall<T>` immediately
 4. Executes `work()` asynchronously
 5. On success: stores result, calls `onCompletion`, removes frame
-6. On exception: calls `onCrash`, marks call as failed via `failCall()`
+6. On exception: calls `onCallCrashed`, marks call as failed via `failCall()`
 
 **Note:** The spawned call manages its own lifecycle - caller does not need to call `endCall()`.
 
@@ -417,10 +417,13 @@ Waits for all specified spawned calls to complete and collects their results.
 
 **Parameters:**
 - `calls` - List of `SpawnedCall` objects returned from `spawnCall()`
-- `onOperationFailed` - Called if the entire operation fails (due to a call with `failOnCrash = true` crashing)
+- `onOperationFailed` - Called if the entire **operation** fails (due to a call with `failOnCrash = true` crashing)
 - `onCompletion` - Called when all calls complete (regardless of success/failure)
 
-**Note:** Individual crash handling is done per-call via the `onCrash` callback in `spawnCall()`, which can also provide typed fallback values.
+**Note on crash handling:** Individual call crashes are handled by the `onCallCrashed` callback provided to `spawnCall()` at the time of spawning. There is no separate crash callback in `sync()` because:
+1. Each `SpawnedCall` already has its crash handler configured
+2. The crash handler in `spawnCall()` can provide fallback values
+3. `sync()` simply waits for calls to complete and reports their final status
 
 **Returns:** `SyncResult` containing completion status
 
@@ -428,7 +431,7 @@ Waits for all specified spawned calls to complete and collects their results.
 - Waits until all specified calls have ended (normally or crashed)
 - If a call crashes and has `failOnCrash = true`, the entire operation enters `failed` state
 - If a call crashes and has `failOnCrash = false`, only that call fails; others continue
-- When a call with `onCrash` callback crashes, the callback is invoked and its return value becomes the call's result (making it appear as "success" with fallback value)
+- When a call with `onCallCrashed` callback crashes, the callback is invoked and its return value becomes the call's result (making it appear as "success" with fallback value)
 - If operation enters `failed` state, invokes `onOperationFailed` and returns immediately
 - Returns `SyncResult` when all calls have finished or operation has failed
 
@@ -479,7 +482,7 @@ final spawned1 = operation.spawnCall<int>(
 final spawned2 = operation.spawnCall<String>(
   work: () async => await computeValue2(),
   failOnCrash: false, // Crash here is contained
-  onCrash: () async {
+  onCallCrashed: () async {
     print('Task 2 crashed, using fallback');
     return 'fallback-value'; // This becomes the result
   },
@@ -488,7 +491,7 @@ final spawned2 = operation.spawnCall<String>(
 final spawned3 = operation.spawnCall<List<int>>(
   work: () async => await computeValue3(),
   failOnCrash: false,
-  // No onCrash - if this crashes, result will be null/unavailable
+  // No onCallCrashed - if this crashes, result will be null/unavailable
 );
 
 final syncResult = await operation.sync(
@@ -581,7 +584,7 @@ class CrashedCallInfo {
 
 #### OperationFailedInfo
 
-Passed to `onCrash` in `waitForCompletion()` and `onOperationFailed` in `sync()`:
+Passed to `onOperationFailed` callbacks in `waitForCompletion()`, `sync()`, and `executeCall()`:
 
 ```dart
 class OperationFailedInfo {
@@ -626,7 +629,7 @@ Future<T?> executeCall<T>({
   required Future<T?> Function(Operation operation) work,
   Future<T?> Function(Operation operation)? wait,
   Future<T?> Function(Operation operation, T? workResult)? process,
-  Future<T?> Function(OperationFailedInfo info)? onCrash,
+  Future<T?> Function(OperationFailedInfo info)? onOperationFailed,
   String? description,
   bool failOnCrash = true,
 })
@@ -641,14 +644,14 @@ Future<T?> executeCall<T>({
 - `work` - The main work function; receives the Operation for logging; returns `Future<T?>`
 - `wait` - Optional wait function for async workers (runs after work completes); returns `Future<T?>`
 - `process` - Optional post-processing function; receives workResult and returns final `Future<T?>`
-- `onCrash` - Called if operation fails; can return fallback value of type `T?`
+- `onOperationFailed` - Called if **operation** enters failed state; can return fallback value of type `T?`
 - `description` - Optional human-readable description of this call
 - `failOnCrash` - Whether a crash in this call should fail the entire operation (default: `true`)
 
 **Returns:**
 - Result of type `T?` on success (may be null)
-- Result of `onCrash()` on operation failure
-- `null` if operation fails and no `onCrash` is provided
+- Result of `onOperationFailed()` on operation failure
+- `null` if operation fails and no `onOperationFailed` is provided
 
 **Internal Implementation:**
 
@@ -659,7 +662,7 @@ Future<T?> executeCall<T>({
   required Future<T?> Function(Operation operation) work,
   Future<T?> Function(Operation operation)? wait,
   Future<T?> Function(Operation operation, T? workResult)? process,
-  Future<T?> Function(OperationFailedInfo info)? onCrash,
+  Future<T?> Function(OperationFailedInfo info)? onOperationFailed,
   String? description,
   bool failOnCrash = true,
 }) async {
@@ -681,7 +684,7 @@ Future<T?> executeCall<T>({
     if (wait != null) {
       result = await operation.waitForCompletion<T>(
         () => wait(operation),
-        onCrash: onCrash,
+        onOperationFailed: onOperationFailed,
       ) ?? result;
     }
     
@@ -698,9 +701,9 @@ Future<T?> executeCall<T>({
     // 7. Fail call on exception
     await operation.failCall(callId: callId, error: e, stackTrace: st);
     
-    // 8. Invoke onCrash if provided
-    if (onCrash != null) {
-      return await onCrash(OperationFailedInfo(
+    // 8. Invoke onOperationFailed if provided
+    if (onOperationFailed != null) {
+      return await onOperationFailed(OperationFailedInfo(
         operationId: operationId,
         failedAt: DateTime.now(),
         reason: e.toString(),
@@ -758,7 +761,7 @@ final results = await ledger.executeCall<List<WorkerResult>?>(
   },
   
   // Handle operation failure
-  onCrash: (info) async {
+  onOperationFailed: (info) async {
     print('Operation failed: ${info.reason}');
     return []; // Return empty list as fallback
   },
@@ -1252,7 +1255,7 @@ Future<ProcessResult> processDocument(String operationId, DocumentRequest reques
   
   // Create callback for cleanup and crash notification
   final callback = CallCallback(
-    cleanup: () async {
+    onCleanup: () async {
       // Release resources, close connections, etc.
       await _releaseResources();
       await _deleteTempFiles(request.tempPath);
@@ -1316,7 +1319,7 @@ Future<BuildResult> startDistributedBuild(BuildConfig config) async {
   // Start initiator's own call
   final callId = await operation.startCall(
     callback: CallCallback(
-      cleanup: () async => await _cleanup(),
+      onCleanup: () async => await _cleanup(),
     ),
     description: 'Coordinate build',
   );
@@ -1328,15 +1331,15 @@ Future<BuildResult> startDistributedBuild(BuildConfig config) async {
       config: config,
     );
     
-    // Wait for work to complete - with crash awareness
+    // Wait for work to complete - with operation failure awareness
     // This does NOT use a simple timeout - it responds to operation state changes
     List<WorkerResult>? workerResults;
     await operation.waitForCompletion(
       () async {
         workerResults = await _waitForWorkers(workerHandles);
       },
-      onCrash: (info) async {
-        print('Operation crashed: ${info.reason}');
+      onOperationFailed: (info) async {
+        print('Operation failed: ${info.reason}');
         // Cleanup is already being handled by the ledger
       },
     );
@@ -1370,7 +1373,7 @@ Future<PipelineResult> runPipeline(String operationId, PipelineInput input) asyn
   
   // Step 1: Parse input
   final parseCallId = await operation.startCall(
-    callback: CallCallback(cleanup: () async => await _cleanupParser()),
+    callback: CallCallback(onCleanup: () async => await _cleanupParser()),
     description: 'Parse input',
   );
   
@@ -1385,7 +1388,7 @@ Future<PipelineResult> runPipeline(String operationId, PipelineInput input) asyn
   
   // Step 2: Transform (uses result from step 1)
   final transformCallId = await operation.startCall(
-    callback: CallCallback(cleanup: () async => await _cleanupTransformer()),
+    callback: CallCallback(onCleanup: () async => await _cleanupTransformer()),
     description: 'Transform data',
   );
   
@@ -1403,7 +1406,7 @@ Future<PipelineResult> runPipeline(String operationId, PipelineInput input) asyn
   
   // Step 3: Output (uses result from step 2)
   final outputCallId = await operation.startCall(
-    callback: CallCallback(cleanup: () async => await _cleanupOutput()),
+    callback: CallCallback(onCleanup: () async => await _cleanupOutput()),
     description: 'Generate output',
   );
   
@@ -1437,7 +1440,7 @@ Future<BatchResult> processBatch(String operationId, List<Document> documents) a
   final spawned1 = await operation.spawnCall<DocumentResult>(
     work: () => _processDocument(documents[0]),
     callback: CallCallback(
-      cleanup: () async => await _cleanup(documents[0].tempPath),
+      onCleanup: () async => await _cleanup(documents[0].tempPath),
       onCrashed: (info) async => print('Doc 1 crashed after ${info.uptime}'),
     ),
     description: 'Process ${documents[0].name}',
@@ -1446,7 +1449,7 @@ Future<BatchResult> processBatch(String operationId, List<Document> documents) a
   final spawned2 = await operation.spawnCall<DocumentResult>(
     work: () => _processDocument(documents[1]),
     callback: CallCallback(
-      cleanup: () async => await _cleanup(documents[1].tempPath),
+      onCleanup: () async => await _cleanup(documents[1].tempPath),
     ),
     description: 'Process ${documents[1].name}',
   );
@@ -1454,7 +1457,7 @@ Future<BatchResult> processBatch(String operationId, List<Document> documents) a
   final spawned3 = await operation.spawnCall<DocumentResult>(
     work: () => _processDocument(documents[2]),
     callback: CallCallback(
-      cleanup: () async => await _cleanup(documents[2].tempPath),
+      onCleanup: () async => await _cleanup(documents[2].tempPath),
     ),
     description: 'Process ${documents[2].name}',
   );
@@ -1463,8 +1466,8 @@ Future<BatchResult> processBatch(String operationId, List<Document> documents) a
   // Sync on all of them - waits for all to complete, returns SyncResult
   final syncResult = await operation.sync(
     [spawned1, spawned2, spawned3],
-    onCrash: (callId, info) async {
-      print('Call $callId crashed after ${info.uptime.inSeconds}s');
+    onCallCrashed: (call, info) async {
+      print('Call ${call.callId} crashed after ${info.uptime.inSeconds}s');
     },
     onOperationFailed: (info) async {
       print('Entire operation failed');
