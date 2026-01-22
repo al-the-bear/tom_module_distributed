@@ -6,14 +6,11 @@ enum FrameState {
   /// Frame's participant process has crashed.
   crashed,
   
-  /// Frame is being cleaned up.
+  /// Frame marked as cleanup coordinator.
   cleaningUp,
   
-  /// Frame is cleaned and can be removed.
+  /// Frame has completed cleanup.
   cleanedUp,
-  
-  /// Frame has been processed by supervisor after crash.
-  dead,
 }
 
 /// Operation state during cleanup process.
@@ -45,11 +42,15 @@ class StackFrame {
   /// State of this frame during cleanup.
   FrameState state;
   
-  /// ID of the supervisor managing this call (if any).
-  final String? supervisorId;
+  /// Optional human-readable description of this call.
+  final String? description;
   
-  /// Handle for supervisor to reference this call.
-  final String? supervisorHandle;
+  /// Temporary resources registered by this call.
+  final List<String> resources;
+  
+  /// Whether a crash in this call should fail the entire operation.
+  /// If false, the crash is contained to this call only.
+  final bool failOnCrash;
 
   StackFrame({
     required this.participantId,
@@ -58,10 +59,12 @@ class StackFrame {
     required this.startTime,
     DateTime? lastHeartbeat,
     FrameState? state,
-    this.supervisorId,
-    this.supervisorHandle,
+    this.description,
+    List<String>? resources,
+    this.failOnCrash = true,
   })  : lastHeartbeat = lastHeartbeat ?? DateTime.now(),
-        state = state ?? FrameState.active;
+        state = state ?? FrameState.active,
+        resources = resources ?? [];
 
   Map<String, dynamic> toJson() => {
         'participantId': participantId,
@@ -70,8 +73,9 @@ class StackFrame {
         'startTime': startTime.toIso8601String(),
         'lastHeartbeat': lastHeartbeat.toIso8601String(),
         'state': state.name,
-        'supervisorId': supervisorId,
-        'supervisorHandle': supervisorHandle,
+        'description': description,
+        'resources': resources,
+        'failOnCrash': failOnCrash,
       };
 
   factory StackFrame.fromJson(Map<String, dynamic> json) => StackFrame(
@@ -85,8 +89,11 @@ class StackFrame {
         state: json['state'] != null
             ? FrameState.values.byName(json['state'] as String)
             : null,
-        supervisorId: json['supervisorId'] as String?,
-        supervisorHandle: json['supervisorHandle'] as String?,
+        description: json['description'] as String?,
+        resources: (json['resources'] as List<dynamic>?)
+            ?.map((e) => e as String)
+            .toList(),
+        failOnCrash: json['failOnCrash'] as bool? ?? true,
       );
   
   /// Calculate the age of this participant's heartbeat in milliseconds.
@@ -97,7 +104,7 @@ class StackFrame {
 
   @override
   String toString() =>
-      'Frame(participant: $participantId, call: $callId, pid: $pid)';
+      'Frame(participant: $participantId, call: $callId, pid: $pid, failOnCrash: $failOnCrash)';
 }
 
 /// A temporary resource registered in the ledger.
@@ -131,8 +138,13 @@ class TempResource {
 /// Operation ledger data structure.
 class LedgerData {
   final String operationId;
-  String status;
+  
+  /// ID of the participant that created this operation.
+  final String initiatorId;
+  
+  /// Whether the abort flag is set.
   bool aborted;
+  
   DateTime lastHeartbeat;
   final List<StackFrame> stack;
   final List<TempResource> tempResources;
@@ -148,7 +160,7 @@ class LedgerData {
 
   LedgerData({
     required this.operationId,
-    this.status = 'running',
+    required this.initiatorId,
     this.aborted = false,
     DateTime? lastHeartbeat,
     List<StackFrame>? stack,
@@ -163,19 +175,19 @@ class LedgerData {
 
   Map<String, dynamic> toJson() => {
         'operationId': operationId,
-        'status': status,
+        'initiatorId': initiatorId,
+        'operationState': operationState.name,
         'aborted': aborted,
         'lastHeartbeat': lastHeartbeat.toIso8601String(),
         'stack': stack.map((f) => f.toJson()).toList(),
         'tempResources': tempResources.map((r) => r.toJson()).toList(),
-        'operationState': operationState.name,
         'detectionTimestamp': detectionTimestamp?.toIso8601String(),
         'removalTimestamp': removalTimestamp?.toIso8601String(),
       };
 
   factory LedgerData.fromJson(Map<String, dynamic> json) => LedgerData(
         operationId: json['operationId'] as String,
-        status: json['status'] as String? ?? 'running',
+        initiatorId: json['initiatorId'] as String? ?? 'unknown',
         aborted: json['aborted'] as bool? ?? false,
         lastHeartbeat: json['lastHeartbeat'] != null
             ? DateTime.parse(json['lastHeartbeat'] as String)

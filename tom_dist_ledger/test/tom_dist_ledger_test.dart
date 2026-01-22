@@ -39,11 +39,12 @@ void main() {
       );
 
       await operation.startCallExecution(callId: 'call-1');
-      expect(operation.cachedData?.stack.length, greaterThan(1));
+      // Stack has 1 frame (startCallExecution adds it)
+      expect(operation.cachedData?.stack.length, equals(1));
 
       await operation.endCallExecution(callId: 'call-1');
-      // Stack should have only the root frame now
-      expect(operation.cachedData?.stack.length, equals(1));
+      // Stack should be empty now
+      expect(operation.cachedData?.stack.length, equals(0));
     });
   });
 }

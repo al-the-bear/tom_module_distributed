@@ -25,22 +25,22 @@ void main() {
     test('can be serialized to JSON and back', () {
       final data = LedgerData(
         operationId: 'test_op_1',
+        initiatorId: 'cli',
         lastHeartbeat: DateTime(2026, 1, 20, 12, 0, 0),
       );
-      data.status = 'running';
       data.aborted = false;
 
       final jsonData = data.toJson();
       final restored = LedgerData.fromJson(jsonData);
 
       expect(restored.operationId, equals('test_op_1'));
-      expect(restored.status, equals('running'));
+      expect(restored.initiatorId, equals('cli'));
       expect(restored.aborted, isFalse);
       expect(restored.lastHeartbeat.year, equals(2026));
     });
 
     test('handles stack frames correctly', () {
-      final data = LedgerData(operationId: 'test_op_1');
+      final data = LedgerData(operationId: 'test_op_1', initiatorId: 'cli');
       data.stack.add(StackFrame(
         participantId: 'cli',
         callId: 'call-1',
@@ -63,7 +63,7 @@ void main() {
     });
 
     test('handles temp resources correctly', () {
-      final data = LedgerData(operationId: 'test_op_1');
+      final data = LedgerData(operationId: 'test_op_1', initiatorId: 'cli');
       data.tempResources.add(TempResource(
         path: '/tmp/file1.txt',
         owner: 1234,
@@ -79,7 +79,7 @@ void main() {
     });
 
     test('isEmpty returns true when stack and temp resources are empty', () {
-      final data = LedgerData(operationId: 'test');
+      final data = LedgerData(operationId: 'test', initiatorId: 'cli');
       expect(data.isEmpty, isTrue);
 
       data.stack.add(StackFrame(
@@ -119,6 +119,55 @@ void main() {
 
       expect(frame.toString(), contains('cli'));
       expect(frame.toString(), contains('main'));
+    });
+
+    test('failOnCrash defaults to true and is serialized', () {
+      final frame = StackFrame(
+        participantId: 'test',
+        callId: 'call',
+        pid: 100,
+        startTime: DateTime.now(),
+      );
+
+      expect(frame.failOnCrash, isTrue);
+
+      final json = frame.toJson();
+      expect(json['failOnCrash'], isTrue);
+
+      final restored = StackFrame.fromJson(json);
+      expect(restored.failOnCrash, isTrue);
+    });
+
+    test('failOnCrash can be set to false and is preserved', () {
+      final frame = StackFrame(
+        participantId: 'test',
+        callId: 'call',
+        pid: 100,
+        startTime: DateTime.now(),
+        failOnCrash: false,
+      );
+
+      expect(frame.failOnCrash, isFalse);
+
+      final json = frame.toJson();
+      expect(json['failOnCrash'], isFalse);
+
+      final restored = StackFrame.fromJson(json);
+      expect(restored.failOnCrash, isFalse);
+    });
+
+    test('failOnCrash defaults to true when missing from JSON', () {
+      // Simulate old ledger data without failOnCrash field
+      final json = {
+        'participantId': 'test',
+        'callId': 'call',
+        'pid': 100,
+        'startTime': DateTime.now().toIso8601String(),
+        // no failOnCrash field
+      };
+
+      final restored = StackFrame.fromJson(json);
+      expect(restored.failOnCrash, isTrue);
     });
   });
 
@@ -186,19 +235,20 @@ void main() {
           getElapsedFormatted: () => '000.000',
         );
 
-        final opFile = File('${tempDir.path}/test_op_1.json');
+        final opFile = File('${tempDir.path}/test_op_1.operation.json');
         expect(opFile.existsSync(), isTrue);
 
         final content = json.decode(opFile.readAsStringSync());
         expect(content['operationId'], equals('test_op_1'));
-        expect(content['status'], equals('running'));
+        expect(content['initiatorId'], equals('cli'));
         expect(content['aborted'], isFalse);
-        expect(content['stack'], isNotEmpty);
+        // Stack starts empty in new implementation
+        expect(content['stack'], isEmpty);
 
         await operation.complete();
       });
 
-      test('adds initiator frame to stack', () async {
+      test('stack is initially empty', () async {
         final operation = await ledger.startOperation(
           operationId: 'test_op_2',
           initiatorPid: 1234,
@@ -206,15 +256,12 @@ void main() {
           getElapsedFormatted: () => '000.000',
         );
 
-        final opFile = File('${tempDir.path}/test_op_2.json');
+        final opFile = File('${tempDir.path}/test_op_2.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
-        expect(stack.length, equals(1));
-        // Uses the passed participantId, not hardcoded 'initiator'
-        expect(stack[0]['participantId'], equals('cli'));
-        expect(stack[0]['callId'], equals('root'));
-        expect(stack[0]['pid'], equals(1234));
+        // Stack starts empty - frames are added by startCall/startCallExecution
+        expect(stack.length, equals(0));
 
         await operation.complete();
       });
@@ -344,14 +391,14 @@ void main() {
       test('adds stack frame to operation file', () async {
         await operation.startCallExecution(callId: 'call-1');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
-        // Should have initiator frame + new frame
-        expect(stack.length, equals(2));
-        expect(stack[1]['callId'], equals('call-1'));
-        expect(stack[1]['participantId'], equals('cli'));
+        // Stack starts empty, startCallExecution adds one frame
+        expect(stack.length, equals(1));
+        expect(stack[0]['callId'], equals('call-1'));
+        expect(stack[0]['participantId'], equals('cli'));
 
         await operation.complete();
       });
@@ -367,7 +414,7 @@ void main() {
       });
 
       test('updates lastHeartbeat timestamp', () async {
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final beforeContent = json.decode(opFile.readAsStringSync());
         final beforeHeartbeat =
             DateTime.parse(beforeContent['lastHeartbeat'] as String);
@@ -385,11 +432,11 @@ void main() {
       });
 
       test('updates cached data', () async {
-        expect(operation.cachedData!.stack.length, equals(1));
+        expect(operation.cachedData!.stack.length, equals(0));
 
         await operation.startCallExecution(callId: 'call-1');
 
-        expect(operation.cachedData!.stack.length, equals(2));
+        expect(operation.cachedData!.stack.length, equals(1));
 
         await operation.complete();
       });
@@ -400,12 +447,12 @@ void main() {
         await operation.startCallExecution(callId: 'call-1');
         await operation.endCallExecution(callId: 'call-1');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
-        // Should only have initiator frame
-        expect(stack.length, equals(1));
+        // Stack should be empty after removing the only frame
+        expect(stack.length, equals(0));
 
         await operation.complete();
       });
@@ -415,13 +462,13 @@ void main() {
         await operation.startCallExecution(callId: 'call-2');
         await operation.endCallExecution(callId: 'call-1');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
-        // Should have initiator + call-2
-        expect(stack.length, equals(2));
-        expect(stack[1]['callId'], equals('call-2'));
+        // Should only have call-2 remaining
+        expect(stack.length, equals(1));
+        expect(stack[0]['callId'], equals('call-2'));
 
         await operation.complete();
       });
@@ -442,7 +489,7 @@ void main() {
       test('adds temp resource to operation file', () async {
         await operation.registerTempResource(path: '/tmp/test.txt');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -457,7 +504,7 @@ void main() {
         await operation.registerTempResource(path: '/tmp/file1.txt');
         await operation.registerTempResource(path: '/tmp/file2.txt');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -472,7 +519,7 @@ void main() {
         await operation.registerTempResource(path: '/tmp/test.txt');
         await operation.unregisterTempResource(path: '/tmp/test.txt');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -486,7 +533,7 @@ void main() {
         await operation.registerTempResource(path: '/tmp/file2.txt');
         await operation.unregisterTempResource(path: '/tmp/file1.txt');
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -501,7 +548,7 @@ void main() {
       test('sets abort flag in operation file', () async {
         await operation.setAbortFlag(true);
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
 
         expect(content['aborted'], isTrue);
@@ -513,7 +560,7 @@ void main() {
         await operation.setAbortFlag(true);
         await operation.setAbortFlag(false);
 
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
 
         expect(content['aborted'], isFalse);
@@ -561,36 +608,34 @@ void main() {
     });
 
     group('complete', () {
-      test('moves operation file to trail folder', () async {
+      test('moves operation file to backup folder', () async {
         await operation.complete();
 
         // Main file should be gone
-        final opFile = File('${tempDir.path}/op_test.json');
+        final opFile = File('${tempDir.path}/op_test.operation.json');
         expect(opFile.existsSync(), isFalse);
 
-        // Trail folder should exist
-        final trailDir = Directory('${tempDir.path}/op_test_trail');
-        expect(trailDir.existsSync(), isTrue);
+        // Backup folder should exist
+        final backupDir = Directory('${tempDir.path}/backup');
+        expect(backupDir.existsSync(), isTrue);
 
-        // Final file should exist in trail
-        final trailFiles = trailDir.listSync();
-        expect(
-          trailFiles.any((f) => f.path.contains('final_op_test.json')),
-          isTrue,
-        );
+        // Operation folder should exist in backup
+        final opBackupDir = Directory('${tempDir.path}/backup/op_test');
+        expect(opBackupDir.existsSync(), isTrue);
+        
+        // Operation file should exist in backup folder
+        final backupFile = File('${tempDir.path}/backup/op_test/operation.json');
+        expect(backupFile.existsSync(), isTrue);
       });
 
-      test('sets status to completed in final file', () async {
+      test('sets operationState to completed in backup file', () async {
         await operation.complete();
 
-        final trailDir = Directory('${tempDir.path}/op_test_trail');
-        final finalFile = trailDir
-            .listSync()
-            .whereType<File>()
-            .firstWhere((f) => f.path.contains('final'));
+        final backupFile = File('${tempDir.path}/backup/op_test/operation.json');
+        expect(backupFile.existsSync(), isTrue);
 
-        final content = json.decode(finalFile.readAsStringSync());
-        expect(content['status'], equals('completed'));
+        final content = json.decode(backupFile.readAsStringSync());
+        expect(content['operationState'], equals('completed'));
       });
 
       test('unregisters operation from ledger', () async {
@@ -599,15 +644,6 @@ void main() {
         await operation.complete();
 
         expect(ledger.operations.containsKey('op_test'), isFalse);
-      });
-
-      test('triggers onBackupCreated callback for final file', () async {
-        final backupsBefore = backups.length;
-
-        await operation.complete();
-
-        expect(backups.length, greaterThan(backupsBefore));
-        expect(backups.last, contains('final'));
       });
 
       test('throws if not initiator', () async {
@@ -629,7 +665,7 @@ void main() {
         await operation.log('Test log line 1');
         await operation.log('Test log line 2');
 
-        final logFile = File('${tempDir.path}/op_test_log.txt');
+        final logFile = File('${tempDir.path}/op_test.operation.log');
         expect(logFile.existsSync(), isTrue);
 
         final content = logFile.readAsStringSync();
@@ -644,25 +680,10 @@ void main() {
         await operation.log('Line 2');
         await operation.log('Line 3');
 
-        final logFile = File('${tempDir.path}/op_test_log.txt');
+        final logFile = File('${tempDir.path}/op_test.operation.log');
         final lines = logFile.readAsLinesSync();
 
         expect(lines.length, equals(3));
-
-        await operation.complete();
-      });
-    });
-
-    group('logLines', () {
-      test('writes multiple lines at once', () async {
-        await operation.logLines(['Line A', 'Line B', 'Line C']);
-
-        final logFile = File('${tempDir.path}/op_test_log.txt');
-        final content = logFile.readAsStringSync();
-
-        expect(content, contains('Line A'));
-        expect(content, contains('Line B'));
-        expect(content, contains('Line C'));
 
         await operation.complete();
       });
@@ -788,7 +809,7 @@ void main() {
       );
 
       // Lock should be released after startOperation
-      final lockFile = File('${tempDir.path}/lock_test.json.lock');
+      final lockFile = File('${tempDir.path}/lock_test.operation.json.lock');
       expect(lockFile.existsSync(), isFalse);
 
       await operation.complete();
@@ -796,7 +817,7 @@ void main() {
 
     test('stale locks are cleaned up', () async {
       // Create a stale lock file manually
-      final lockFile = File('${tempDir.path}/stale_test.json.lock');
+      final lockFile = File('${tempDir.path}/stale_test.operation.json.lock');
       lockFile.createSync();
       lockFile.writeAsStringSync('{"pid": 99999}');
 
@@ -804,9 +825,10 @@ void main() {
       // (This test may be flaky as we can't easily set file time)
 
       // Try to create an operation - should succeed by cleaning up stale lock
-      final opFile = File('${tempDir.path}/stale_test.json');
+      final opFile = File('${tempDir.path}/stale_test.operation.json');
       opFile.writeAsStringSync(json.encode(LedgerData(
         operationId: 'stale_test',
+        initiatorId: 'cli',
       ).toJson()));
 
       final operation = await ledger.participateInOperation(
@@ -872,11 +894,11 @@ void main() {
       await participant.startCallExecution(callId: 'bridge-call');
 
       // Verify both calls are in the stack
-      final opFile = File('${tempDir.path}/concurrent_test.json');
+      final opFile = File('${tempDir.path}/concurrent_test.operation.json');
       final content = json.decode(opFile.readAsStringSync());
       final stack = content['stack'] as List;
 
-      expect(stack.length, equals(3)); // initiator + cli-call + bridge-call
+      expect(stack.length, equals(2)); // cli-call + bridge-call
 
       await initiator.complete();
     });
@@ -932,10 +954,10 @@ void main() {
       await vscode.startCallExecution(callId: 'vscode-copilot');
 
       // Verify full stack
-      var opFile = File('${tempDir.path}/lifecycle_test.json');
+      var opFile = File('${tempDir.path}/lifecycle_test.operation.json');
       var content = json.decode(opFile.readAsStringSync());
       var stack = content['stack'] as List;
-      expect(stack.length, equals(4)); // initiator + 3 calls
+      expect(stack.length, equals(3)); // 3 calls (no initial frame)
 
       // 4. Unwind in reverse order
       await vscode.endCallExecution(callId: 'vscode-copilot');
@@ -943,22 +965,21 @@ void main() {
       await bridge.endCallExecution(callId: 'bridge-process');
       await cli.endCallExecution(callId: 'cli-main');
 
-      // Verify stack is back to initiator only
+      // Verify stack is empty after unwinding
       content = json.decode(opFile.readAsStringSync());
       stack = content['stack'] as List;
-      expect(stack.length, equals(1));
+      expect(stack.length, equals(0));
 
       // 5. Complete
       await cli.complete();
 
       // Verify final state
       expect(opFile.existsSync(), isFalse);
-      final trailDir = Directory('${tempDir.path}/lifecycle_test_trail');
-      expect(trailDir.existsSync(), isTrue);
+      final backupDir = Directory('${tempDir.path}/backup');
+      expect(backupDir.existsSync(), isTrue);
 
-      // Should have multiple backups + final
+      // Should have multiple backups
       expect(backups.length, greaterThan(5));
-      expect(backups.any((b) => b.contains('final')), isTrue);
     });
   });
 
@@ -1105,7 +1126,7 @@ void main() {
       );
 
       // Delete the operation file to simulate crash
-      final opFile = File('${tempDir.path}/hb_deleted_test.json');
+      final opFile = File('${tempDir.path}/hb_deleted_test.operation.json');
       await opFile.delete();
 
       // Wait for heartbeat to detect missing file
@@ -1117,7 +1138,7 @@ void main() {
       expect(receivedError!.type, equals(HeartbeatErrorType.ledgerNotFound));
     });
 
-    test('onHeartbeatError called for stale heartbeat', () async {
+    test('onHeartbeatSuccess detects stale children', () async {
       final operation = await ledger.startOperation(
         operationId: 'hb_stale_cb_test',
         initiatorPid: 1234,
@@ -1129,7 +1150,7 @@ void main() {
       await operation.startCallExecution(callId: 'test-call');
       
       // Manually set another participant's heartbeat to be stale
-      final opFile = File('${tempDir.path}/hb_stale_cb_test.json');
+      final opFile = File('${tempDir.path}/hb_stale_cb_test.operation.json');
       var content =
           json.decode(opFile.readAsStringSync()) as Map<String, dynamic>;
       
@@ -1144,19 +1165,15 @@ void main() {
       });
       await opFile.writeAsString(json.encode(content));
 
-      HeartbeatError? staleError;
-      HeartbeatResult? successResult;
+      HeartbeatResult? resultWithStale;
 
       operation.startHeartbeat(
         interval: const Duration(milliseconds: 50),
         jitterMs: 10,
-        onError: (op, error) {
-          if (error.type == HeartbeatErrorType.heartbeatStale) {
-            staleError = error;
-          }
-        },
         onSuccess: (op, result) {
-          successResult = result;
+          if (result.hasStaleChildren) {
+            resultWithStale = result;
+          }
         },
       );
 
@@ -1165,13 +1182,10 @@ void main() {
 
       operation.stopHeartbeat();
 
-      // Stale heartbeat should trigger error callback
-      expect(staleError, isNotNull);
-      expect(staleError!.type, equals(HeartbeatErrorType.heartbeatStale));
-      expect(staleError!.message, contains('stale'));
-
-      // But also should still call success callback after stale
-      expect(successResult, isNotNull);
+      // Stale heartbeat should be detected in success callback result
+      expect(resultWithStale, isNotNull);
+      expect(resultWithStale!.hasStaleChildren, isTrue);
+      expect(resultWithStale!.staleParticipants, contains('stale_participant'));
 
       await operation.complete();
     });
@@ -1195,7 +1209,7 @@ void main() {
       );
 
       // Corrupt the file to cause JSON parse error
-      final opFile = File('${tempDir.path}/hb_io_error_test.json');
+      final opFile = File('${tempDir.path}/hb_io_error_test.operation.json');
       await opFile.writeAsString('not valid json {{{');
 
       // Wait for heartbeat to hit the error
@@ -1316,7 +1330,7 @@ void main() {
 
       await operation.logMessage(depth: 1, message: 'Test message');
 
-      final logFile = File('${tempDir.path}/log_msg_test_log.txt');
+      final logFile = File('${tempDir.path}/log_msg_test.operation.log');
       final content = logFile.readAsStringSync();
 
       expect(content, contains('003.500'));
@@ -1359,6 +1373,440 @@ void main() {
         operation.lastChangeTimestamp!.isAfter(initialTimestamp!),
         isTrue,
       );
+
+      await operation.complete();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // NEW API TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  group('New API - startCall/endCall', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('new_api_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('startCall adds stack frame with ledger-generated callId', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'start_call_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(
+        onCleanup: () async {},
+      );
+
+      final callId = await operation.startCall(
+        callback: testCallback,
+        description: 'test call',
+      );
+      
+      expect(callId, isNotEmpty);
+      expect(operation.cachedData!.stack.length, equals(1));
+      expect(operation.cachedData!.stack[0].callId, equals(callId));
+      expect(operation.cachedData!.stack[0].description, equals('test call'));
+
+      await operation.complete();
+    });
+
+    test('startCall callId has correct format', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'callid_format_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+
+      final callId = await operation.startCall(
+        callback: testCallback,
+        description: 'test',
+      );
+      
+      // Format: call_{participantId}_{counter}_{random}
+      expect(callId, matches(RegExp(r'^call_cli_\d+_[0-9a-f]+$')));
+
+      await operation.complete();
+    });
+
+    test('startCall with callback for cleanup', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'callback_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      var cleanupCalled = false;
+      final testCallback = CallCallback(
+        onCleanup: () async { cleanupCalled = true; },
+      );
+
+      await operation.startCall(
+        callback: testCallback,
+        description: 'call with callback',
+      );
+      
+      // Cleanup is called during crash recovery, not normal operation
+      expect(cleanupCalled, isFalse);
+
+      await operation.complete();
+    });
+
+    test('endCall removes matching stack frame', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'end_call_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      final callId = await operation.startCall(callback: testCallback, description: 'test');
+      expect(operation.cachedData!.stack.length, equals(1));
+
+      await operation.endCall(callId: callId);
+      expect(operation.cachedData!.stack.length, equals(0));
+
+      await operation.complete();
+    });
+
+    test('endCall removes correct frame when multiple exist', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'multi_end_call_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      final call1 = await operation.startCall(callback: testCallback, description: 'call 1');
+      final call2 = await operation.startCall(callback: testCallback, description: 'call 2');
+      expect(operation.cachedData!.stack.length, equals(2));
+
+      await operation.endCall(callId: call1);
+      expect(operation.cachedData!.stack.length, equals(1));
+      expect(operation.cachedData!.stack[0].callId, equals(call2));
+
+      await operation.complete();
+    });
+
+    test('startCall failOnCrash defaults to true', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'failoncrash_default_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      await operation.startCall(
+        callback: testCallback,
+        description: 'default failOnCrash',
+      );
+
+      expect(operation.cachedData!.stack[0].failOnCrash, isTrue);
+
+      await operation.complete();
+    });
+
+    test('startCall failOnCrash can be set to false', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'failoncrash_false_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      await operation.startCall(
+        callback: testCallback,
+        description: 'contained crash',
+        failOnCrash: false,
+      );
+
+      expect(operation.cachedData!.stack[0].failOnCrash, isFalse);
+
+      // Verify persisted to file
+      final opFile = File('${tempDir.path}/failoncrash_false_test.operation.json');
+      final content = json.decode(opFile.readAsStringSync());
+      expect(content['stack'][0]['failOnCrash'], isFalse);
+
+      await operation.complete();
+    });
+
+    test('startCall failOnCrash is persisted and restored', () async {
+      // Create operation with failOnCrash=false call
+      final operation1 = await ledger.startOperation(
+        operationId: 'failoncrash_persist_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      await operation1.startCall(
+        callback: testCallback,
+        description: 'contained',
+        failOnCrash: false,
+      );
+      await operation1.startCall(
+        callback: testCallback,
+        description: 'normal',
+        failOnCrash: true,
+      );
+      
+      // Read and verify from file directly
+      final opFile = File('${tempDir.path}/failoncrash_persist_test.operation.json');
+      final content = json.decode(opFile.readAsStringSync()) as Map<String, dynamic>;
+      final data = LedgerData.fromJson(content);
+      
+      expect(data.stack[0].failOnCrash, isFalse);
+      expect(data.stack[0].description, equals('contained'));
+      expect(data.stack[1].failOnCrash, isTrue);
+      expect(data.stack[1].description, equals('normal'));
+
+      await operation1.complete();
+    });
+  });
+
+  group('New API - log with LogLevel', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('log_level_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('log with different levels writes to operation log', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'log_level_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      await operation.log('Info message', level: LogLevel.info);
+      await operation.log('Warning message', level: LogLevel.warning);
+      await operation.log('Error message', level: LogLevel.error);
+
+      final logFile = File('${tempDir.path}/log_level_test.operation.log');
+      final content = logFile.readAsStringSync();
+
+      expect(content, contains('[INFO] Info message'));
+      expect(content, contains('[WARNING] Warning message'));
+      expect(content, contains('[ERROR] Error message'));
+
+      await operation.complete();
+    });
+
+    test('debugLog writes to debug log only', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'debug_log_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      await operation.debugLog('Debug message');
+
+      final debugLogFile = File('${tempDir.path}/debug_log_test.operation.debug.log');
+      final content = debugLogFile.readAsStringSync();
+
+      expect(content, contains('Debug message'));
+
+      // Debug log should not be in operation log
+      final opLogFile = File('${tempDir.path}/debug_log_test.operation.log');
+      final opContent = opLogFile.readAsStringSync();
+      expect(opContent, isNot(contains('Debug message')));
+
+      await operation.complete();
+    });
+  });
+
+  group('New API - createOperation with generated ID', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('create_op_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('createOperation generates operation ID', () async {
+      final operation = await ledger.createOperation(
+        participantPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      // Format: YYYYMMDDTHH:MM:SS.sss-participantId-random
+      expect(operation.operationId, matches(RegExp(r'^\d{8}T\d{2}:\d{2}:\d{2}\.\d{3}-cli-\w+$')));
+
+      await operation.complete();
+    });
+  });
+
+  group('Backup cleanup with maxBackups', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('backup_cleanup_test_');
+      ledger = Ledger(basePath: tempDir.path, maxBackups: 3);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('maxBackups limits number of backup files', () async {
+      // Create multiple operations to generate backups
+      for (var i = 0; i < 5; i++) {
+        final operation = await ledger.startOperation(
+          operationId: 'backup_test_$i',
+          initiatorPid: 1234,
+          participantId: 'cli',
+          getElapsedFormatted: () => '000.000',
+        );
+        await operation.complete();
+      }
+
+      final backupDir = Directory('${tempDir.path}/backup');
+      if (backupDir.existsSync()) {
+        // Count only .operation.json files (maxBackups applies to these)
+        final opFiles = backupDir
+            .listSync()
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.operation.json'))
+            .toList();
+        // Should have at most maxBackups operation files
+        expect(opFiles.length, lessThanOrEqualTo(3));
+      }
+    });
+  });
+
+  group('spawnCall with failOnCrash', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('spawnCall_failoncrash_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('spawnCall failOnCrash defaults to true', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'spawn_default_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      await operation.spawnCall(
+        callback: testCallback,
+        description: 'spawned call',
+      );
+
+      expect(operation.cachedData!.stack[0].failOnCrash, isTrue);
+
+      await operation.complete();
+    });
+
+    test('spawnCall failOnCrash can be set to false', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'spawn_false_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      await operation.spawnCall(
+        callback: testCallback,
+        description: 'contained spawned',
+        failOnCrash: false,
+      );
+
+      expect(operation.cachedData!.stack[0].failOnCrash, isFalse);
+
+      // Verify persisted to file
+      final opFile = File('${tempDir.path}/spawn_false_test.operation.json');
+      final content = json.decode(opFile.readAsStringSync());
+      expect(content['stack'][0]['failOnCrash'], isFalse);
+
+      await operation.complete();
+    });
+
+    test('mixed startCall and spawnCall with different failOnCrash', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'mixed_calls_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final testCallback = CallCallback(onCleanup: () async {});
+      
+      // Start a normal call (failOnCrash=true)
+      await operation.startCall(
+        callback: testCallback,
+        description: 'normal call',
+      );
+      
+      // Spawn a contained call (failOnCrash=false)
+      await operation.spawnCall(
+        callback: testCallback,
+        description: 'contained spawn',
+        failOnCrash: false,
+      );
+      
+      // Start another normal call (failOnCrash=true, explicit)
+      await operation.startCall(
+        callback: testCallback,
+        description: 'explicit normal',
+        failOnCrash: true,
+      );
+
+      final stack = operation.cachedData!.stack;
+      expect(stack.length, equals(3));
+      expect(stack[0].failOnCrash, isTrue);
+      expect(stack[0].description, equals('normal call'));
+      expect(stack[1].failOnCrash, isFalse);
+      expect(stack[1].description, equals('contained spawn'));
+      expect(stack[2].failOnCrash, isTrue);
+      expect(stack[2].description, equals('explicit normal'));
 
       await operation.complete();
     });

@@ -1,8 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import '../local_ledger/file_ledger.dart';
+import 'call_callback.dart';
+
+// Re-export callback types
+export 'call_callback.dart';
 
 /// Callback for getting elapsed time formatted string.
 typedef ElapsedFormattedCallback = String Function();
@@ -44,6 +49,26 @@ typedef HeartbeatSuccessCallback = void Function(
   HeartbeatResult result,
 );
 
+/// Tracks a call in progress with its callback.
+class _ActiveCall {
+  final String callId;
+  final CallCallback callback;
+  final DateTime startedAt;
+  final String? description;
+  final Completer<void> completer;
+  final bool isSpawned;
+  final bool failOnCrash;
+
+  _ActiveCall({
+    required this.callId,
+    required this.callback,
+    required this.startedAt,
+    this.description,
+    required this.isSpawned,
+    this.failOnCrash = true,
+  }) : completer = Completer<void>();
+}
+
 // ═══════════════════════════════════════════════════════════════
 // OPERATION CLASS
 // ═══════════════════════════════════════════════════════════════
@@ -71,7 +96,7 @@ class Operation {
 
   /// Whether this participant is aborted.
   bool _isAborted = false;
-  
+
   /// Staleness threshold in milliseconds for detecting crashed participants.
   /// If a participant's heartbeat is older than this, it's considered stale.
   int stalenessThresholdMs = 10000;
@@ -82,6 +107,19 @@ class Operation {
 
   /// Completer that signals abort.
   final Completer<void> _abortCompleter = Completer<void>();
+
+  /// Completer that signals operation failure (for waitForCompletion).
+  final Completer<OperationFailedInfo> _failureCompleter =
+      Completer<OperationFailedInfo>();
+
+  /// Active calls tracked by this participant.
+  final Map<String, _ActiveCall> _activeCalls = {};
+
+  /// Counter for generating unique call IDs.
+  int _callCounter = 0;
+
+  /// Random for generating unique call IDs.
+  final _random = Random();
 
   Operation._({
     required Ledger ledger,
@@ -104,8 +142,23 @@ class Operation {
   /// Future that completes when abort is signaled.
   Future<void> get onAbort => _abortCompleter.future;
 
+  /// Future that completes when operation fails.
+  Future<OperationFailedInfo> get onFailure => _failureCompleter.future;
+
   /// Get the current elapsed time formatted.
   String get elapsedFormatted => getElapsedFormatted();
+
+  // ─────────────────────────────────────────────────────────────
+  // Call ID generation
+  // ─────────────────────────────────────────────────────────────
+
+  /// Generate a unique call ID.
+  String _generateCallId() {
+    _callCounter++;
+    final randomPart =
+        _random.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0');
+    return 'call_${participantId}_${_callCounter}_$randomPart';
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Cache management
@@ -129,14 +182,19 @@ class Operation {
   // Logging
   // ─────────────────────────────────────────────────────────────
 
-  /// Log a single line to the operation's log file.
-  Future<void> log(String line) async {
+  /// Write an entry to the operation log.
+  Future<void> log(String message, {LogLevel level = LogLevel.info}) async {
+    final timestamp = DateTime.now().toIso8601String();
+    final line = '$timestamp [${level.name}] $message';
     await _ledger._appendLog(operationId, line);
   }
 
-  /// Log multiple lines to the operation's log file.
-  Future<void> logLines(List<String> lines) async {
-    await _ledger._appendLogLines(operationId, lines);
+  /// Write an entry to the debug log (INTERNAL USE ONLY).
+  ///
+  /// This method is for internal ledger debugging and testing.
+  /// Application code should use [log] instead.
+  Future<void> debugLog(String message) async {
+    await _ledger._appendDebugLog(operationId, message);
   }
 
   /// Log a formatted message with timestamp and participant.
@@ -151,10 +209,205 @@ class Operation {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Call execution management
+  // Call management (NEW API per specification)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Start a call.
+  ///
+  /// Returns a ledger-generated callId.
+  /// 
+  /// If [failOnCrash] is true (default), a crash in this call will fail the
+  /// entire operation. If false, the crash is contained to this call only.
+  Future<String> startCall({
+    required CallCallback callback,
+    String? description,
+    bool failOnCrash = true,
+  }) async {
+    final callId = _generateCallId();
+    final now = DateTime.now();
+
+    // Track locally
+    _activeCalls[callId] = _ActiveCall(
+      callId: callId,
+      callback: callback,
+      startedAt: now,
+      description: description,
+      isSpawned: false,
+      failOnCrash: failOnCrash,
+    );
+
+    // Push stack frame
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        data.stack.add(StackFrame(
+          participantId: participantId,
+          callId: callId,
+          pid: pid,
+          startTime: now,
+          lastHeartbeat: now,
+          description: description,
+          failOnCrash: failOnCrash,
+        ));
+        data.lastHeartbeat = now;
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
+
+    // Log the call start
+    await log('CALL_STARTED callId=$callId participant=$participantId');
+
+    return callId;
+  }
+
+  /// End a call.
+  Future<void> endCall({required String callId}) async {
+    final activeCall = _activeCalls.remove(callId);
+    if (activeCall == null) {
+      throw StateError('No active call with ID: $callId');
+    }
+
+    final now = DateTime.now();
+
+    // Pop stack frame
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+        if (index >= 0) {
+          data.stack.removeAt(index);
+        }
+        data.lastHeartbeat = now;
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
+
+    // Log the call end
+    final duration = now.difference(activeCall.startedAt);
+    await log(
+        'CALL_ENDED callId=$callId duration=${duration.inMilliseconds}ms');
+
+    // Call onEnded callback if provided
+    if (activeCall.callback.onEnded != null) {
+      await activeCall.callback.onEnded!(CallEndedInfo(
+        callId: callId,
+        operationId: operationId,
+        participantId: participantId,
+        startedAt: activeCall.startedAt,
+        endedAt: now,
+      ));
+    }
+
+    // Complete the completer for spawned calls
+    if (!activeCall.completer.isCompleted) {
+      activeCall.completer.complete();
+    }
+  }
+
+  /// Spawn a call that runs asynchronously.
+  ///
+  /// Returns callId immediately without waiting for completion.
+  /// 
+  /// If [failOnCrash] is true (default), a crash in this call will fail the
+  /// entire operation. If false, the crash is contained to this call only.
+  Future<String> spawnCall({
+    required CallCallback callback,
+    String? description,
+    bool failOnCrash = true,
+  }) async {
+    final callId = _generateCallId();
+    final now = DateTime.now();
+
+    // Track locally
+    _activeCalls[callId] = _ActiveCall(
+      callId: callId,
+      callback: callback,
+      startedAt: now,
+      description: description,
+      isSpawned: true,
+      failOnCrash: failOnCrash,
+    );
+
+    // Push stack frame
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        data.stack.add(StackFrame(
+          participantId: participantId,
+          callId: callId,
+          pid: pid,
+          startTime: now,
+          lastHeartbeat: now,
+          description: description,
+          failOnCrash: failOnCrash,
+        ));
+        data.lastHeartbeat = now;
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
+
+    // Log the call start
+    await log('CALL_SPAWNED callId=$callId participant=$participantId');
+
+    return callId;
+  }
+
+  /// Wait for spawned calls to complete.
+  Future<void> sync(
+    List<String> callIds, {
+    Future<void> Function(String callId, CrashedCallInfo info)? onCrash,
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+  }) async {
+    if (callIds.isEmpty) return;
+
+    // Get completers for all specified calls
+    final futures = <Future<void>>[];
+    for (final callId in callIds) {
+      final activeCall = _activeCalls[callId];
+      if (activeCall != null) {
+        futures.add(activeCall.completer.future);
+      }
+    }
+
+    if (futures.isEmpty) return;
+
+    // Race between call completions and operation failure
+    await Future.any([
+      Future.wait(futures),
+      onFailure.then((info) async {
+        await onOperationFailed?.call(info);
+      }),
+    ]);
+  }
+
+  /// Execute work while monitoring operation state.
+  ///
+  /// If the operation enters cleanup/failed state, the work is interrupted.
+  Future<void> waitForCompletion(
+    Future<void> Function() work, {
+    Future<void> Function(OperationFailedInfo info)? onCrash,
+  }) async {
+    // Race between work completion and operation failure
+    await Future.any([
+      work(),
+      onFailure.then((info) async {
+        await onCrash?.call(info);
+      }),
+    ]);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Legacy call methods (for backward compatibility with simulator)
   // ─────────────────────────────────────────────────────────────
 
   /// Start tracking a call execution (push stack frame).
+  /// @deprecated Use [startCall] instead.
   Future<void> startCallExecution({
     required String callId,
   }) async {
@@ -178,6 +431,7 @@ class Operation {
   }
 
   /// End tracking a call execution (pop stack frame).
+  /// @deprecated Use [endCall] instead.
   Future<void> endCallExecution({
     required String callId,
   }) async {
@@ -265,6 +519,13 @@ class Operation {
     }
   }
 
+  /// Signal that the operation has failed.
+  void _signalFailure(OperationFailedInfo info) {
+    if (!_failureCompleter.isCompleted) {
+      _failureCompleter.complete(info);
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Heartbeat
   // ─────────────────────────────────────────────────────────────
@@ -337,16 +598,22 @@ class Operation {
         return;
       }
 
-      // Check for stale heartbeat
-      if (result.isStale) {
-        onHeartbeatError?.call(
-          this,
-          HeartbeatError(
-            type: HeartbeatErrorType.heartbeatStale,
-            message: 'Heartbeat is stale (${result.heartbeatAgeMs}ms)',
-          ),
-        );
-        // Don't return - still call success callback
+      // Check for stale heartbeat (crash detection)
+      if (result.hasStaleChildren) {
+        // Detected crash - invoke callbacks for affected calls
+        await _handleDetectedCrash(result.staleParticipants);
+      }
+
+      // Check for operation in cleanup/failed state
+      await _refreshCache();
+      if (_cachedData?.operationState == OperationState.cleanup ||
+          _cachedData?.operationState == OperationState.failed) {
+        _signalFailure(OperationFailedInfo(
+          operationId: operationId,
+          failedAt: DateTime.now(),
+          reason: 'Operation entered ${_cachedData?.operationState} state',
+          crashedCallIds: result.staleParticipants,
+        ));
       }
 
       // Success callback
@@ -360,6 +627,25 @@ class Operation {
           cause: e,
         ),
       );
+    }
+  }
+
+  /// Handle detected crash - invoke callbacks for affected calls.
+  Future<void> _handleDetectedCrash(List<String> staleParticipants) async {
+    // Find calls from stale participants and invoke onCrashed
+    for (final call in _activeCalls.values) {
+      if (staleParticipants.contains(participantId)) {
+        if (call.callback.onCrashed != null) {
+          await call.callback.onCrashed!(CrashedCallInfo(
+            callId: call.callId,
+            operationId: operationId,
+            participantId: participantId,
+            startedAt: call.startedAt,
+            detectedAt: DateTime.now(),
+            crashReason: 'Stale heartbeat detected',
+          ));
+        }
+      }
     }
   }
 
@@ -382,11 +668,11 @@ class Operation {
       // Calculate global heartbeat age before updating (for backward compatibility)
       final heartbeatAge =
           DateTime.now().difference(data.lastHeartbeat).inMilliseconds;
-      
+
       // Collect per-participant heartbeat ages BEFORE updating
       final participantAges = <String, int>{};
       final staleParticipants = <String>[];
-      
+
       for (final frame in data.stack) {
         final age = frame.heartbeatAgeMs;
         participantAges[frame.participantId] = age;
@@ -394,18 +680,17 @@ class Operation {
           staleParticipants.add(frame.participantId);
         }
       }
-      
+
       // Check if any participant OTHER than self is stale
       final hasStaleOther = staleParticipants.any((p) => p != participantId);
 
       // Update global heartbeat (backward compatibility)
       data.lastHeartbeat = DateTime.now();
-      
+
       // Update THIS participant's heartbeat in their stack frame
       for (final frame in data.stack) {
         if (frame.participantId == participantId) {
           frame.lastHeartbeat = DateTime.now();
-          break;
         }
       }
 
@@ -423,10 +708,12 @@ class Operation {
         stackDepth: data.stack.length,
         tempResourceCount: data.tempResources.length,
         heartbeatAgeMs: heartbeatAge,
-        isStale: hasStaleOther, // Now true only if OTHER participants are stale
+        isStale:
+            hasStaleOther, // Now true only if OTHER participants are stale
         stackParticipants: data.stack.map((f) => f.participantId).toList(),
         participantHeartbeatAges: participantAges,
-        staleParticipants: staleParticipants.where((p) => p != participantId).toList(),
+        staleParticipants:
+            staleParticipants.where((p) => p != participantId).toList(),
       );
     } finally {
       await _ledger._releaseLock(operationId);
@@ -454,13 +741,17 @@ class Operation {
 
   /// Complete the operation (for initiator only).
   ///
-  /// This moves the operation file to the trail folder and
+  /// This moves the operation files to the backup folder and
   /// unregisters it from the ledger.
   Future<void> complete() async {
     if (!isInitiator) {
       throw StateError('Only the initiator can complete an operation');
     }
     stopHeartbeat();
+
+    // Log completion
+    await log('OPERATION_COMPLETED');
+
     await _ledger._completeOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
@@ -507,6 +798,9 @@ class Operation {
       },
     );
     if (updated != null) _updateCache(updated);
+
+    // Log state change
+    await log('OPERATION_STATE_CHANGED state=${state.name}');
   }
 }
 
@@ -521,12 +815,17 @@ class Operation {
 /// - Maintaining a registry of active operations
 /// - Providing global heartbeat monitoring
 /// - Managing log files for each operation
+/// - Managing backups and backup cleanup
 class Ledger {
   final String basePath;
   final void Function(String)? onBackupCreated;
   final void Function(String)? onLogLine;
 
+  /// Maximum number of backup operations to retain.
+  final int maxBackups;
+
   late final Directory _ledgerDir;
+  late final Directory _backupDir;
 
   /// Registry of all active operations in this ledger.
   final Map<String, Operation> _operations = {};
@@ -545,10 +844,15 @@ class Ledger {
     required this.basePath,
     this.onBackupCreated,
     this.onLogLine,
+    this.maxBackups = 20,
   }) {
     _ledgerDir = Directory(basePath);
+    _backupDir = Directory('$basePath/backup');
     if (!_ledgerDir.existsSync()) {
       _ledgerDir.createSync(recursive: true);
+    }
+    if (!_backupDir.existsSync()) {
+      _backupDir.createSync(recursive: true);
     }
   }
 
@@ -563,19 +867,53 @@ class Ledger {
   // ─────────────────────────────────────────────────────────────
 
   String _operationPath(String operationId) =>
-      '$basePath/$operationId.json';
+      '$basePath/$operationId.operation.json';
 
   String _lockPath(String operationId) =>
-      '$basePath/$operationId.json.lock';
+      '$basePath/$operationId.operation.json.lock';
 
-  String _trailPath(String operationId) =>
-      '$basePath/${operationId}_trail';
+  String _logPath(String operationId) => '$basePath/$operationId.operation.log';
 
-  String _backupPath(String operationId, String elapsedFormatted) =>
+  String _debugLogPath(String operationId) =>
+      '$basePath/$operationId.operation.debug.log';
+
+  String _backupOperationPath(String operationId) =>
+      '${_backupDir.path}/$operationId/operation.json';
+
+  String _backupLogPath(String operationId) =>
+      '${_backupDir.path}/$operationId/operation.log';
+
+  String _backupDebugLogPath(String operationId) =>
+      '${_backupDir.path}/$operationId/operation.debug.log';
+  
+  /// Get the backup folder for an operation.
+  String _backupFolderPath(String operationId) =>
+      '${_backupDir.path}/$operationId';
+
+  // Legacy trail path for backward compatibility
+  String _trailPath(String operationId) => '$basePath/${operationId}_trail';
+
+  String _legacyBackupPath(String operationId, String elapsedFormatted) =>
       '${_trailPath(operationId)}/${elapsedFormatted}_$operationId.json';
 
-  String _logPath(String operationId) =>
-      '$basePath/${operationId}_log.txt';
+  // ─────────────────────────────────────────────────────────────
+  // Operation ID generation
+  // ─────────────────────────────────────────────────────────────
+
+  /// Generate an operation ID per specification.
+  ///
+  /// Format: `YYYYMMDDTHH:MM:SS.sss-{participantId}-{random}`
+  String _generateOperationId(String participantId) {
+    final now = DateTime.now();
+    // Format: 20260121T14:30:45.123
+    final timestamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}T'
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:'
+        '${now.second.toString().padLeft(2, '0')}.${now.millisecond.toString().padLeft(3, '0')}';
+    final random =
+        Random().nextInt(0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
+    return '$timestamp-$participantId-$random';
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Locking
@@ -601,7 +939,8 @@ class Ledger {
         );
         return true;
       } catch (e) {
-        if (DateTime.now().difference(startTime) > const Duration(seconds: 1)) {
+        if (DateTime.now().difference(startTime) >
+            const Duration(seconds: 1)) {
           return false;
         }
         await Future.delayed(_lockRetryInterval);
@@ -617,14 +956,15 @@ class Ledger {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Backup
+  // Backup (legacy - for trail folder)
   // ─────────────────────────────────────────────────────────────
 
-  Future<String> _createBackup(String operationId, String elapsedFormatted) async {
+  Future<String> _createBackup(
+      String operationId, String elapsedFormatted) async {
     final sourceFile = File(_operationPath(operationId));
     if (!sourceFile.existsSync()) return '';
 
-    final backupPath = _backupPath(operationId, elapsedFormatted);
+    final backupPath = _legacyBackupPath(operationId, elapsedFormatted);
     final trailDir = Directory(_trailPath(operationId));
     if (!trailDir.existsSync()) {
       await trailDir.create(recursive: true);
@@ -636,17 +976,85 @@ class Ledger {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // Backup cleanup
+  // ─────────────────────────────────────────────────────────────
+
+  /// Clean old backups beyond the retention limit.
+  /// 
+  /// Counts operation folders (not files) to determine retention.
+  Future<void> _cleanOldBackups() async {
+    if (!_backupDir.existsSync()) return;
+
+    // List all operation folders in backup
+    final folders = _backupDir
+        .listSync()
+        .whereType<Directory>()
+        .toList();
+
+    if (folders.length <= maxBackups) return;
+
+    // Sort by folder name (which contains timestamp, so alphabetical = chronological)
+    // Oldest first
+    folders.sort((a, b) {
+      final aName = a.path.split('/').last;
+      final bName = b.path.split('/').last;
+      return aName.compareTo(bName);
+    });
+
+    // Delete oldest folders beyond limit
+    final toDelete = folders.sublist(0, folders.length - maxBackups);
+    for (final folder in toDelete) {
+      await folder.delete(recursive: true);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // Operation lifecycle
   // ─────────────────────────────────────────────────────────────
 
-  /// Start a new operation (for the initiator).
+  /// Create a new operation (for the initiator).
   ///
   /// Creates the operation file and returns an [Operation] object
   /// that can be used to interact with the operation.
+  Future<Operation> createOperation({
+    required String participantId,
+    required int participantPid,
+    required ElapsedFormattedCallback getElapsedFormatted,
+    String? description,
+  }) async {
+    final operationId = _generateOperationId(participantId);
+    return await _startOperationWithId(
+      operationId: operationId,
+      participantId: participantId,
+      participantPid: participantPid,
+      getElapsedFormatted: getElapsedFormatted,
+      description: description,
+    );
+  }
+
+  /// Start a new operation with a specified ID (legacy API).
+  ///
+  /// Use [createOperation] for new code.
   Future<Operation> startOperation({
     required String operationId,
     required int initiatorPid,
     required String participantId,
+    required ElapsedFormattedCallback getElapsedFormatted,
+    String? description,
+  }) async {
+    return await _startOperationWithId(
+      operationId: operationId,
+      participantId: participantId,
+      participantPid: initiatorPid,
+      getElapsedFormatted: getElapsedFormatted,
+      description: description,
+    );
+  }
+
+  Future<Operation> _startOperationWithId({
+    required String operationId,
+    required String participantId,
+    required int participantPid,
     required ElapsedFormattedCallback getElapsedFormatted,
     String? description,
   }) async {
@@ -659,29 +1067,25 @@ class Ledger {
       final timestamp = DateTime.now();
       final ledgerData = LedgerData(
         operationId: operationId,
+        initiatorId: participantId,
         lastHeartbeat: timestamp,
       );
-
-      // Add initiator frame with the actual participant ID
-      ledgerData.stack.add(StackFrame(
-        participantId: participantId,
-        callId: 'root',
-        pid: initiatorPid,
-        startTime: timestamp,
-        lastHeartbeat: timestamp,
-      ));
 
       // Write initial file
       final file = File(_operationPath(operationId));
       final encoder = const JsonEncoder.withIndent('  ');
       await file.writeAsString(encoder.convert(ledgerData.toJson()));
 
+      // Create empty log files
+      await File(_logPath(operationId)).writeAsString('');
+      await File(_debugLogPath(operationId)).writeAsString('');
+
       // Create operation object
       final operation = Operation._(
         ledger: this,
         operationId: operationId,
         participantId: participantId,
-        pid: initiatorPid,
+        pid: participantPid,
         getElapsedFormatted: getElapsedFormatted,
         isInitiator: true,
       );
@@ -697,7 +1101,22 @@ class Ledger {
     }
   }
 
-  /// Participate in an existing operation.
+  /// Join an existing operation.
+  Future<Operation> joinOperation({
+    required String operationId,
+    required String participantId,
+    required int participantPid,
+    required ElapsedFormattedCallback getElapsedFormatted,
+  }) async {
+    return await participateInOperation(
+      operationId: operationId,
+      participantId: participantId,
+      participantPid: participantPid,
+      getElapsedFormatted: getElapsedFormatted,
+    );
+  }
+
+  /// Participate in an existing operation (legacy API).
   ///
   /// Returns an [Operation] object for the participant to interact with.
   Future<Operation> participateInOperation({
@@ -830,25 +1249,7 @@ class Ledger {
     }
   }
 
-  /// Delete operation file during cleanup (Phase 4).
-  Future<void> _deleteOperation(String operationId) async {
-    final acquired = await _acquireLock(operationId);
-    if (!acquired) return;
-
-    try {
-      final file = File(_operationPath(operationId));
-      if (file.existsSync()) {
-        await file.delete();
-      }
-      
-      // Unregister from operations
-      _unregisterOperation(operationId);
-    } finally {
-      await _releaseLock(operationId);
-    }
-  }
-
-  /// Complete an operation - move file to trail.
+  /// Complete an operation - move files to backup folder.
   Future<void> _completeOperation({
     required String operationId,
     required String elapsedFormatted,
@@ -857,35 +1258,56 @@ class Ledger {
     if (!acquired) return;
 
     try {
+      // Update operation state
       final file = File(_operationPath(operationId));
-      if (!file.existsSync()) return;
+      if (file.existsSync()) {
+        final content = await file.readAsString();
+        final ledgerData =
+            LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
+        ledgerData.operationState = OperationState.completed;
 
-      // Update status to 'completed'
-      final content = await file.readAsString();
-      final ledgerData =
-          LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
-      ledgerData.status = 'completed';
-
-      final encoder = const JsonEncoder.withIndent('  ');
-      await file.writeAsString(encoder.convert(ledgerData.toJson()));
-
-      // Ensure trail directory exists
-      final trailDir = Directory(_trailPath(operationId));
-      if (!trailDir.existsSync()) {
-        await trailDir.create(recursive: true);
+        final encoder = const JsonEncoder.withIndent('  ');
+        await file.writeAsString(encoder.convert(ledgerData.toJson()));
       }
 
-      // Move to trail folder as final file
-      final finalPath =
-          '${_trailPath(operationId)}/${elapsedFormatted}_final_$operationId.json';
-      await file.rename(finalPath);
-      onBackupCreated?.call(finalPath);
+      // Move files to backup
+      await _moveToBackup(operationId);
+
+      // Clean old backups
+      await _cleanOldBackups();
 
       // Unregister
       _unregisterOperation(operationId);
     } finally {
       await _releaseLock(operationId);
     }
+  }
+
+  /// Move operation files to backup folder.
+  /// 
+  /// Creates a per-operation folder in the backup directory.
+  Future<void> _moveToBackup(String operationId) async {
+    // Create the operation's backup folder
+    final backupFolder = Directory(_backupFolderPath(operationId));
+    if (!backupFolder.existsSync()) {
+      await backupFolder.create(recursive: true);
+    }
+    
+    final sourceOp = File(_operationPath(operationId));
+    final sourceLog = File(_logPath(operationId));
+    final sourceDebug = File(_debugLogPath(operationId));
+
+    if (sourceOp.existsSync()) {
+      await sourceOp.rename(_backupOperationPath(operationId));
+    }
+    if (sourceLog.existsSync()) {
+      await sourceLog.rename(_backupLogPath(operationId));
+    }
+    if (sourceDebug.existsSync()) {
+      await sourceDebug.rename(_backupDebugLogPath(operationId));
+    }
+
+    onBackupCreated?.call(_backupFolderPath(operationId));
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -899,15 +1321,12 @@ class Ledger {
     onLogLine?.call(line);
   }
 
-  /// Append multiple lines to the operation's log file.
-  Future<void> _appendLogLines(String operationId, List<String> lines) async {
-    if (lines.isEmpty) return;
-    final logFile = File(_logPath(operationId));
-    final content = lines.map((l) => '$l\n').join();
-    await logFile.writeAsString(content, mode: FileMode.append, flush: true);
-    for (final line in lines) {
-      onLogLine?.call(line);
-    }
+  /// Append a line to the operation's debug log file.
+  Future<void> _appendDebugLog(String operationId, String message) async {
+    final logFile = File(_debugLogPath(operationId));
+    final timestamp = DateTime.now().toIso8601String();
+    final line = '$timestamp $message';
+    await logFile.writeAsString('$line\n', mode: FileMode.append, flush: true);
   }
 
   // ─────────────────────────────────────────────────────────────
