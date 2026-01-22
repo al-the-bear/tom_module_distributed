@@ -169,9 +169,13 @@ Each participant gets their own Operation object to interact with the shared ope
 | `pid` | `int` | Process ID of this participant |
 | `isInitiator` | `bool` | Whether this participant started the operation |
 | `isAborted` | `bool` | Whether this participant is aborted |
+| `startTime` | `DateTime` | When the operation was started (for initiators) or joined (for participants) |
+| `elapsedDuration` | `Duration` | Duration since operation start (computed from `startTime`) |
+| `startTimeIso` | `String` | Start time as ISO 8601 string (useful for passing to workers) |
+| `startTimeMs` | `int` | Start time as milliseconds since epoch (useful for CLI args) |
 | `cachedData` | `LedgerData?` | Cached operation data |
 | `lastChangeTimestamp` | `DateTime?` | Last change timestamp |
-| `elapsedFormatted` | `String` | Current elapsed time formatted |
+| `elapsedFormatted` | `String` | Current elapsed time formatted (via callback) |
 | `onAbort` | `Future<void>` | Future that completes when abort is signaled |
 | `onFailure` | `Future<OperationFailedInfo>` | Future that completes when operation fails |
 | `stalenessThresholdMs` | `int` | Staleness threshold in milliseconds (default: 10000) |
@@ -282,6 +286,149 @@ Future<SyncResult> syncTyped(
 ```
 
 **Returns:** `Future<SyncResult>` - Result containing successful, failed, and unknown calls.
+
+#### Execution Helper Methods
+
+These convenience methods combine `spawnTyped` with process spawning and result collection, reducing boilerplate for common patterns.
+
+##### execFileResultWorker
+
+Spawn a process that writes its result to a file, wait for completion, and return the parsed result.
+
+```dart
+SpawnedCall<T> execFileResultWorker<T>({
+  required String executable,
+  required List<String> arguments,
+  required String resultFilePath,
+  bool deleteResultFile = true,
+  String? description,
+  bool failOnCrash = true,
+  List<String> resources = const [],
+  Duration? timeout,
+  void Function(String)? onStdout,
+  void Function(String)? onStderr,
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `executable` | `String` | required | Path to executable (e.g., `'dart'`) |
+| `arguments` | `List<String>` | required | Command-line arguments |
+| `resultFilePath` | `String` | required | Path where worker writes result |
+| `deleteResultFile` | `bool` | `true` | Delete result file after reading |
+| `description` | `String?` | `null` | Optional call description |
+| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
+| `resources` | `List<String>` | `[]` | Additional resources for cleanup |
+| `timeout` | `Duration?` | `null` | Optional timeout for file polling |
+| `onStdout` | `void Function(String)?` | `null` | Callback for stdout lines |
+| `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines |
+
+**Returns:** `SpawnedCall<T>` - Call that completes with parsed result.
+
+**Example:**
+
+```dart
+final worker = operation.execFileResultWorker<Map<String, dynamic>>(
+  executable: 'dart',
+  arguments: [
+    'run', 'worker.dart',
+    '--start-time=${operation.startTimeMs}',
+    '--output=$resultPath',
+  ],
+  resultFilePath: resultPath,
+);
+await worker.future;
+if (worker.isSuccess) {
+  print('Result: ${worker.result}');
+}
+```
+
+##### execStdioWorker
+
+Spawn a process that outputs its result to stdout, capture output, and return as string.
+
+```dart
+SpawnedCall<String> execStdioWorker<T>({
+  required String executable,
+  required List<String> arguments,
+  String? description,
+  bool failOnCrash = true,
+  List<String> resources = const [],
+  Duration? timeout,
+  void Function(String)? onStderr,
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `executable` | `String` | required | Path to executable |
+| `arguments` | `List<String>` | required | Command-line arguments |
+| `description` | `String?` | `null` | Optional call description |
+| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
+| `resources` | `List<String>` | `[]` | Additional resources for cleanup |
+| `timeout` | `Duration?` | `null` | Optional timeout |
+| `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines |
+
+**Returns:** `SpawnedCall<String>` - Call that completes with stdout content.
+
+**Example:**
+
+```dart
+final worker = operation.execStdioWorker(
+  executable: 'dart',
+  arguments: ['run', 'worker.dart', '--json'],
+);
+await worker.future;
+if (worker.isSuccess) {
+  final data = jsonDecode(worker.result);
+}
+```
+
+##### execServerCall
+
+Spawn a long-running server process, execute custom work, then terminate.
+
+```dart
+SpawnedCall<T> execServerCall<T>({
+  required String executable,
+  required List<String> arguments,
+  required Future<T> Function(Process process) work,
+  String? description,
+  bool failOnCrash = true,
+  List<String> resources = const [],
+  Duration startupDelay = const Duration(milliseconds: 500),
+  void Function(String)? onStdout,
+  void Function(String)? onStderr,
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `executable` | `String` | required | Path to server executable |
+| `arguments` | `List<String>` | required | Command-line arguments |
+| `work` | `Future<T> Function(Process)` | required | Async function to execute against server |
+| `description` | `String?` | `null` | Optional call description |
+| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
+| `resources` | `List<String>` | `[]` | Additional resources for cleanup |
+| `startupDelay` | `Duration` | `500ms` | Time to wait before executing work |
+| `onStdout` | `void Function(String)?` | `null` | Callback for stdout lines |
+| `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines |
+
+**Returns:** `SpawnedCall<T>` - Call that completes with work function result.
+
+**Example:**
+
+```dart
+final serverCall = operation.execServerCall<String>(
+  executable: 'dart',
+  arguments: ['run', 'server.dart', '--port=8080'],
+  work: (process) async {
+    final response = await http.get(Uri.parse('http://localhost:8080/api'));
+    return response.body;
+  },
+);
+await serverCall.future;
+```
 
 #### Other Methods
 

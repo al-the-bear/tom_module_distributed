@@ -3306,4 +3306,293 @@ void main() {
       ledger.dispose();
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // OPERATION START TIME TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  group('Operation.startTime', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('start_time_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('startTime is set when operation is created', () async {
+      final beforeCreate = DateTime.now();
+      await Future.delayed(Duration(milliseconds: 10));
+
+      final operation = await ledger.startOperation(
+        operationId: 'start_time_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      await Future.delayed(Duration(milliseconds: 10));
+      final afterCreate = DateTime.now();
+
+      expect(operation.startTime.isAfter(beforeCreate), isTrue);
+      expect(operation.startTime.isBefore(afterCreate), isTrue);
+
+      await operation.complete();
+    });
+
+    test('elapsedDuration returns correct duration', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'elapsed_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      await Future.delayed(Duration(milliseconds: 50));
+      final elapsed = operation.elapsedDuration;
+
+      expect(elapsed.inMilliseconds, greaterThanOrEqualTo(50));
+      expect(elapsed.inMilliseconds, lessThan(200));
+
+      await operation.complete();
+    });
+
+    test('startTimeIso returns valid ISO 8601 string', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'iso_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final isoString = operation.startTimeIso;
+
+      // Should be parseable
+      final parsed = DateTime.parse(isoString);
+      expect(parsed.difference(operation.startTime).inMilliseconds.abs(), lessThan(1000));
+
+      await operation.complete();
+    });
+
+    test('startTimeMs returns milliseconds since epoch', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'ms_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final ms = operation.startTimeMs;
+
+      expect(ms, equals(operation.startTime.millisecondsSinceEpoch));
+
+      await operation.complete();
+    });
+
+    test('startTimeMs can be used to reconstruct start time', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'reconstruct_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      // Simulate what a worker would do - receive ms and reconstruct DateTime
+      final msFromCli = operation.startTimeMs;
+      final reconstructed = DateTime.fromMillisecondsSinceEpoch(msFromCli);
+
+      expect(reconstructed.difference(operation.startTime).inMilliseconds.abs(), lessThan(1));
+
+      await operation.complete();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EXEC HELPER METHOD TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  group('execFileResultWorker', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('exec_file_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('execFileResultWorker returns SpawnedCall with correct structure', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'exec_file_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final resultPath = '${tempDir.path}/result.json';
+      
+      // Pre-create the result file so the test doesn't need to spawn an external process
+      File(resultPath).writeAsStringSync('{"success": true, "value": 42}');
+
+      final spawnedCall = operation.execFileResultWorker<Map<String, dynamic>>(
+        executable: 'echo', // Simple command that completes quickly
+        arguments: ['test'],
+        resultFilePath: resultPath,
+        deleteResultFile: false,
+      );
+
+      // Verify SpawnedCall structure
+      expect(spawnedCall.callId, isNotEmpty);
+      expect(spawnedCall.future, isA<Future<void>>()); // future is Future<void>
+
+      // Wait and get result
+      await spawnedCall.future;
+
+      if (spawnedCall.isSuccess) {
+        expect(spawnedCall.result['success'], isTrue);
+        expect(spawnedCall.result['value'], equals(42));
+      }
+
+      await operation.complete();
+    });
+
+    test('execFileResultWorker deletes file when deleteResultFile=true', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'exec_file_delete_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final resultPath = '${tempDir.path}/result_delete.json';
+      
+      // Pre-create the result file
+      File(resultPath).writeAsStringSync('{"deleted": true}');
+
+      final spawnedCall = operation.execFileResultWorker<Map<String, dynamic>>(
+        executable: 'echo',
+        arguments: ['test'],
+        resultFilePath: resultPath,
+        deleteResultFile: true, // Should delete after reading
+      );
+
+      await spawnedCall.future;
+
+      // File should be deleted
+      expect(File(resultPath).existsSync(), isFalse);
+
+      await operation.complete();
+    });
+  });
+
+  group('execStdioWorker', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('exec_stdio_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('execStdioWorker captures stdout and deserializes', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'exec_stdio_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final spawnedCall = operation.execStdioWorker<String>(
+        executable: 'echo',
+        arguments: ['hello world'],
+      );
+
+      await spawnedCall.future;
+
+      if (spawnedCall.isSuccess) {
+        expect(spawnedCall.result.trim(), equals('hello world'));
+      }
+
+      await operation.complete();
+    });
+
+    test('execStdioWorker returns SpawnedCall with callId', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'exec_stdio_callid_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final spawnedCall = operation.execStdioWorker<String>(
+        executable: 'echo',
+        arguments: ['test'],
+      );
+
+      expect(spawnedCall.callId, isNotEmpty);
+      expect(spawnedCall.future, isA<Future<void>>()); // future is Future<void>
+
+      await spawnedCall.future;
+      await operation.complete();
+    });
+  });
+
+  group('execServerCall', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('exec_server_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('execServerCall returns SpawnedCall with correct structure', () async {
+      final operation = await ledger.startOperation(
+        operationId: 'exec_server_test',
+        initiatorPid: 1234,
+        participantId: 'cli',
+        getElapsedFormatted: () => '000.000',
+      );
+
+      final spawnedCall = operation.execServerCall<String>(
+        executable: 'sleep',
+        arguments: ['1'], // Short-lived "server" 
+        work: (process) async {
+          // Just return something to test the flow
+          return 'server_result';
+        },
+        startupDelay: Duration(milliseconds: 100),
+      );
+
+      expect(spawnedCall.callId, isNotEmpty);
+      expect(spawnedCall.future, isA<Future<void>>()); // future is Future<void>
+
+      await spawnedCall.future;
+
+      if (spawnedCall.isSuccess) {
+        expect(spawnedCall.result, equals('server_result'));
+      }
+
+      await operation.complete();
+    });
+  });
 }

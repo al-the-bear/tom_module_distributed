@@ -904,6 +904,60 @@ final results = await operation.waitForCompletion<List<WorkerResult>>(
 
 ## Data Structures
 
+### Operation Class Properties
+
+```dart
+class Operation {
+  /// Unique identifier for this operation
+  final String operationId;
+  
+  /// ID of this participant
+  final String participantId;
+  
+  /// Process ID of this participant
+  final int pid;
+  
+  /// Whether this participant started the operation
+  final bool isInitiator;
+  
+  /// When this operation was started.
+  /// For initiators, this is when the operation was created.
+  /// For participants, this is when they joined the operation.
+  /// This field allows easy calculation of elapsed time without a Stopwatch,
+  /// and can be passed to spawned processes for consistent timeline logging.
+  final DateTime startTime;
+  
+  /// Get the elapsed duration since operation start.
+  Duration get elapsedDuration => DateTime.now().difference(startTime);
+  
+  /// Get the start time formatted as ISO 8601 string.
+  /// Useful for passing to spawned processes for consistent timeline logging.
+  String get startTimeIso => startTime.toIso8601String();
+  
+  /// Get the start time as milliseconds since epoch.
+  /// Useful for passing to spawned processes via command-line arguments.
+  int get startTimeMs => startTime.millisecondsSinceEpoch;
+  
+  /// Cached operation data
+  LedgerData? get cachedData;
+  
+  /// Last change timestamp
+  DateTime? get lastChangeTimestamp;
+  
+  /// Whether this participant is aborted
+  bool get isAborted;
+  
+  /// Future that completes when abort is signaled
+  Future<void> get onAbort;
+  
+  /// Future that completes when operation fails
+  Future<OperationFailedInfo> get onFailure;
+  
+  /// Get the current elapsed time formatted
+  String get elapsedFormatted;
+}
+```
+
 ### Operation File Structure
 
 ```json
@@ -983,6 +1037,164 @@ enum FrameState {
   /// Frame has completed cleanup
   cleanedUp,
 }
+```
+
+---
+
+## Execution Helper Methods
+
+The `Operation` class provides convenience methods for common process execution patterns. These methods combine `spawnTyped` with `Process.start` and result collection, reducing boilerplate code.
+
+### execFileResultWorker
+
+Spawns a process that writes its result to a file, waits for completion, and returns the deserialized result.
+
+```dart
+Future<T> execFileResultWorker<T>({
+  required String executable,
+  required List<String> arguments,
+  required String resultPath,
+  bool deleteResultFile = true,
+  required T Function(String content) deserializer,
+  String? callDescription,
+  bool failOnCrash = true,
+  List<String> resources = const [],
+  Duration? timeout,
+})
+```
+
+**Parameters:**
+- `executable` - Path to the executable (e.g., `'dart'`, `'/path/to/worker.dart'`)
+- `arguments` - Command-line arguments for the process
+- `resultPath` - Path where the worker will write its result file
+- `deleteResultFile` - Whether to delete the result file after reading (default: `true`)
+- `deserializer` - Function to convert file content to result type
+- `callDescription` - Optional description for the operation stack frame
+- `failOnCrash` - Whether worker crash fails the operation (default: `true`)
+- `resources` - Additional resources to register for cleanup
+- `timeout` - Optional timeout for waiting for result
+
+**Example:**
+
+```dart
+final result = await operation.execFileResultWorker<WorkerResult>(
+  executable: 'dart',
+  arguments: [
+    'run',
+    'worker.dart',
+    '--operation-id', operation.operationId,
+    '--start-time', operation.startTimeMs.toString(),
+    '--output', resultPath,
+  ],
+  resultPath: resultPath,
+  deserializer: (content) => WorkerResult.fromJson(jsonDecode(content)),
+);
+```
+
+### execStdioWorker
+
+Spawns a process that outputs its result to stdout, captures the output, and returns the deserialized result.
+
+```dart
+Future<T> execStdioWorker<T>({
+  required String executable,
+  required List<String> arguments,
+  required T Function(String stdout) deserializer,
+  String? callDescription,
+  bool failOnCrash = true,
+  List<String> resources = const [],
+  Duration? timeout,
+})
+```
+
+**Parameters:**
+- `executable` - Path to the executable
+- `arguments` - Command-line arguments for the process
+- `deserializer` - Function to convert stdout content to result type
+- `callDescription` - Optional description for the operation stack frame
+- `failOnCrash` - Whether worker crash fails the operation (default: `true`)
+- `resources` - Additional resources to register for cleanup
+- `timeout` - Optional timeout for process completion
+
+**Example:**
+
+```dart
+final result = await operation.execStdioWorker<WorkerResult>(
+  executable: 'dart',
+  arguments: [
+    'run',
+    'worker.dart',
+    '--operation-id', operation.operationId,
+    '--start-time', operation.startTimeMs.toString(),
+  ],
+  deserializer: (stdout) => WorkerResult.fromJson(jsonDecode(stdout)),
+);
+```
+
+### execServerCall
+
+Spawns a long-running server process, executes custom work against it, then terminates the process.
+
+```dart
+Future<T> execServerCall<T>({
+  required String executable,
+  required List<String> arguments,
+  required Future<T> Function(Process process) work,
+  String? callDescription,
+  bool failOnCrash = true,
+  List<String> resources = const [],
+  Duration startupDelay = const Duration(milliseconds: 500),
+})
+```
+
+**Parameters:**
+- `executable` - Path to the server executable
+- `arguments` - Command-line arguments for the server
+- `work` - Async function that performs work using the running server process
+- `callDescription` - Optional description for the operation stack frame
+- `failOnCrash` - Whether server crash fails the operation (default: `true`)
+- `resources` - Additional resources to register for cleanup
+- `startupDelay` - Time to wait for server to start before executing work (default: 500ms)
+
+**Example:**
+
+```dart
+final result = await operation.execServerCall<ServerResult>(
+  executable: 'dart',
+  arguments: [
+    'run',
+    'server.dart',
+    '--operation-id', operation.operationId,
+    '--port', port.toString(),
+  ],
+  work: (process) async {
+    // Wait for server to be ready (e.g., check health endpoint)
+    await Future.delayed(Duration(seconds: 1));
+    
+    // Make HTTP calls to the server
+    final response = await http.get(Uri.parse('http://localhost:$port/api'));
+    return ServerResult.fromJson(jsonDecode(response.body));
+  },
+);
+```
+
+### Parallel Execution with syncTyped
+
+The exec helper methods can be combined with `syncTyped` to spawn multiple workers and wait for all to complete:
+
+```dart
+// Start 3 parallel workers
+final workers = await operation.syncTyped('spawn-workers', () async {
+  return await Future.wait([
+    for (var i = 0; i < 3; i++)
+      operation.execFileResultWorker<WorkerResult>(
+        executable: 'dart',
+        arguments: ['run', 'worker.dart', '--id', i.toString()],
+        resultPath: '/tmp/result_$i.json',
+        deserializer: (c) => WorkerResult.fromJson(jsonDecode(c)),
+      ),
+  ]);
+});
 ```
 
 ---

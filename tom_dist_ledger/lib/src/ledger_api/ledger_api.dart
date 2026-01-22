@@ -85,6 +85,14 @@ class Operation {
   final ElapsedFormattedCallback getElapsedFormatted;
   final bool isInitiator;
 
+  /// When this operation was started.
+  ///
+  /// For initiators, this is when the operation was created.
+  /// For participants, this is when they joined the operation.
+  /// This field allows easy calculation of elapsed time without a Stopwatch,
+  /// and can be passed to spawned processes for consistent timeline logging.
+  final DateTime startTime;
+
   /// Cached operation data.
   LedgerData? _cachedData;
 
@@ -128,6 +136,7 @@ class Operation {
     required this.pid,
     required this.getElapsedFormatted,
     required this.isInitiator,
+    required this.startTime,
   }) : _ledger = ledger;
 
   /// Get the cached operation data.
@@ -147,6 +156,21 @@ class Operation {
 
   /// Get the current elapsed time formatted.
   String get elapsedFormatted => getElapsedFormatted();
+
+  /// Get the elapsed duration since operation start.
+  ///
+  /// Uses [startTime] to calculate the elapsed time without needing a Stopwatch.
+  Duration get elapsedDuration => DateTime.now().difference(startTime);
+
+  /// Get the start time formatted as ISO 8601 string.
+  ///
+  /// Useful for passing to spawned processes for consistent timeline logging.
+  String get startTimeIso => startTime.toIso8601String();
+
+  /// Get the start time as milliseconds since epoch.
+  ///
+  /// Useful for passing to spawned processes via command-line arguments.
+  int get startTimeMs => startTime.millisecondsSinceEpoch;
 
   // ─────────────────────────────────────────────────────────────
   // Call ID generation
@@ -702,6 +726,258 @@ class Operation {
       failedCalls: failed,
       unknownCalls: unknown,
       operationFailed: operationDidFail,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Exec Helper Methods (convenience API for process spawning)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Execute a file-result worker process.
+  ///
+  /// Spawns a process that writes its result to a file, then polls for that
+  /// file and returns the parsed result.
+  ///
+  /// This is a convenience method that combines process spawning with file
+  /// polling using [OperationHelper.pollFile].
+  ///
+  /// Parameters:
+  /// - [executable] - The executable to run (e.g., 'dart')
+  /// - [arguments] - Command-line arguments
+  /// - [resultFilePath] - Path where the worker will write its result
+  /// - [workingDirectory] - Optional working directory for the process
+  /// - [description] - Optional description for logging
+  /// - [deserializer] - Optional function to parse file content
+  /// - [deleteResultFile] - Whether to delete the result file after reading (default: true)
+  /// - [pollInterval] - How often to check for the result file (default: 100ms)
+  /// - [timeout] - Optional timeout for the entire operation
+  /// - [onStdout] - Optional callback for stdout lines
+  /// - [onStderr] - Optional callback for stderr lines
+  /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  ///
+  /// Returns a [SpawnedCall<T>] that completes with the parsed result.
+  SpawnedCall<T> execFileResultWorker<T>({
+    required String executable,
+    required List<String> arguments,
+    required String resultFilePath,
+    String? workingDirectory,
+    String? description,
+    T Function(String content)? deserializer,
+    bool deleteResultFile = true,
+    Duration pollInterval = const Duration(milliseconds: 100),
+    Duration? timeout,
+    void Function(String line)? onStdout,
+    void Function(String line)? onStderr,
+    bool failOnCrash = true,
+  }) {
+    return spawnTyped<T>(
+      work: () async {
+        // Start the process
+        final process = await Process.start(
+          executable,
+          arguments,
+          workingDirectory: workingDirectory ?? Directory.current.path,
+        );
+
+        // Handle stdout
+        process.stdout.transform(utf8.decoder).listen((data) {
+          if (onStdout != null) {
+            for (final line in data.split('\n')) {
+              if (line.isNotEmpty) onStdout(line);
+            }
+          }
+        });
+
+        // Handle stderr
+        process.stderr.transform(utf8.decoder).listen((data) {
+          if (onStderr != null) {
+            for (final line in data.split('\n')) {
+              if (line.isNotEmpty) onStderr(line);
+            }
+          }
+        });
+
+        // Wait for result file using pollFile
+        final result = await OperationHelper.pollFile<T>(
+          path: resultFilePath,
+          delete: deleteResultFile,
+          deserializer: deserializer,
+          pollInterval: pollInterval,
+          timeout: timeout,
+        )();
+
+        // Wait for process to exit
+        await process.exitCode;
+
+        return result;
+      },
+      description: description ?? 'File result worker',
+      failOnCrash: failOnCrash,
+    );
+  }
+
+  /// Execute a stdout-result worker process.
+  ///
+  /// Spawns a process that outputs its result to stdout as JSON, then parses
+  /// and returns the result.
+  ///
+  /// This is a convenience method for processes that communicate their result
+  /// via stdout (common for CLI tools and simple workers).
+  ///
+  /// Parameters:
+  /// - [executable] - The executable to run (e.g., 'dart')
+  /// - [arguments] - Command-line arguments
+  /// - [workingDirectory] - Optional working directory for the process
+  /// - [description] - Optional description for logging
+  /// - [deserializer] - Optional function to parse stdout content
+  /// - [onStderr] - Optional callback for stderr lines
+  /// - [timeout] - Optional timeout for the entire operation
+  /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  ///
+  /// Returns a [SpawnedCall<T>] that completes with the parsed result.
+  SpawnedCall<T> execStdioWorker<T>({
+    required String executable,
+    required List<String> arguments,
+    String? workingDirectory,
+    String? description,
+    T Function(String content)? deserializer,
+    void Function(String line)? onStderr,
+    Duration? timeout,
+    bool failOnCrash = true,
+  }) {
+    return spawnTyped<T>(
+      work: () async {
+        // Start the process
+        final process = await Process.start(
+          executable,
+          arguments,
+          workingDirectory: workingDirectory ?? Directory.current.path,
+        );
+
+        // Handle stderr
+        process.stderr.transform(utf8.decoder).listen((data) {
+          if (onStderr != null) {
+            for (final line in data.split('\n')) {
+              if (line.isNotEmpty) onStderr(line);
+            }
+          }
+        });
+
+        // Collect stdout
+        final stdoutBuffer = StringBuffer();
+        await for (final data in process.stdout.transform(utf8.decoder)) {
+          stdoutBuffer.write(data);
+        }
+
+        // Wait for process to exit
+        final exitCode = await process.exitCode;
+        if (exitCode != 0) {
+          throw ProcessException(
+            executable,
+            arguments,
+            'Process exited with code $exitCode',
+            exitCode,
+          );
+        }
+
+        // Parse result
+        final content = stdoutBuffer.toString();
+        if (deserializer != null) {
+          return deserializer(content);
+        }
+
+        // Default: try to parse as JSON
+        if (T == String) {
+          return content as T;
+        }
+        return json.decode(content) as T;
+      },
+      description: description ?? 'Stdout worker',
+      failOnCrash: failOnCrash,
+    );
+  }
+
+  /// Execute a server call with a custom work function.
+  ///
+  /// Spawns a long-running server process, executes the provided work function
+  /// (which should make calls to the server), and then terminates the server.
+  ///
+  /// This is a convenience method for scenarios where you need to start a
+  /// server, perform some work with it (HTTP calls, socket communication, etc.),
+  /// and then shut it down.
+  ///
+  /// Parameters:
+  /// - [executable] - The executable to run (e.g., 'dart')
+  /// - [arguments] - Command-line arguments
+  /// - [work] - Async function that performs the actual work with the server
+  /// - [workingDirectory] - Optional working directory for the process
+  /// - [description] - Optional description for logging
+  /// - [startupDelay] - Time to wait for server to start before calling work (default: 500ms)
+  /// - [onStdout] - Optional callback for stdout lines
+  /// - [onStderr] - Optional callback for stderr lines
+  /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  ///
+  /// Returns a [SpawnedCall<T>] that completes with the result of the work function.
+  SpawnedCall<T> execServerCall<T>({
+    required String executable,
+    required List<String> arguments,
+    required Future<T> Function(Process server) work,
+    String? workingDirectory,
+    String? description,
+    Duration startupDelay = const Duration(milliseconds: 500),
+    void Function(String line)? onStdout,
+    void Function(String line)? onStderr,
+    bool failOnCrash = true,
+  }) {
+    return spawnTyped<T>(
+      work: () async {
+        // Start the server process
+        final process = await Process.start(
+          executable,
+          arguments,
+          workingDirectory: workingDirectory ?? Directory.current.path,
+        );
+
+        // Handle stdout
+        process.stdout.transform(utf8.decoder).listen((data) {
+          if (onStdout != null) {
+            for (final line in data.split('\n')) {
+              if (line.isNotEmpty) onStdout(line);
+            }
+          }
+        });
+
+        // Handle stderr
+        process.stderr.transform(utf8.decoder).listen((data) {
+          if (onStderr != null) {
+            for (final line in data.split('\n')) {
+              if (line.isNotEmpty) onStderr(line);
+            }
+          }
+        });
+
+        try {
+          // Wait for server to start
+          await Future.delayed(startupDelay);
+
+          // Execute the work function
+          final result = await work(process);
+
+          return result;
+        } finally {
+          // Terminate the server
+          process.kill();
+          await process.exitCode.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              process.kill(ProcessSignal.sigkill);
+              return -1;
+            },
+          );
+        }
+      },
+      description: description ?? 'Server call',
+      failOnCrash: failOnCrash,
     );
   }
 
@@ -1391,6 +1667,7 @@ class Ledger {
         pid: participantPid,
         getElapsedFormatted: getElapsedFormatted,
         isInitiator: true,
+        startTime: timestamp,
       );
       operation._cachedData = ledgerData;
       operation._lastChangeTimestamp = timestamp;
@@ -1428,6 +1705,8 @@ class Ledger {
     required String participantId,
     required ElapsedFormattedCallback getElapsedFormatted,
   }) async {
+    final joinTime = DateTime.now();
+    
     // Create operation object
     final operation = Operation._(
       ledger: this,
@@ -1436,6 +1715,7 @@ class Ledger {
       pid: participantPid,
       getElapsedFormatted: getElapsedFormatted,
       isInitiator: false,
+      startTime: joinTime,
     );
 
     // Load current state
