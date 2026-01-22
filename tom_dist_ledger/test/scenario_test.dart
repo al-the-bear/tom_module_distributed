@@ -193,7 +193,7 @@ void main() {
         expect(result.exitCode, equals(0));
         // Should have fewer stack levels
         expect(
-          result.log.where((line) => line.contains('startCallExecution')).length,
+          result.log.where((line) => line.contains('pushStackFrame')).length,
           lessThan(5),
           reason: 'Should have simpler call stack without Bridge',
         );

@@ -164,14 +164,9 @@ void main() async {
 
   try {
     // Start the main operation
-    final operation = await ledger.startOperation(
+    final operation = await ledger.createOperation(
       operationId: 'multi_process_demo',
-      initiatorPid: pid,
       participantId: 'orchestrator',
-      getElapsedFormatted: () {
-        final now = DateTime.now();
-        return '${now.second}.${now.millisecond.toString().padLeft(3, '0')}';
-      },
     );
 
     print('✅ Started operation: ${operation.operationId}\n');
@@ -192,7 +187,7 @@ void main() async {
     );
 
     // Start a call that will wait for the file result
-    final fileCallId = await operation.startCall(
+    final fileCall = await operation.startCall(
       callback: CallCallback(
         onCleanup: () async {
           // Clean up the result file if it exists
@@ -223,7 +218,7 @@ void main() async {
     print('   Value: ${fileResult['computed_value']}');
     print('   Timestamp: ${fileResult['timestamp']}');
 
-    await operation.endCall(callId: fileCallId);
+    await fileCall.end();
     print('✅ File-based call completed\n');
 
     // ─────────────────────────────────────────────────────────────────────
@@ -237,7 +232,7 @@ void main() async {
       workDuration: const Duration(milliseconds: 500),
     );
 
-    final stdoutCallId = await operation.startCall(
+    final stdoutCall = await operation.startCall(
       callback: CallCallback(
         onCleanup: () async {
           print('[Cleanup] Stdout worker cleanup (no resources to clean)');
@@ -256,7 +251,7 @@ void main() async {
     print('   Value: ${parsedStdout['value']}');
     print('   Worker ID: ${parsedStdout['metadata']['worker_id']}');
 
-    await operation.endCall(callId: stdoutCallId);
+    await stdoutCall.end();
     print('✅ Stdout-based call completed\n');
 
     // ─────────────────────────────────────────────────────────────────────
@@ -269,7 +264,7 @@ void main() async {
     serverProcess = ServerProcess(port: 8080);
 
     // Start server with failOnCrash=false since server runs throughout
-    final serverCallId = await operation.startCall(
+    final serverCall = await operation.startCall(
       callback: CallCallback(
         onCleanup: () async {
           print('[Cleanup] Stopping server...');
@@ -283,15 +278,18 @@ void main() async {
 
     await serverProcess!.start();
 
-    // Spawn multiple requests in parallel (these use spawnCall with failOnCrash=true)
+    // Spawn multiple requests in parallel using the new spawnCall API
     print('\n📡 Sending parallel requests to server...\n');
 
-    final requests = <String, Future<Map<String, dynamic>>>{};
+    final spawnedCalls = <SpawnedCall<Map<String, dynamic>>>[];
     
     for (var i = 1; i <= 3; i++) {
       final requestId = 'request_$i';
       
-      final spawnedCallId = await operation.spawnCall(
+      final spawnedCall = operation.spawnCall<Map<String, dynamic>>(
+        work: () async {
+          return await serverProcess!.handleRequest(requestId);
+        },
         callback: CallCallback(
           onCleanup: () async {
             print('[Cleanup] Request $requestId cleanup');
@@ -301,27 +299,29 @@ void main() async {
         failOnCrash: true, // Individual request failures should be reported
       );
       
-      // Start the request
-      requests[spawnedCallId] = serverProcess!.handleRequest(requestId);
+      spawnedCalls.add(spawnedCall);
     }
 
-    // Wait for all requests to complete
-    final results = await Future.wait(
-      requests.entries.map((entry) async {
-        final result = await entry.value;
-        await operation.endCall(callId: entry.key);
-        return result;
-      }),
-    );
+    // Wait for all requests to complete using sync
+    final syncResult = await operation.sync(spawnedCalls);
 
     print('\n📊 Server Request Results:');
-    for (final result in results) {
-      print('   ${result['requestId']}: ${result['status']} (${result['processingTime']}s)');
+    for (final call in spawnedCalls) {
+      if (call.isSuccess) {
+        final result = call.result;
+        print('   ${result['requestId']}: ${result['status']} (${result['processingTime']}s)');
+      } else {
+        print('   ${call.callId}: FAILED - ${call.error}');
+      }
     }
+
+    // Check sync results
+    print('   Successful: ${syncResult.successfulCalls.length}');
+    print('   Failed: ${syncResult.failedCalls.length}');
 
     // Clean up server
     await serverProcess!.stop();
-    await operation.endCall(callId: serverCallId);
+    await serverCall.end();
     serverProcess = null;
     print('\n✅ Server scenario completed\n');
 

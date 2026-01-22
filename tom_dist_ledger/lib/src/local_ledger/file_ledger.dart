@@ -142,6 +142,10 @@ class LedgerData {
   /// ID of the participant that created this operation.
   final String initiatorId;
   
+  /// When the operation was created.
+  /// Participants can use this to calculate elapsed time consistently.
+  final DateTime startTime;
+  
   /// Whether the abort flag is set.
   bool aborted;
   
@@ -161,6 +165,7 @@ class LedgerData {
   LedgerData({
     required this.operationId,
     required this.initiatorId,
+    DateTime? startTime,
     this.aborted = false,
     DateTime? lastHeartbeat,
     List<StackFrame>? stack,
@@ -168,7 +173,8 @@ class LedgerData {
     OperationState? operationState,
     this.detectionTimestamp,
     this.removalTimestamp,
-  })  : lastHeartbeat = lastHeartbeat ?? DateTime.now(),
+  })  : startTime = startTime ?? DateTime.now(),
+        lastHeartbeat = lastHeartbeat ?? DateTime.now(),
         stack = stack ?? [],
         tempResources = tempResources ?? [],
         operationState = operationState ?? OperationState.running;
@@ -176,6 +182,7 @@ class LedgerData {
   Map<String, dynamic> toJson() => {
         'operationId': operationId,
         'initiatorId': initiatorId,
+        'startTime': startTime.toIso8601String(),
         'operationState': operationState.name,
         'aborted': aborted,
         'lastHeartbeat': lastHeartbeat.toIso8601String(),
@@ -188,6 +195,9 @@ class LedgerData {
   factory LedgerData.fromJson(Map<String, dynamic> json) => LedgerData(
         operationId: json['operationId'] as String,
         initiatorId: json['initiatorId'] as String? ?? 'unknown',
+        startTime: json['startTime'] != null
+            ? DateTime.parse(json['startTime'] as String)
+            : null,
         aborted: json['aborted'] as bool? ?? false,
         lastHeartbeat: json['lastHeartbeat'] != null
             ? DateTime.parse(json['lastHeartbeat'] as String)
@@ -247,6 +257,16 @@ class HeartbeatResult {
   /// List of participant IDs with stale heartbeats.
   final List<String> staleParticipants;
   
+  /// The ledger data before the heartbeat update.
+  /// 
+  /// This is null if the ledger didn't exist or couldn't be read.
+  final LedgerData? dataBefore;
+  
+  /// The ledger data after the heartbeat update.
+  /// 
+  /// This is null if the heartbeat update failed.
+  final LedgerData? dataAfter;
+  
   /// Whether any child participant has a stale heartbeat.
   bool get hasStaleChildren => staleParticipants.isNotEmpty;
 
@@ -261,6 +281,8 @@ class HeartbeatResult {
     required this.stackParticipants,
     this.participantHeartbeatAges = const {},
     this.staleParticipants = const [],
+    this.dataBefore,
+    this.dataAfter,
   });
 
   /// Create a result for when ledger doesn't exist.

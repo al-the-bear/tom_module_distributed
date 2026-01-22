@@ -194,7 +194,7 @@ void main() {
           operationId: 'test_crash_${DateTime.now().millisecondsSinceEpoch}',
           depth: 1,
         );
-        await participant.startCallExecution(callId: 'test-call', depth: 1);
+        await participant.pushStackFrame(callId: 'test-call', depth: 1);
         participant.startHeartbeat(depth: 1, expectedStackDepth: 1);
         
         // Start crash in background (will never return)

@@ -443,7 +443,7 @@ class ScenarioRunner {
     }
 
     // Start call execution
-    await participant.startCallExecution(callId: call.callId, depth: depth);
+    await participant.pushStackFrame(callId: call.callId, depth: depth);
     participant.startHeartbeat(depth: depth);
 
     // Simulate processing
@@ -478,7 +478,7 @@ class ScenarioRunner {
 
     // End call execution
     participant.stopHeartbeat(depth: depth);
-    await participant.endCallExecution(callId: call.callId, depth: depth);
+    await participant.popStackFrame(callId: call.callId, depth: depth);
 
     // Complete operation if initiator and at top level
     if (participant.isInitiator && depth == 1) {
@@ -568,11 +568,10 @@ class _SimulatedParticipant {
     required int depth,
   }) async {
     printer.log(depth: depth, participant: name, message: 'startOperation($operationId)');
-    _operation = await ledger.startOperation(
+    _operation = await ledger.createOperation(
       operationId: operationId,
-      initiatorPid: pid,
+      participantPid: pid,
       participantId: name.toLowerCase(),
-      getElapsedFormatted: () => printer.elapsedFormatted,
     );
   }
 
@@ -581,28 +580,27 @@ class _SimulatedParticipant {
     required int depth,
   }) async {
     printer.log(depth: depth, participant: name, message: 'joinOperation($operationId)');
-    _operation = await ledger.participateInOperation(
+    _operation = await ledger.joinOperation(
       operationId: operationId,
       participantPid: pid,
       participantId: name.toLowerCase(),
-      getElapsedFormatted: () => printer.elapsedFormatted,
     );
   }
 
-  Future<void> startCallExecution({
+  Future<void> pushStackFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'startCallExecution($callId)');
-    await _operation?.startCallExecution(callId: callId);
+    printer.log(depth: depth, participant: name, message: 'pushStackFrame($callId)');
+    await _operation?.pushStackFrame(callId: callId);
   }
 
-  Future<void> endCallExecution({
+  Future<void> popStackFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'endCallExecution($callId)');
-    await _operation?.endCallExecution(callId: callId);
+    printer.log(depth: depth, participant: name, message: 'popStackFrame($callId)');
+    await _operation?.popStackFrame(callId: callId);
   }
 
   Future<void> completeOperation({required int depth}) async {

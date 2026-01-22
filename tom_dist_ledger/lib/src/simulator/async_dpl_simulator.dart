@@ -142,7 +142,7 @@ class AsyncDPLSimulator {
 
     await cli.startOperation(depth: 1, operationId: operationId);
     await _callDelay();
-    await cli.startCallExecution(depth: 1, callId: 'cli-invoke-1');
+    await cli.pushStackFrame(depth: 1, callId: 'cli-invoke-1');
     cli.startHeartbeat(depth: 1);
 
     // Simulate CLI doing some work before calling bridge
@@ -153,7 +153,7 @@ class AsyncDPLSimulator {
     printer.printPhase('Phase 2: Bridge Receives Request');
 
     await bridge.joinOperation(depth: 2, operationId: _currentOperationId!);
-    await bridge.startCallExecution(depth: 2, callId: 'bridge-handle-1');
+    await bridge.pushStackFrame(depth: 2, callId: 'bridge-handle-1');
     bridge.startHeartbeat(depth: 2);
     await _callDelay();
 
@@ -168,7 +168,7 @@ class AsyncDPLSimulator {
     printer.printPhase('Phase 3: VSCode Extension Calls Copilot');
 
     await vscode.joinOperation(depth: 3, operationId: _currentOperationId!);
-    await vscode.startCallExecution(depth: 3, callId: 'vscode-copilot-1');
+    await vscode.pushStackFrame(depth: 3, callId: 'vscode-copilot-1');
     vscode.startHeartbeat(depth: 3);
     await _callDelay();
 
@@ -190,7 +190,7 @@ class AsyncDPLSimulator {
     printer.printPhase('Phase 3: VSCode Extension Calls Copilot (will abort)');
 
     await vscode.joinOperation(depth: 3, operationId: _currentOperationId!);
-    await vscode.startCallExecution(depth: 3, callId: 'vscode-copilot-1');
+    await vscode.pushStackFrame(depth: 3, callId: 'vscode-copilot-1');
     vscode.startHeartbeat(depth: 3);
 
     // Schedule abort after one call delay period
@@ -230,18 +230,18 @@ class AsyncDPLSimulator {
     // VSCode detects abort and starts unwinding
     vscode.stopHeartbeat(depth: 3);
     vscode.cancelChatPolling(depth: 3);
-    await vscode.endCallExecution(depth: 3, callId: 'vscode-copilot-1');
+    await vscode.popStackFrame(depth: 3, callId: 'vscode-copilot-1');
     await _callDelay();
 
     // Bridge cleans up temp resources
     await bridge.cleanupTempResources(depth: 2);
     bridge.stopHeartbeat(depth: 2);
-    await bridge.endCallExecution(depth: 2, callId: 'bridge-handle-1');
+    await bridge.popStackFrame(depth: 2, callId: 'bridge-handle-1');
     await _callDelay();
 
     // CLI finishes cleanup
     cli.stopHeartbeat(depth: 1);
-    await cli.endCallExecution(depth: 1, callId: 'cli-invoke-1');
+    await cli.popStackFrame(depth: 1, callId: 'cli-invoke-1');
     await cli.completeOperation(depth: 1);
     cli.exit(depth: 1, code: 130); // 128 + SIGINT
   }
@@ -252,13 +252,13 @@ class AsyncDPLSimulator {
     // VSCode processes response
     await vscode.applyEdits(depth: 3);
     vscode.stopHeartbeat(depth: 3);
-    await vscode.endCallExecution(depth: 3, callId: 'vscode-copilot-1');
+    await vscode.popStackFrame(depth: 3, callId: 'vscode-copilot-1');
     await _callDelay();
 
     // Bridge finishes
     await bridge.unregisterTempResource(depth: 2, path: '/tmp/dpl_work.tmp');
     bridge.stopHeartbeat(depth: 2);
-    await bridge.endCallExecution(depth: 2, callId: 'bridge-handle-1');
+    await bridge.popStackFrame(depth: 2, callId: 'bridge-handle-1');
     await _callDelay();
   }
 
@@ -266,7 +266,7 @@ class AsyncDPLSimulator {
     printer.printPhase('Phase 5: CLI Completes');
 
     cli.stopHeartbeat(depth: 1);
-    await cli.endCallExecution(depth: 1, callId: 'cli-invoke-1');
+    await cli.popStackFrame(depth: 1, callId: 'cli-invoke-1');
     await cli.completeOperation(depth: 1);
     cli.exit(depth: 1, code: 0);
   }

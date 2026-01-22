@@ -264,11 +264,10 @@ abstract class AsyncSimParticipant {
     log(depth: depth, message: 'startOperation(opId: "$operationId")');
     _currentDepth = depth;
 
-    _operation = await ledger.startOperation(
+    _operation = await ledger.createOperation(
       operationId: operationId,
-      initiatorPid: pid,
+      participantPid: pid,
       participantId: name.toLowerCase(),
-      getElapsedFormatted: () => printer.elapsedFormatted,
       description: description,
     );
 
@@ -294,11 +293,10 @@ abstract class AsyncSimParticipant {
     log(depth: depth, message: 'joinOperation(opId: "$operationId")');
     _currentDepth = depth;
 
-    _operation = await ledger.participateInOperation(
+    _operation = await ledger.joinOperation(
       operationId: operationId,
       participantPid: pid,
       participantId: name.toLowerCase(),
-      getElapsedFormatted: () => printer.elapsedFormatted,
     );
 
     return _operation!;
@@ -308,22 +306,22 @@ abstract class AsyncSimParticipant {
   // Call execution
   // ─────────────────────────────────────────────────────────────
 
-  /// Start tracking a call execution.
-  Future<void> startCallExecution({
+  /// Push a stack frame for a call.
+  Future<void> pushStackFrame({
     required int depth,
     required String callId,
   }) async {
-    log(depth: depth, message: 'startCallExecution(callId: "$callId", pid: $pid)');
-    await operation.startCallExecution(callId: callId);
+    log(depth: depth, message: 'pushStackFrame(callId: "$callId", pid: $pid)');
+    await operation.pushStackFrame(callId: callId);
   }
 
-  /// End tracking a call execution.
-  Future<void> endCallExecution({
+  /// Pop a stack frame for a call.
+  Future<void> popStackFrame({
     required int depth,
     required String callId,
   }) async {
-    log(depth: depth, message: 'endCallExecution(callId: "$callId")');
-    await operation.endCallExecution(callId: callId);
+    log(depth: depth, message: 'popStackFrame(callId: "$callId")');
+    await operation.popStackFrame(callId: callId);
   }
 
   // ─────────────────────────────────────────────────────────────

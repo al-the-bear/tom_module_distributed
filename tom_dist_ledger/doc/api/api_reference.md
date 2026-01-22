@@ -14,8 +14,6 @@ This document provides a comprehensive API reference for the distributed ledger 
    - [OperationHelper](#operationhelper-class)
 2. [Data Classes](#data-classes)
    - [CallCallback](#callcallback-class)
-   - [CallEndedInfo](#callendedinfo-class)
-   - [CrashedCallInfo](#crashedcallinfo-class)
    - [OperationFailedInfo](#operationfailedinfo-class)
    - [LedgerData](#ledgerdata-class)
    - [StackFrame](#stackframe-class)
@@ -51,7 +49,10 @@ Ledger({
   required String basePath,
   void Function(String)? onBackupCreated,
   void Function(String)? onLogLine,
+  HeartbeatErrorCallback? onGlobalHeartbeatError,
   int maxBackups = 20,
+  Duration heartbeatInterval = const Duration(seconds: 5),
+  Duration staleThreshold = const Duration(seconds: 15),
 })
 ```
 
@@ -60,7 +61,12 @@ Ledger({
 | `basePath` | `String` | required | Base directory for ledger files |
 | `onBackupCreated` | `void Function(String)?` | `null` | Callback when backup is created |
 | `onLogLine` | `void Function(String)?` | `null` | Callback for each log line |
+| `onGlobalHeartbeatError` | `HeartbeatErrorCallback?` | `null` | Callback for global heartbeat errors |
 | `maxBackups` | `int` | `20` | Maximum backup operations to retain |
+| `heartbeatInterval` | `Duration` | `5 seconds` | Interval for global heartbeat monitoring |
+| `staleThreshold` | `Duration` | `15 seconds` | Threshold for detecting stale operations |
+
+**Note:** The global heartbeat is automatically started when the Ledger is created.
 
 #### Properties
 
@@ -69,6 +75,8 @@ Ledger({
 | `operations` | `Map<String, Operation>` | Read-only map of active operations |
 | `basePath` | `String` | Base directory path |
 | `maxBackups` | `int` | Maximum backups to retain |
+| `heartbeatInterval` | `Duration` | Global heartbeat interval |
+| `staleThreshold` | `Duration` | Staleness threshold for operations |
 
 #### Methods
 
@@ -79,18 +87,18 @@ Create a new operation (for the initiator).
 ```dart
 Future<Operation> createOperation({
   required String participantId,
-  required int participantPid,
-  required ElapsedFormattedCallback getElapsedFormatted,
+  String? operationId,
+  int? participantPid,
   String? description,
 })
 ```
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `participantId` | `String` | Unique identifier for this participant |
-| `participantPid` | `int` | Process ID of the participant |
-| `getElapsedFormatted` | `ElapsedFormattedCallback` | Callback returning formatted elapsed time |
-| `description` | `String?` | Optional operation description |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `participantId` | `String` | required | Unique identifier for this participant |
+| `operationId` | `String?` | auto-generated | Optional explicit operation ID (for testing or external coordination) |
+| `participantPid` | `int?` | `Platform.pid` | Process ID of the participant (defaults to current process) |
+| `description` | `String?` | `null` | Optional operation description |
 
 **Returns:** `Future<Operation>` - The created operation object.
 
@@ -102,17 +110,15 @@ Join an existing operation as a participant.
 Future<Operation> joinOperation({
   required String operationId,
   required String participantId,
-  required int participantPid,
-  required ElapsedFormattedCallback getElapsedFormatted,
+  int? participantPid,
 })
 ```
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `operationId` | `String` | ID of the operation to join |
-| `participantId` | `String` | Unique identifier for this participant |
-| `participantPid` | `int` | Process ID of the participant |
-| `getElapsedFormatted` | `ElapsedFormattedCallback` | Callback returning formatted elapsed time |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `operationId` | `String` | required | ID of the operation to join |
+| `participantId` | `String` | required | Unique identifier for this participant |
+| `participantPid` | `int?` | `Platform.pid` | Process ID of the participant (defaults to current process) |
 
 **Returns:** `Future<Operation>` - The operation object for this participant.
 
@@ -122,26 +128,6 @@ Get an operation by ID.
 
 ```dart
 Operation? getOperation(String operationId)
-```
-
-##### startGlobalHeartbeat
-
-Start global heartbeat monitoring for all operations.
-
-```dart
-void startGlobalHeartbeat({
-  Duration interval = const Duration(seconds: 5),
-  Duration staleThreshold = const Duration(seconds: 15),
-  HeartbeatErrorCallback? onError,
-})
-```
-
-##### stopGlobalHeartbeat
-
-Stop the global heartbeat monitoring.
-
-```dart
-void stopGlobalHeartbeat()
 ```
 
 ##### dispose
@@ -169,13 +155,13 @@ Each participant gets their own Operation object to interact with the shared ope
 | `pid` | `int` | Process ID of this participant |
 | `isInitiator` | `bool` | Whether this participant started the operation |
 | `isAborted` | `bool` | Whether this participant is aborted |
-| `startTime` | `DateTime` | When the operation was started (for initiators) or joined (for participants) |
-| `elapsedDuration` | `Duration` | Duration since operation start (computed from `startTime`) |
-| `startTimeIso` | `String` | Start time as ISO 8601 string (useful for passing to workers) |
-| `startTimeMs` | `int` | Start time as milliseconds since epoch (useful for CLI args) |
+| `startTime` | `DateTime` | When the operation was started (from operation.json) |
+| `elapsedDuration` | `Duration` | Duration since operation start |
+| `startTimeIso` | `String` | Start time as ISO 8601 string |
+| `startTimeMs` | `int` | Start time as milliseconds since epoch |
 | `cachedData` | `LedgerData?` | Cached operation data |
 | `lastChangeTimestamp` | `DateTime?` | Last change timestamp |
-| `elapsedFormatted` | `String` | Current elapsed time formatted (via callback) |
+| `elapsedFormatted` | `String` | Current elapsed time formatted as "SSS.mmm" (computed from startTime) |
 | `onAbort` | `Future<void>` | Future that completes when abort is signaled |
 | `onFailure` | `Future<OperationFailedInfo>` | Future that completes when operation fails |
 | `stalenessThresholdMs` | `int` | Staleness threshold in milliseconds (default: 10000) |
@@ -196,7 +182,7 @@ Future<String> startCall({
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `callback` | `CallCallback` | required | Callback for cleanup and crash notification |
+| `callback` | `CallCallback` | required | Callback for cleanup and crash handling |
 | `description` | `String?` | `null` | Optional description |
 | `failOnCrash` | `bool` | `true` | Whether crash should fail entire operation |
 
@@ -224,89 +210,122 @@ Future<void> failCall({
 
 ##### spawnCall
 
-Spawn a call that runs asynchronously. Returns callId immediately without waiting.
+Spawn a typed call that runs asynchronously and returns a result.
+
+**Returns immediately** - the call executes in the background. Access `callId` immediately, await `.future` for the result.
 
 ```dart
-Future<String> spawnCall({
-  required CallCallback callback,
+SpawnedCall<T> spawnCall<T>({
+  required Future<T> Function() work,
+  CallCallback<T>? callback,
   String? description,
   bool failOnCrash = true,
 })
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `work` | `Future<T> Function()` | required | The async work to execute |
+| `callback` | `CallCallback<T>?` | `null` | Optional callbacks for completion/crash/cleanup |
+| `description` | `String?` | `null` | Optional description |
+| `failOnCrash` | `bool` | `true` | Whether crash should fail entire operation |
+
+**Returns:** `SpawnedCall<T>` - Handle to track the call. Access `callId` immediately.
+
+**Example:**
+
+```dart
+final call = operation.spawnCall<int>(
+  work: () async => await computeExpensiveValue(),
+  callback: CallCallback<int>(
+    onCompletion: (result) async => print('Got: $result'),
+    onCallCrashed: () async => 0, // Fallback value
+    onOperationFailed: (info) async => print('Op failed!'),
+  ),
+);
+
+// callId is available immediately
+print('Started call: ${call.callId}');
+
+// Wait for result when needed
+await call.future;
+print('Result: ${call.result}');
 ```
 
 ##### sync
 
-Wait for spawned calls to complete.
+Wait for spawned calls to complete and get a SyncResult.
 
 ```dart
-Future<void> sync(
-  List<String> callIds, {
-  Future<void> Function(OperationFailedInfo info)? onOperationFailed,
-})
-```
-
-**Note:** Individual call crash handling is done via the `onCallCrashed` callback provided to `spawnTyped()` at spawn time. This method only notifies about operation-level failures.
-
-#### Typed Spawned Call API
-
-##### spawnTyped
-
-Spawn a typed call that runs asynchronously and returns a result.
-
-```dart
-SpawnedCall<T> spawnTyped<T>({
-  required Future<T> Function() work,
-  Future<T?> Function()? onCallCrashed,
-  Future<void> Function(T result)? onCompletion,
-  String? description,
-  bool failOnCrash = true,
-})
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `work` | `Future<T> Function()` | The async work to execute |
-| `onCallCrashed` | `Future<T?> Function()?` | Optional fallback if work fails |
-| `onCompletion` | `Future<void> Function(T)?` | Called when work completes successfully |
-| `description` | `String?` | Optional description |
-| `failOnCrash` | `bool` | Whether crash should fail entire operation |
-
-**Returns:** `SpawnedCall<T>` - Handle to track the call.
-
-##### syncTyped
-
-Wait for typed spawned calls and get a SyncResult.
-
-```dart
-Future<SyncResult> syncTyped(
+Future<SyncResult> sync(
   List<SpawnedCall> calls, {
   Future<void> Function(OperationFailedInfo info)? onOperationFailed,
   Future<void> Function()? onCompletion,
 })
 ```
 
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `calls` | `List<SpawnedCall>` | List of spawned calls to wait for |
+| `onOperationFailed` | `Function?` | Called if operation fails during sync |
+| `onCompletion` | `Function?` | Called when all calls complete |
+
 **Returns:** `Future<SyncResult>` - Result containing successful, failed, and unknown calls.
+
+**Note:** Individual call crash handling is done via the `onCallCrashed` callback provided to `spawnCall()` at spawn time. This method only notifies about operation-level failures.
+
+**Example:**
+
+```dart
+final call1 = operation.spawnCall<int>(work: () async => 42);
+final call2 = operation.spawnCall<String>(work: () async => 'hello');
+
+final result = await operation.sync([call1, call2]);
+
+if (result.allSucceeded) {
+  print('All done: ${call1.result}, ${call2.result}');
+}
+```
+
+##### awaitCall
+
+Convenience method to wait for a single spawned call.
+
+```dart
+Future<SyncResult> awaitCall(
+  SpawnedCall call, {
+  Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+  Future<void> Function()? onCompletion,
+})
+```
+
+**Returns:** `Future<SyncResult>` - Wraps `sync([call], ...)`.
 
 #### Execution Helper Methods
 
-These convenience methods combine `spawnTyped` with process spawning and result collection, reducing boilerplate for common patterns.
+These convenience methods combine `spawnCall` with process spawning and result collection, reducing boilerplate for common patterns.
+
+**All exec methods return immediately** - they return a `SpawnedCall<T>` that you can track and await when needed.
 
 ##### execFileResultWorker
 
-Spawn a process that writes its result to a file, wait for completion, and return the parsed result.
+Spawn a process that writes its result to a file. Returns immediately.
 
 ```dart
 SpawnedCall<T> execFileResultWorker<T>({
   required String executable,
   required List<String> arguments,
   required String resultFilePath,
-  bool deleteResultFile = true,
+  String? workingDirectory,
   String? description,
-  bool failOnCrash = true,
-  List<String> resources = const [],
+  T Function(String content)? deserializer,
+  bool deleteResultFile = true,
+  Duration pollInterval = const Duration(milliseconds: 100),
   Duration? timeout,
-  void Function(String)? onStdout,
-  void Function(String)? onStderr,
+  void Function(String line)? onStdout,
+  void Function(String line)? onStderr,
+  bool failOnCrash = true,
+  CallCallback<T>? callback,
 })
 ```
 
@@ -315,15 +334,18 @@ SpawnedCall<T> execFileResultWorker<T>({
 | `executable` | `String` | required | Path to executable (e.g., `'dart'`) |
 | `arguments` | `List<String>` | required | Command-line arguments |
 | `resultFilePath` | `String` | required | Path where worker writes result |
-| `deleteResultFile` | `bool` | `true` | Delete result file after reading |
+| `workingDirectory` | `String?` | `null` | Working directory for the process |
 | `description` | `String?` | `null` | Optional call description |
-| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
-| `resources` | `List<String>` | `[]` | Additional resources for cleanup |
+| `deserializer` | `T Function(String)?` | `null` | Optional function to parse content |
+| `deleteResultFile` | `bool` | `true` | Delete result file after reading |
+| `pollInterval` | `Duration` | 100ms | How often to check for result file |
 | `timeout` | `Duration?` | `null` | Optional timeout for file polling |
 | `onStdout` | `void Function(String)?` | `null` | Callback for stdout lines |
 | `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines |
+| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
+| `callback` | `CallCallback<T>?` | `null` | Optional callbacks |
 
-**Returns:** `SpawnedCall<T>` - Call that completes with parsed result.
+**Returns:** `SpawnedCall<T>` - Returns immediately. Await `.future` for result.
 
 **Example:**
 
@@ -332,11 +354,16 @@ final worker = operation.execFileResultWorker<Map<String, dynamic>>(
   executable: 'dart',
   arguments: [
     'run', 'worker.dart',
-    '--start-time=${operation.startTimeMs}',
+    '--operation-id=${operation.operationId}',
     '--output=$resultPath',
   ],
   resultFilePath: resultPath,
 );
+
+// callId available immediately
+print('Started worker: ${worker.callId}');
+
+// Wait for completion when needed
 await worker.future;
 if (worker.isSuccess) {
   print('Result: ${worker.result}');
@@ -345,89 +372,113 @@ if (worker.isSuccess) {
 
 ##### execStdioWorker
 
-Spawn a process that outputs its result to stdout, capture output, and return as string.
+Spawn a process that outputs its result to stdout as JSON. Returns immediately.
+
+**Worker Requirements:** The worker process MUST:
+- Output ONLY the JSON result to stdout (no other content)
+- Use stderr for all status messages, progress, and debugging
+- Exit with code 0 on success
 
 ```dart
-SpawnedCall<String> execStdioWorker<T>({
+SpawnedCall<T> execStdioWorker<T>({
   required String executable,
   required List<String> arguments,
+  String? workingDirectory,
   String? description,
-  bool failOnCrash = true,
-  List<String> resources = const [],
+  T Function(String content)? deserializer,
+  void Function(String line)? onStderr,
   Duration? timeout,
-  void Function(String)? onStderr,
+  bool failOnCrash = true,
+  CallCallback<T>? callback,
 })
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `executable` | `String` | required | Path to executable |
-| `arguments` | `List<String>` | required | Command-line arguments |
+| `arguments` | `List<String>` | required | Command-line arguments (including worker parameters) |
+| `workingDirectory` | `String?` | `null` | Working directory for the process |
 | `description` | `String?` | `null` | Optional call description |
-| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
-| `resources` | `List<String>` | `[]` | Additional resources for cleanup |
+| `deserializer` | `T Function(String)?` | json.decode | Function to parse stdout content |
+| `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines (for progress monitoring) |
 | `timeout` | `Duration?` | `null` | Optional timeout |
-| `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines |
+| `failOnCrash` | `bool` | `true` | Whether crash fails operation |
+| `callback` | `CallCallback<T>?` | `null` | Optional callbacks |
 
-**Returns:** `SpawnedCall<String>` - Call that completes with stdout content.
+**Returns:** `SpawnedCall<T>` - Returns immediately. Await `.future` for result.
 
-**Example:**
+**Example Worker:**
 
 ```dart
-final worker = operation.execStdioWorker(
-  executable: 'dart',
-  arguments: ['run', 'worker.dart', '--json'],
-);
-await worker.future;
-if (worker.isSuccess) {
-  final data = jsonDecode(worker.result);
+// Worker writes status to stderr, result to stdout
+void main(List<String> args) async {
+  final param1 = args.firstWhere((a) => a.startsWith('--param1=')).split('=')[1];
+  stderr.writeln('Processing...');  // Status to stderr
+  await Future.delayed(Duration(seconds: 2));
+  stdout.write(jsonEncode({'result': param1}));  // Only JSON to stdout
 }
 ```
 
-##### execServerCall
-
-Spawn a long-running server process, execute custom work, then terminate.
+**Example Usage:**
 
 ```dart
-SpawnedCall<T> execServerCall<T>({
-  required String executable,
-  required List<String> arguments,
-  required Future<T> Function(Process process) work,
+final worker = operation.execStdioWorker<Map<String, dynamic>>(
+  executable: 'dart',
+  arguments: [
+    'run', 'worker.dart',
+    '--param1=hello',
+    '--param2=world',
+  ],
+  onStderr: (line) => print('[Worker] $line'),
+);
+
+await worker.future;
+if (worker.isSuccess) {
+  final data = worker.result;  // Parsed JSON
+}
+```
+
+##### execServerRequest
+
+Execute a request to an already-running server process. Returns immediately.
+
+```dart
+SpawnedCall<T> execServerRequest<T>({
+  required Future<T> Function() work,
   String? description,
+  Duration? timeout,
   bool failOnCrash = true,
-  List<String> resources = const [],
-  Duration startupDelay = const Duration(milliseconds: 500),
-  void Function(String)? onStdout,
-  void Function(String)? onStderr,
+  CallCallback<T>? callback,
 })
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `executable` | `String` | required | Path to server executable |
-| `arguments` | `List<String>` | required | Command-line arguments |
-| `work` | `Future<T> Function(Process)` | required | Async function to execute against server |
+| `work` | `Future<T> Function()` | required | Async function to execute (e.g., HTTP request) |
 | `description` | `String?` | `null` | Optional call description |
+| `timeout` | `Duration?` | `null` | Optional timeout |
 | `failOnCrash` | `bool` | `true` | Whether crash fails operation |
-| `resources` | `List<String>` | `[]` | Additional resources for cleanup |
-| `startupDelay` | `Duration` | `500ms` | Time to wait before executing work |
-| `onStdout` | `void Function(String)?` | `null` | Callback for stdout lines |
-| `onStderr` | `void Function(String)?` | `null` | Callback for stderr lines |
+| `callback` | `CallCallback<T>?` | `null` | Optional callbacks |
 
-**Returns:** `SpawnedCall<T>` - Call that completes with work function result.
+**Returns:** `SpawnedCall<T>` - Returns immediately. Await `.future` for result.
 
 **Example:**
 
 ```dart
-final serverCall = operation.execServerCall<String>(
-  executable: 'dart',
-  arguments: ['run', 'server.dart', '--port=8080'],
-  work: (process) async {
+final request = operation.execServerRequest<String>(
+  work: () async {
     final response = await http.get(Uri.parse('http://localhost:8080/api'));
     return response.body;
   },
 );
-await serverCall.future;
+
+// callId available immediately
+print('Request ID: ${request.callId}');
+
+await request.future;
+if (request.isSuccess) {
+  print('Response: ${request.result}');
+}
 ```
 
 #### Other Methods
@@ -438,6 +489,14 @@ Write an entry to the operation log.
 
 ```dart
 Future<void> log(String message, {LogLevel level = LogLevel.info})
+```
+
+##### debugLog
+
+Write an entry to the debug log (internal use only).
+
+```dart
+Future<void> debugLog(String message)
 ```
 
 ##### logMessage
@@ -579,6 +638,26 @@ Unlock the operation file without writing changes.
 Future<void> unlockOperation()
 ```
 
+#### Low-level Stack Frame Methods
+
+These methods provide direct control over stack frame management. For most use cases, prefer `startCall`/`endCall` which provide structured call tracking with callbacks.
+
+##### pushStackFrame
+
+Push a stack frame for a call (low-level operation). Use this when you need direct control over stack frame management, testing stack behavior without callback overhead, or implementing custom call patterns.
+
+```dart
+Future<void> pushStackFrame({required String callId})
+```
+
+##### popStackFrame
+
+Pop a stack frame for a call (low-level operation). Use this when you need direct control over stack frame management, testing stack behavior without callback overhead, or implementing custom call patterns.
+
+```dart
+Future<void> popStackFrame({required String callId})
+```
+
 ---
 
 ### SpawnedCall Class
@@ -602,13 +681,13 @@ SpawnedCall({
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `callId` | `String` | Unique identifier for this call |
+| `callId` | `String` | Unique identifier for this call (available immediately) |
 | `description` | `String?` | Optional description |
 | `isCompleted` | `bool` | Whether the call has completed |
 | `isSuccess` | `bool` | Whether the call completed successfully |
 | `isFailed` | `bool` | Whether the call failed/crashed |
 | `result` | `T` | Result value (throws if not completed or failed) |
-| `resultOrNull` | `T?` | Result if successful, null otherwise |
+| `resultOrNull` | `T?` | Result if successful, null otherwise (safe accessor) |
 | `error` | `Object?` | Error if failed |
 | `stackTrace` | `StackTrace?` | Stack trace if failed |
 | `future` | `Future<void>` | Future that completes when call finishes |
@@ -643,7 +722,7 @@ void fail(Object error, [StackTrace? stackTrace])
 
 ### SyncResult Class
 
-Result of an `Operation.syncTyped()` call.
+Result of an `Operation.sync()` call.
 
 #### Constructor
 
@@ -754,62 +833,80 @@ static Future<List<T>> Function() pollFiles<T>({
 
 Callback structure for call operations.
 
+The type parameter `T` matches the result type of the spawned call.
+
 ```dart
-class CallCallback {
-  final Future<void> Function() onCleanup;
-  final Future<void> Function(CallEndedInfo info)? onEnded;
-  final Future<void> Function(CrashedCallInfo info)? onCrashed;
+class CallCallback<T> {
+  final Future<void> Function()? onCleanup;
+  final Future<void> Function(T result)? onCompletion;
+  final Future<T?> Function()? onCallCrashed;
+  final Future<void> Function(OperationFailedInfo info)? onOperationFailed;
 
   CallCallback({
-    required this.onCleanup,
-    this.onEnded,
-    this.onCrashed,
+    this.onCleanup,
+    this.onCompletion,
+    this.onCallCrashed,
+    this.onOperationFailed,
   });
 }
 ```
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `onCleanup` | `Future<void> Function()` | Called during cleanup (crash or normal end) |
-| `onEnded` | `Future<void> Function(CallEndedInfo)?` | Called when call ends normally |
-| `onCrashed` | `Future<void> Function(CrashedCallInfo)?` | Called when call crashes |
+| `onCleanup` | `Future<void> Function()?` | Called during cleanup (crash or normal end) |
+| `onCompletion` | `Future<void> Function(T)?` | Called when call completes successfully with result |
+| `onCallCrashed` | `Future<T?> Function()?` | Called when this call crashes. Return fallback or null |
+| `onOperationFailed` | `Future<void> Function(OperationFailedInfo)?` | Called when the operation fails |
 
----
+#### Factory Constructors
 
-### CallEndedInfo Class
+##### cleanup
 
-Information passed to `CallCallback.onEnded` when a call completes normally.
+Create a simple callback with just cleanup logic.
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `callId` | `String` | Unique identifier for this call |
-| `operationId` | `String` | Operation this call belongs to |
-| `participantId` | `String` | Participant that made this call |
-| `startedAt` | `DateTime` | When the call started |
-| `endedAt` | `DateTime` | When the call ended |
-| `duration` | `Duration` | Duration of the call |
+```dart
+factory CallCallback.cleanup(Future<void> Function() onCleanup)
+```
 
----
+**Example:**
 
-### CrashedCallInfo Class
+```dart
+// Full callback with all handlers
+final callback = CallCallback<int>(
+  onCleanup: () async => print('Cleaning up'),
+  onCompletion: (result) async => print('Got result: $result'),
+  onCallCrashed: () async {
+    print('Call crashed, returning fallback');
+    return -1; // Fallback value
+  },
+  onOperationFailed: (info) async => print('Operation failed: ${info.reason}'),
+);
 
-Information passed to `CallCallback.onCrashed` when a call crashes.
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `callId` | `String` | Unique identifier for the crashed call |
-| `operationId` | `String` | Operation this call belongs to |
-| `participantId` | `String` | Participant that made this call |
-| `startedAt` | `DateTime` | When the call started |
-| `detectedAt` | `DateTime` | When the crash was detected |
-| `crashReason` | `String?` | Reason for the crash, if known |
-| `uptime` | `Duration` | How long the call ran before crash |
+// Simple cleanup-only callback
+final simple = CallCallback<void>.cleanup(() async => tempFile.deleteSync());
+```
 
 ---
 
 ### OperationFailedInfo Class
 
 Information about an operation failure.
+
+```dart
+class OperationFailedInfo {
+  final String operationId;
+  final DateTime failedAt;
+  final String? reason;
+  final List<String> crashedCallIds;
+
+  OperationFailedInfo({
+    required this.operationId,
+    required this.failedAt,
+    this.reason,
+    this.crashedCallIds = const [],
+  });
+}
+```
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -987,14 +1084,6 @@ Heartbeat error types.
 
 ## Type Definitions
 
-### ElapsedFormattedCallback
-
-Callback for getting elapsed time formatted string.
-
-```dart
-typedef ElapsedFormattedCallback = String Function();
-```
-
 ### HeartbeatErrorCallback
 
 Callback for heartbeat errors.
@@ -1028,11 +1117,8 @@ typedef HeartbeatSuccessCallback = void Function(
 final ledger = Ledger(basePath: '/tmp/ledger');
 
 // Create operation (initiator)
-final stopwatch = Stopwatch()..start();
 final operation = await ledger.createOperation(
   participantId: 'main',
-  participantPid: pid,
-  getElapsedFormatted: () => '${stopwatch.elapsedMilliseconds}ms',
 );
 
 // Start heartbeat
@@ -1040,9 +1126,8 @@ operation.startHeartbeat();
 
 // Do work with tracked calls
 final callId = await operation.startCall(
-  callback: CallCallback(
+  callback: CallCallback<void>(
     onCleanup: () async => print('Cleaning up'),
-    onEnded: (info) async => print('Call took ${info.duration}'),
   ),
 );
 
@@ -1058,31 +1143,60 @@ ledger.dispose();
 ### Spawned Calls with Typed Results
 
 ```dart
-// Spawn multiple async calls
-final call1 = operation.spawnTyped<int>(
+// Spawn multiple async calls - returns immediately!
+final call1 = operation.spawnCall<int>(
   work: () async {
     await Future.delayed(Duration(seconds: 2));
     return 42;
   },
-  onCallCrashed: () async {
-    print('Call 1 crashed, returning fallback');
-    return -1;
-  },
+  callback: CallCallback<int>(
+    onCallCrashed: () async {
+      print('Call 1 crashed, returning fallback');
+      return -1;
+    },
+  ),
 );
 
-final call2 = operation.spawnTyped<String>(
+final call2 = operation.spawnCall<String>(
   work: () async {
     await Future.delayed(Duration(seconds: 1));
     return 'hello';
   },
 );
 
+// callIds are available immediately
+print('Started: ${call1.callId}, ${call2.callId}');
+
 // Wait for all calls
-final result = await operation.syncTyped([call1, call2]);
+final result = await operation.sync([call1, call2]);
 
 if (result.allSucceeded) {
   print('Call 1 result: ${call1.result}');
   print('Call 2 result: ${call2.result}');
+}
+```
+
+### Worker Process with File Result
+
+```dart
+// Spawn worker that writes result to file - returns immediately!
+final worker = operation.execFileResultWorker<Map<String, dynamic>>(
+  executable: 'dart',
+  arguments: [
+    'run', 'worker.dart',
+    '--operation-id=${operation.operationId}',
+    '--output=$resultPath',
+  ],
+  resultFilePath: resultPath,
+);
+
+// callId available immediately
+print('Worker started: ${worker.callId}');
+
+// Wait for result when needed
+await worker.future;
+if (worker.isSuccess) {
+  print('Worker result: ${worker.result}');
 }
 ```
 

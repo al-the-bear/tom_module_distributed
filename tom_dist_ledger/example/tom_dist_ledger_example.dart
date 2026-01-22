@@ -23,24 +23,22 @@ void main() async {
 
   try {
     // Start an operation
-    final operation = await ledger.startOperation(
+    final operation = await ledger.createOperation(
       operationId: 'example_op_${DateTime.now().millisecondsSinceEpoch}',
-      initiatorPid: pid,
       participantId: 'example',
-      getElapsedFormatted: () => '000.000',
     );
 
     print('Started operation: ${operation.operationId}');
 
     // Track a call
-    await operation.startCallExecution(callId: 'example-call-1');
+    await operation.pushStackFrame(callId: 'example-call-1');
     print('Started call execution');
 
     // Simulate work
     await Future.delayed(const Duration(milliseconds: 100));
 
     // End the call
-    await operation.endCallExecution(callId: 'example-call-1');
+    await operation.popStackFrame(callId: 'example-call-1');
     print('Ended call execution');
 
     // Complete the operation

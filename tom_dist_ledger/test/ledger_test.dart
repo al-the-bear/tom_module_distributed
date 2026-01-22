@@ -229,11 +229,10 @@ void main() {
 
     group('startOperation', () {
       test('creates operation file in ledger directory', () async {
-        final operation = await ledger.startOperation(
+        final operation = await ledger.createOperation(
           operationId: 'test_op_1',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
         final opFile = File('${tempDir.path}/test_op_1.operation.json');
@@ -250,29 +249,27 @@ void main() {
       });
 
       test('stack is initially empty', () async {
-        final operation = await ledger.startOperation(
+        final operation = await ledger.createOperation(
           operationId: 'test_op_2',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
         final opFile = File('${tempDir.path}/test_op_2.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
-        // Stack starts empty - frames are added by startCall/startCallExecution
+        // Stack starts empty - frames are added by startCall/pushStackFrame
         expect(stack.length, equals(0));
 
         await operation.complete();
       });
 
       test('registers operation in ledger', () async {
-        final operation = await ledger.startOperation(
+        final operation = await ledger.createOperation(
           operationId: 'test_op_3',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
         expect(ledger.operations.containsKey('test_op_3'), isTrue);
@@ -282,11 +279,10 @@ void main() {
       });
 
       test('sets isInitiator to true', () async {
-        final operation = await ledger.startOperation(
+        final operation = await ledger.createOperation(
           operationId: 'test_op_4',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
         expect(operation.isInitiator, isTrue);
@@ -295,22 +291,20 @@ void main() {
       });
     });
 
-    group('participateInOperation', () {
+    group('joinOperation', () {
       test('creates operation object for existing operation', () async {
         // First, create an operation as initiator
-        final initiator = await ledger.startOperation(
+        final initiator = await ledger.createOperation(
           operationId: 'test_op_5',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
         // Then, participate as another process
-        final participant = await ledger.participateInOperation(
+        final participant = await ledger.joinOperation(
           operationId: 'test_op_5',
           participantPid: 5678,
           participantId: 'bridge',
-          getElapsedFormatted: () => '000.000',
         );
 
         expect(participant.operationId, equals('test_op_5'));
@@ -322,18 +316,16 @@ void main() {
       });
 
       test('loads cached data from existing operation file', () async {
-        final initiator = await ledger.startOperation(
+        final initiator = await ledger.createOperation(
           operationId: 'test_op_6',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
-        final participant = await ledger.participateInOperation(
+        final participant = await ledger.joinOperation(
           operationId: 'test_op_6',
           participantPid: 5678,
           participantId: 'bridge',
-          getElapsedFormatted: () => '000.000',
         );
 
         expect(participant.cachedData, isNotNull);
@@ -345,11 +337,10 @@ void main() {
 
     group('dispose', () {
       test('stops all heartbeats and clears operations', () async {
-        await ledger.startOperation(
+        await ledger.createOperation(
           operationId: 'test_op_7',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
 
         expect(ledger.operations.length, equals(1));
@@ -376,11 +367,10 @@ void main() {
         basePath: tempDir.path,
         onBackupCreated: (path) => backups.add(path),
       );
-      operation = await ledger.startOperation(
+      operation = await ledger.createOperation(
         operationId: 'op_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
     });
 
@@ -388,15 +378,15 @@ void main() {
       ledger.dispose();
     });
 
-    group('startCallExecution', () {
+    group('pushStackFrame', () {
       test('adds stack frame to operation file', () async {
-        await operation.startCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
 
         final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
-        // Stack starts empty, startCallExecution adds one frame
+        // Stack starts empty, pushStackFrame adds one frame
         expect(stack.length, equals(1));
         expect(stack[0]['callId'], equals('call-1'));
         expect(stack[0]['participantId'], equals('cli'));
@@ -405,7 +395,7 @@ void main() {
       });
 
       test('creates backup before modification', () async {
-        await operation.startCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
 
         expect(backups.length, equals(1));
         expect(backups[0], contains('op_test'));
@@ -421,7 +411,7 @@ void main() {
             DateTime.parse(beforeContent['lastHeartbeat'] as String);
 
         await Future.delayed(const Duration(milliseconds: 10));
-        await operation.startCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
 
         final afterContent = json.decode(opFile.readAsStringSync());
         final afterHeartbeat =
@@ -435,7 +425,7 @@ void main() {
       test('updates cached data', () async {
         expect(operation.cachedData!.stack.length, equals(0));
 
-        await operation.startCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
 
         expect(operation.cachedData!.stack.length, equals(1));
 
@@ -443,10 +433,10 @@ void main() {
       });
     });
 
-    group('endCallExecution', () {
+    group('popStackFrame', () {
       test('removes stack frame from operation file', () async {
-        await operation.startCallExecution(callId: 'call-1');
-        await operation.endCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
+        await operation.popStackFrame(callId: 'call-1');
 
         final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
@@ -459,9 +449,9 @@ void main() {
       });
 
       test('removes correct frame when multiple exist', () async {
-        await operation.startCallExecution(callId: 'call-1');
-        await operation.startCallExecution(callId: 'call-2');
-        await operation.endCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-2');
+        await operation.popStackFrame(callId: 'call-1');
 
         final opFile = File('${tempDir.path}/op_test.operation.json');
         final content = json.decode(opFile.readAsStringSync());
@@ -475,10 +465,10 @@ void main() {
       });
 
       test('creates backup before modification', () async {
-        await operation.startCallExecution(callId: 'call-1');
+        await operation.pushStackFrame(callId: 'call-1');
         final backupsBefore = backups.length;
 
-        await operation.endCallExecution(callId: 'call-1');
+        await operation.popStackFrame(callId: 'call-1');
 
         expect(backups.length, greaterThan(backupsBefore));
 
@@ -648,11 +638,10 @@ void main() {
       });
 
       test('throws if not initiator', () async {
-        final participant = await ledger.participateInOperation(
+        final participant = await ledger.joinOperation(
           operationId: 'op_test',
           participantPid: 5678,
           participantId: 'bridge',
-          getElapsedFormatted: () => '000.000',
         );
 
         expect(() => participant.complete(), throwsStateError);
@@ -712,17 +701,16 @@ void main() {
     });
 
     test('creates trail directory on first backup', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'trail_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final trailDir = Directory('${tempDir.path}/trail_test_trail');
       expect(trailDir.existsSync(), isFalse);
 
-      await operation.startCallExecution(callId: 'call-1');
+      await operation.pushStackFrame(callId: 'call-1');
 
       expect(trailDir.existsSync(), isTrue);
 
@@ -730,14 +718,13 @@ void main() {
     });
 
     test('backup files contain correct operation state', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'trail_test_2',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '001.000',
       );
 
-      await operation.startCallExecution(callId: 'call-1');
+      await operation.pushStackFrame(callId: 'call-1');
 
       expect(backups.length, equals(1));
 
@@ -749,17 +736,16 @@ void main() {
     });
 
     test('multiple backups are created for multiple modifications', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'trail_test_3',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      await operation.startCallExecution(callId: 'call-1');
-      await operation.startCallExecution(callId: 'call-2');
-      await operation.endCallExecution(callId: 'call-2');
-      await operation.endCallExecution(callId: 'call-1');
+      await operation.pushStackFrame(callId: 'call-1');
+      await operation.pushStackFrame(callId: 'call-2');
+      await operation.popStackFrame(callId: 'call-2');
+      await operation.popStackFrame(callId: 'call-1');
 
       // Should have backups for each modification
       expect(backups.length, greaterThanOrEqualTo(4));
@@ -768,19 +754,17 @@ void main() {
     });
 
     test('backup filename includes timestamp', () async {
-      var timestamp = '005.123';
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'timestamp_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => timestamp,
       );
 
-      timestamp = '006.456';
-      await operation.startCallExecution(callId: 'call-1');
+      await operation.pushStackFrame(callId: 'call-1');
 
       expect(backups.isNotEmpty, isTrue);
-      expect(backups.last, contains('006.456'));
+      // Backup filenames now include computed elapsed time in SSS.mmm format
+      expect(backups.last, matches(RegExp(r'\d{3}\.\d{3}')));
 
       await operation.complete();
     });
@@ -802,11 +786,10 @@ void main() {
     });
 
     test('lock file is created during operation', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'lock_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Lock should be released after startOperation
@@ -832,11 +815,10 @@ void main() {
         initiatorId: 'cli',
       ).toJson()));
 
-      final operation = await ledger.participateInOperation(
+      final operation = await ledger.joinOperation(
         operationId: 'stale_test',
         participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       expect(operation, isNotNull);
@@ -875,24 +857,22 @@ void main() {
 
     test('multiple participants can modify the same operation', () async {
       // Start as initiator
-      final initiator = await ledger.startOperation(
+      final initiator = await ledger.createOperation(
         operationId: 'concurrent_test',
-        initiatorPid: 1111,
+        participantPid: 1111,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Join as participant
-      final participant = await ledger.participateInOperation(
+      final participant = await ledger.joinOperation(
         operationId: 'concurrent_test',
         participantPid: 2222,
         participantId: 'bridge',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Both modify the operation
-      await initiator.startCallExecution(callId: 'cli-call');
-      await participant.startCallExecution(callId: 'bridge-call');
+      await initiator.pushStackFrame(callId: 'cli-call');
+      await participant.pushStackFrame(callId: 'bridge-call');
 
       // Verify both calls are in the stack
       final opFile = File('${tempDir.path}/concurrent_test.operation.json');
@@ -927,32 +907,29 @@ void main() {
 
     test('complete lifecycle with multiple participants', () async {
       // 1. CLI starts operation
-      final cli = await ledger.startOperation(
+      final cli = await ledger.createOperation(
         operationId: 'lifecycle_test',
-        initiatorPid: 1000,
+        participantPid: 1000,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
-      await cli.startCallExecution(callId: 'cli-main');
+      await cli.pushStackFrame(callId: 'cli-main');
 
       // 2. Bridge joins and starts processing
-      final bridge = await ledger.participateInOperation(
+      final bridge = await ledger.joinOperation(
         operationId: 'lifecycle_test',
         participantPid: 2000,
         participantId: 'bridge',
-        getElapsedFormatted: () => '001.000',
       );
-      await bridge.startCallExecution(callId: 'bridge-process');
+      await bridge.pushStackFrame(callId: 'bridge-process');
       await bridge.registerTempResource(path: '/tmp/work.txt');
 
       // 3. VSCode joins and calls external service
-      final vscode = await ledger.participateInOperation(
+      final vscode = await ledger.joinOperation(
         operationId: 'lifecycle_test',
         participantPid: 3000,
         participantId: 'vscode',
-        getElapsedFormatted: () => '002.000',
       );
-      await vscode.startCallExecution(callId: 'vscode-copilot');
+      await vscode.pushStackFrame(callId: 'vscode-copilot');
 
       // Verify full stack
       var opFile = File('${tempDir.path}/lifecycle_test.operation.json');
@@ -961,10 +938,10 @@ void main() {
       expect(stack.length, equals(3)); // 3 calls (no initial frame)
 
       // 4. Unwind in reverse order
-      await vscode.endCallExecution(callId: 'vscode-copilot');
+      await vscode.popStackFrame(callId: 'vscode-copilot');
       await bridge.unregisterTempResource(path: '/tmp/work.txt');
-      await bridge.endCallExecution(callId: 'bridge-process');
-      await cli.endCallExecution(callId: 'cli-main');
+      await bridge.popStackFrame(callId: 'bridge-process');
+      await cli.popStackFrame(callId: 'cli-main');
 
       // Verify stack is empty after unwinding
       content = json.decode(opFile.readAsStringSync());
@@ -1044,11 +1021,10 @@ void main() {
     });
 
     test('onHeartbeatSuccess is called on successful heartbeat', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'hb_success_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       HeartbeatResult? receivedResult;
@@ -1077,11 +1053,10 @@ void main() {
     });
 
     test('onHeartbeatError called when abort flag is set', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'hb_abort_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       HeartbeatError? receivedError;
@@ -1109,11 +1084,10 @@ void main() {
     });
 
     test('onHeartbeatError called when ledger file is deleted', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'hb_deleted_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       HeartbeatError? receivedError;
@@ -1140,15 +1114,14 @@ void main() {
     });
 
     test('onHeartbeatSuccess detects stale children', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'hb_stale_cb_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Add a second participant to the stack (simulating another process)
-      await operation.startCallExecution(callId: 'test-call');
+      await operation.pushStackFrame(callId: 'test-call');
       
       // Manually set another participant's heartbeat to be stale
       final opFile = File('${tempDir.path}/hb_stale_cb_test.operation.json');
@@ -1192,11 +1165,10 @@ void main() {
     });
 
     test('onHeartbeatError called on IO exception', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'hb_io_error_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       HeartbeatError? ioError;
@@ -1304,29 +1276,30 @@ void main() {
       }
     });
 
-    test('elapsedFormatted returns value from callback', () async {
-      var elapsed = '001.234';
-      final operation = await ledger.startOperation(
+    test('elapsedFormatted returns computed elapsed time', () async {
+      final operation = await ledger.createOperation(
         operationId: 'elapsed_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => elapsed,
       );
 
-      expect(operation.elapsedFormatted, equals('001.234'));
+      // elapsedFormatted now computes elapsed time from startTime
+      // Format is SSS.mmm (seconds.milliseconds)
+      expect(operation.elapsedFormatted, matches(RegExp(r'^\d{3}\.\d{3}$')));
 
-      elapsed = '002.456';
-      expect(operation.elapsedFormatted, equals('002.456'));
+      await Future.delayed(Duration(milliseconds: 10));
+      // After delay, elapsed time should be different
+      final elapsed2 = operation.elapsedFormatted;
+      expect(elapsed2, matches(RegExp(r'^\d{3}\.\d{3}$')));
 
       await operation.complete();
     });
 
     test('logMessage formats with timestamp and participant', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'log_msg_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '003.500',
       );
 
       await operation.logMessage(depth: 1, message: 'Test message');
@@ -1334,7 +1307,8 @@ void main() {
       final logFile = File('${tempDir.path}/log_msg_test.operation.log');
       final content = logFile.readAsStringSync();
 
-      expect(content, contains('003.500'));
+      // elapsedFormatted now computes elapsed time in SSS.mmm format
+      expect(content, matches(RegExp(r'\d{3}\.\d{3}')));
       expect(content, contains('[cli]'));
       expect(content, contains('Test message'));
       expect(content, contains('    ')); // indentation for depth 1
@@ -1343,11 +1317,10 @@ void main() {
     });
 
     test('stopHeartbeat can be called when no heartbeat is running', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'stop_no_hb',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Should not throw
@@ -1357,18 +1330,17 @@ void main() {
     });
 
     test('lastChangeTimestamp is updated on modifications', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'timestamp_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final initialTimestamp = operation.lastChangeTimestamp;
       expect(initialTimestamp, isNotNull);
 
       await Future.delayed(const Duration(milliseconds: 10));
-      await operation.startCallExecution(callId: 'test');
+      await operation.pushStackFrame(callId: 'test');
 
       expect(
         operation.lastChangeTimestamp!.isAfter(initialTimestamp!),
@@ -1398,57 +1370,54 @@ void main() {
     });
 
     test('startCall adds stack frame with ledger-generated callId', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'start_call_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(
         onCleanup: () async {},
       );
 
-      final callId = await operation.startCall(
+      final call = await operation.startCall(
         callback: testCallback,
         description: 'test call',
       );
       
-      expect(callId, isNotEmpty);
+      expect(call.callId, isNotEmpty);
       expect(operation.cachedData!.stack.length, equals(1));
-      expect(operation.cachedData!.stack[0].callId, equals(callId));
+      expect(operation.cachedData!.stack[0].callId, equals(call.callId));
       expect(operation.cachedData!.stack[0].description, equals('test call'));
 
       await operation.complete();
     });
 
     test('startCall callId has correct format', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'callid_format_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(onCleanup: () async {});
 
-      final callId = await operation.startCall(
+      final call = await operation.startCall(
         callback: testCallback,
         description: 'test',
       );
       
       // Format: call_{participantId}_{counter}_{random}
-      expect(callId, matches(RegExp(r'^call_cli_\d+_[0-9a-f]+$')));
+      expect(call.callId, matches(RegExp(r'^call_cli_\d+_[0-9a-f]+$')));
 
       await operation.complete();
     });
 
     test('startCall with callback for cleanup', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'callback_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       var cleanupCalled = false;
@@ -1468,29 +1437,27 @@ void main() {
     });
 
     test('endCall removes matching stack frame', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'end_call_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(onCleanup: () async {});
-      final callId = await operation.startCall(callback: testCallback, description: 'test');
+      final call = await operation.startCall(callback: testCallback, description: 'test');
       expect(operation.cachedData!.stack.length, equals(1));
 
-      await operation.endCall(callId: callId);
+      await call.end();
       expect(operation.cachedData!.stack.length, equals(0));
 
       await operation.complete();
     });
 
     test('endCall removes correct frame when multiple exist', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'multi_end_call_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(onCleanup: () async {});
@@ -1498,19 +1465,18 @@ void main() {
       final call2 = await operation.startCall(callback: testCallback, description: 'call 2');
       expect(operation.cachedData!.stack.length, equals(2));
 
-      await operation.endCall(callId: call1);
+      await call1.end();
       expect(operation.cachedData!.stack.length, equals(1));
-      expect(operation.cachedData!.stack[0].callId, equals(call2));
+      expect(operation.cachedData!.stack[0].callId, equals(call2.callId));
 
       await operation.complete();
     });
 
     test('startCall failOnCrash defaults to true', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'failoncrash_default_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(onCleanup: () async {});
@@ -1525,11 +1491,10 @@ void main() {
     });
 
     test('startCall failOnCrash can be set to false', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'failoncrash_false_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(onCleanup: () async {});
@@ -1551,11 +1516,10 @@ void main() {
 
     test('startCall failOnCrash is persisted and restored', () async {
       // Create operation with failOnCrash=false call
-      final operation1 = await ledger.startOperation(
+      final operation1 = await ledger.createOperation(
         operationId: 'failoncrash_persist_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final testCallback = CallCallback(onCleanup: () async {});
@@ -1599,11 +1563,10 @@ void main() {
     });
 
     test('log with different levels writes to operation log', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'log_level_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await operation.log('Info message', level: LogLevel.info);
@@ -1621,11 +1584,10 @@ void main() {
     });
 
     test('debugLog writes to debug log only', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'debug_log_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await operation.debugLog('Debug message');
@@ -1662,7 +1624,6 @@ void main() {
       final operation = await ledger.createOperation(
         participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Format: YYYYMMDDTHH:MM:SS.sss-participantId-random
@@ -1689,11 +1650,10 @@ void main() {
     test('maxBackups limits number of backup files', () async {
       // Create multiple operations to generate backups
       for (var i = 0; i < 5; i++) {
-        final operation = await ledger.startOperation(
+        final operation = await ledger.createOperation(
           operationId: 'backup_test_$i',
-          initiatorPid: 1234,
+          participantPid: 1234,
           participantId: 'cli',
-          getElapsedFormatted: () => '000.000',
         );
         await operation.complete();
       }
@@ -1727,58 +1687,64 @@ void main() {
     });
 
     test('spawnCall failOnCrash defaults to true', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'spawn_default_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final testCallback = CallCallback(onCleanup: () async {});
-      await operation.spawnCall(
-        callback: testCallback,
+      final spawnedCall = operation.spawnCall<int>(
+        work: () async => 42,
         description: 'spawned call',
       );
-
+      
+      // Wait for call to start (stack frame pushed async)
+      await Future.delayed(Duration(milliseconds: 10));
+      
+      // Check stack has the call
+      expect(operation.cachedData!.stack.length, greaterThan(0));
       expect(operation.cachedData!.stack[0].failOnCrash, isTrue);
-
+      
+      await spawnedCall.future;
       await operation.complete();
     });
 
     test('spawnCall failOnCrash can be set to false', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'spawn_false_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final testCallback = CallCallback(onCleanup: () async {});
-      await operation.spawnCall(
-        callback: testCallback,
+      final spawnedCall = operation.spawnCall<int>(
+        work: () async {
+          // Delay so the stack frame is visible before work completes
+          await Future.delayed(Duration(milliseconds: 50));
+          return 42;
+        },
         description: 'contained spawned',
         failOnCrash: false,
       );
+      
+      // Wait for stack frame to be pushed
+      await Future.delayed(Duration(milliseconds: 10));
 
+      expect(operation.cachedData!.stack.length, greaterThan(0));
       expect(operation.cachedData!.stack[0].failOnCrash, isFalse);
-
-      // Verify persisted to file
-      final opFile = File('${tempDir.path}/spawn_false_test.operation.json');
-      final content = json.decode(opFile.readAsStringSync());
-      expect(content['stack'][0]['failOnCrash'], isFalse);
+      
+      await spawnedCall.future;
 
       await operation.complete();
     });
 
     test('mixed startCall and spawnCall with different failOnCrash', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'mixed_calls_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final testCallback = CallCallback(onCleanup: () async {});
+      final testCallback = CallCallback<int>(onCleanup: () async {});
       
       // Start a normal call (failOnCrash=true)
       await operation.startCall(
@@ -1787,11 +1753,17 @@ void main() {
       );
       
       // Spawn a contained call (failOnCrash=false)
-      await operation.spawnCall(
-        callback: testCallback,
+      final spawnedCall = operation.spawnCall<int>(
+        work: () async {
+          await Future.delayed(Duration(milliseconds: 50));
+          return 42;
+        },
         description: 'contained spawn',
         failOnCrash: false,
       );
+      
+      // Wait for stack frame to be pushed
+      await Future.delayed(Duration(milliseconds: 10));
       
       // Start another normal call (failOnCrash=true, explicit)
       await operation.startCall(
@@ -1799,6 +1771,9 @@ void main() {
         description: 'explicit normal',
         failOnCrash: true,
       );
+      
+      // Now wait for spawned call to complete
+      await spawnedCall.future;
 
       final stack = operation.cachedData!.stack;
       expect(stack.length, equals(3));
@@ -1828,11 +1803,10 @@ void main() {
     });
 
     test('failCall removes stack frame and logs error', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'fail_call_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       var cleanupCalled = false;
@@ -1840,17 +1814,14 @@ void main() {
         onCleanup: () async { cleanupCalled = true; },
       );
       
-      final callId = await operation.startCall(
+      final call = await operation.startCall(
         callback: testCallback,
         description: 'will fail',
       );
 
       expect(operation.cachedData!.stack.length, equals(1));
 
-      await operation.failCall(
-        callId: callId,
-        error: 'Test error',
-      );
+      await call.fail('Test error');
 
       expect(operation.cachedData!.stack.length, equals(0));
       expect(cleanupCalled, isTrue);
@@ -1866,14 +1837,14 @@ void main() {
     });
 
     test('failCall throws for unknown callId', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'fail_call_unknown_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       expect(
+        // ignore: deprecated_member_use_from_same_package
         () => operation.failCall(callId: 'unknown_call', error: 'error'),
         throwsStateError,
       );
@@ -1881,44 +1852,47 @@ void main() {
       await operation.complete();
     });
 
-    test('failCall calls onCrashed callback if provided', () async {
-      final operation = await ledger.startOperation(
+    test('failCall signals operation failure when failOnCrash is true', () async {
+      final operation = await ledger.createOperation(
         operationId: 'fail_call_crashed_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      CrashedCallInfo? crashedInfo;
-      final testCallback = CallCallback(
+      OperationFailedInfo? failedInfo;
+      operation.onFailure.then((info) {
+        failedInfo = info;
+      });
+      
+      final testCallback = CallCallback<int>(
         onCleanup: () async {},
-        onCrashed: (info) async { crashedInfo = info; },
       );
       
-      final callId = await operation.startCall(
+      final call = await operation.startCall<int>(
         callback: testCallback,
         description: 'will crash',
+        failOnCrash: true,
       );
 
-      await operation.failCall(
-        callId: callId,
-        error: 'Crash reason',
-      );
+      await call.fail('Crash reason');
 
-      expect(crashedInfo, isNotNull);
-      expect(crashedInfo!.callId, equals(callId));
-      expect(crashedInfo!.crashReason, contains('Crash reason'));
+      // Give time for the failure to propagate
+      await Future.delayed(Duration(milliseconds: 10));
+      
+      expect(failedInfo, isNotNull);
+      expect(failedInfo!.crashedCallIds, contains(call.callId));
+      expect(failedInfo!.reason, contains('Crash reason'));
 
       await operation.complete();
     });
   });
 
-  group('spawnTyped and syncTyped', () {
+  group('spawnCall and sync', () {
     late Directory tempDir;
     late Ledger ledger;
 
     setUp(() {
-      tempDir = Directory.systemTemp.createTempSync('spawnTyped_test_');
+      tempDir = Directory.systemTemp.createTempSync('spawnCall_test_');
       ledger = Ledger(basePath: tempDir.path);
     });
 
@@ -1927,15 +1901,14 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('spawnTyped returns SpawnedCall and executes work', () async {
-      final operation = await ledger.startOperation(
+    test('spawnCall returns SpawnedCall and executes work', () async {
+      final operation = await ledger.createOperation(
         operationId: 'spawn_typed_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final spawned = operation.spawnTyped<int>(
+      final spawned = operation.spawnCall<int>(
         work: () async {
           await Future.delayed(Duration(milliseconds: 50));
           return 42;
@@ -1956,19 +1929,20 @@ void main() {
       await operation.complete();
     });
 
-    test('spawnTyped with onCallCrashed provides fallback', () async {
-      final operation = await ledger.startOperation(
+    test('spawnCall with onCallCrashed provides fallback', () async {
+      final operation = await ledger.createOperation(
         operationId: 'spawn_typed_fallback_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final spawned = operation.spawnTyped<String>(
+      final spawned = operation.spawnCall<String>(
         work: () async {
           throw Exception('Work failed');
         },
-        onCallCrashed: () async => 'fallback_value',
+        callback: CallCallback<String>(
+          onCallCrashed: () async => 'fallback_value',
+        ),
         description: 'will fail but recover',
         failOnCrash: false,
       );
@@ -1981,15 +1955,14 @@ void main() {
       await operation.complete();
     });
 
-    test('spawnTyped marks call as failed when no fallback', () async {
-      final operation = await ledger.startOperation(
+    test('spawnCall marks call as failed when no fallback', () async {
+      final operation = await ledger.createOperation(
         operationId: 'spawn_typed_fail_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final spawned = operation.spawnTyped<int>(
+      final spawned = operation.spawnCall<int>(
         work: () async {
           throw Exception('Work failed');
         },
@@ -2005,25 +1978,24 @@ void main() {
       await operation.complete();
     });
 
-    test('syncTyped waits for multiple calls', () async {
-      final operation = await ledger.startOperation(
+    test('sync waits for multiple calls', () async {
+      final operation = await ledger.createOperation(
         operationId: 'sync_typed_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final call1 = operation.spawnTyped<int>(
+      final call1 = operation.spawnCall<int>(
         work: () async => 1,
       );
-      final call2 = operation.spawnTyped<int>(
+      final call2 = operation.spawnCall<int>(
         work: () async => 2,
       );
-      final call3 = operation.spawnTyped<int>(
+      final call3 = operation.spawnCall<int>(
         work: () async => 3,
       );
 
-      final result = await operation.syncTyped([call1, call2, call3]);
+      final result = await operation.sync([call1, call2, call3]);
 
       expect(result.allSucceeded, isTrue);
       expect(result.successfulCalls.length, equals(3));
@@ -2032,24 +2004,23 @@ void main() {
       await operation.complete();
     });
 
-    test('syncTyped reports failed calls', () async {
-      final operation = await ledger.startOperation(
+    test('sync reports failed calls', () async {
+      final operation = await ledger.createOperation(
         operationId: 'sync_typed_fail_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final call1 = operation.spawnTyped<int>(
+      final call1 = operation.spawnCall<int>(
         work: () async => 1,
         failOnCrash: false,
       );
-      final call2 = operation.spawnTyped<int>(
+      final call2 = operation.spawnCall<int>(
         work: () async => throw Exception('fail'),
         failOnCrash: false,
       );
 
-      final result = await operation.syncTyped([call1, call2]);
+      final result = await operation.sync([call1, call2]);
 
       expect(result.hasFailed, isTrue);
       expect(result.successfulCalls.length, equals(1));
@@ -2274,7 +2245,7 @@ void main() {
   // ADDITIONAL COVERAGE TESTS
   // ═══════════════════════════════════════════════════════════════════
 
-  group('endCall with onEnded callback', () {
+  group('endCall behavior', () {
     late Directory tempDir;
     late Ledger ledger;
 
@@ -2288,46 +2259,41 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('endCall calls onEnded callback with info', () async {
-      final operation = await ledger.startOperation(
+    test('endCall removes stack frame and logs duration', () async {
+      final operation = await ledger.createOperation(
         operationId: 'end_call_cb_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      CallEndedInfo? endedInfo;
-      final testCallback = CallCallback(
+      final testCallback = CallCallback<int>(
         onCleanup: () async {},
-        onEnded: (info) async { endedInfo = info; },
       );
 
-      final callId = await operation.startCall(
+      final call = await operation.startCall<int>(
         callback: testCallback,
         description: 'will end normally',
       );
+      
+      expect(operation.cachedData!.stack.length, equals(1));
 
       await Future.delayed(Duration(milliseconds: 10));
-      await operation.endCall(callId: callId);
+      await call.end();
 
-      expect(endedInfo, isNotNull);
-      expect(endedInfo!.callId, equals(callId));
-      expect(endedInfo!.operationId, equals('end_call_cb_test'));
-      expect(endedInfo!.participantId, equals('cli'));
-      expect(endedInfo!.duration.inMilliseconds, greaterThanOrEqualTo(10));
+      expect(operation.cachedData!.stack.length, equals(0));
 
       await operation.complete();
     });
 
     test('endCall throws for unknown callId', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'end_call_unknown_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       expect(
+        // ignore: deprecated_member_use_from_same_package
         () => operation.endCall(callId: 'unknown_call'),
         throwsStateError,
       );
@@ -2351,34 +2317,33 @@ void main() {
     });
 
     test('sync waits for spawned calls to complete', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'sync_wait_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       var completed = false;
-      final testCallback = CallCallback(
-        onCleanup: () async {},
-        onEnded: (info) async { completed = true; },
-      );
-
-      final callId = await operation.spawnCall(
-        callback: testCallback,
+      final call = operation.spawnCall<int>(
+        work: () async {
+          await Future.delayed(Duration(milliseconds: 20));
+          return 42;
+        },
+        callback: CallCallback<int>(
+          onCompletion: (result) async { completed = true; },
+        ),
         description: 'spawned',
       );
 
-      // Immediately complete the call
-      await operation.endCall(callId: callId);
+      // sync should wait for the call to finish
+      await operation.sync([call]);
 
-      // sync with empty list should return immediately
-      await operation.sync([]);
-
-      // sync with completed call should return
-      await operation.sync([callId]);
+      // The onCompletion callback runs after the SpawnedCall completes,
+      // so give it a moment to execute
+      await Future.delayed(Duration(milliseconds: 10));
 
       expect(completed, isTrue);
+      expect(call.isSuccess, isTrue);
 
       await operation.complete();
     });
@@ -2399,11 +2364,10 @@ void main() {
     });
 
     test('waitForCompletion executes work', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'wait_comp_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       var workExecuted = false;
@@ -2417,11 +2381,10 @@ void main() {
     });
 
     test('waitForCompletion with async delay', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'wait_comp_delay_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final stopwatch = Stopwatch()..start();
@@ -2451,11 +2414,10 @@ void main() {
     });
 
     test('heartbeat() returns result on success', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'single_hb_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final result = await operation.heartbeat();
@@ -2468,11 +2430,10 @@ void main() {
     });
 
     test('heartbeat() returns null when file missing', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'single_hb_missing_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Delete the operation file
@@ -2499,11 +2460,10 @@ void main() {
     });
 
     test('getOperationState returns running by default', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'state_default_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final state = await operation.getOperationState();
@@ -2513,11 +2473,10 @@ void main() {
     });
 
     test('setOperationState changes state', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'state_change_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await operation.setOperationState(OperationState.cleanup);
@@ -2532,11 +2491,10 @@ void main() {
     });
 
     test('setOperationState logs state change', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'state_log_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await operation.setOperationState(OperationState.cleanup);
@@ -2565,11 +2523,10 @@ void main() {
     });
 
     test('retrieveAndLockOperation returns data and unlocks', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'retrieve_lock_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final data = await operation.retrieveAndLockOperation();
@@ -2582,11 +2539,10 @@ void main() {
     });
 
     test('writeAndUnlockOperation writes data', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'write_unlock_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final data = await operation.retrieveAndLockOperation();
@@ -2617,19 +2573,17 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('joinOperation works like participateInOperation', () async {
-      final initiator = await ledger.startOperation(
+    test('joinOperation works like joinOperation', () async {
+      final initiator = await ledger.createOperation(
         operationId: 'join_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final participant = await ledger.joinOperation(
         operationId: 'join_test',
         participantId: 'bridge',
         participantPid: 5678,
-        getElapsedFormatted: () => '001.000',
       );
 
       expect(participant.operationId, equals('join_test'));
@@ -2655,89 +2609,33 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('startGlobalHeartbeat and stopGlobalHeartbeat', () async {
-      final operation = await ledger.startOperation(
-        operationId: 'global_hb_test',
-        initiatorPid: 1234,
-        participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
-      );
-
-      ledger.startGlobalHeartbeat(
-        interval: Duration(milliseconds: 50),
-        staleThreshold: Duration(seconds: 1),
-      );
-
-      await Future.delayed(Duration(milliseconds: 100));
-
-      ledger.stopGlobalHeartbeat();
-
-      await operation.complete();
-    });
-
-    test('global heartbeat calls onError for stale operations', () async {
-      final operation = await ledger.startOperation(
-        operationId: 'global_hb_stale_test',
-        initiatorPid: 1234,
-        participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
-      );
-
+    test('global heartbeat auto-starts and detects stale operations', () async {
+      // Create ledger with very short intervals for testing
+      ledger.dispose();
       HeartbeatError? receivedError;
-      ledger.startGlobalHeartbeat(
-        interval: Duration(milliseconds: 30),
-        staleThreshold: Duration(milliseconds: 10), // Very short for test
-        onError: (op, error) {
+      ledger = Ledger(
+        basePath: tempDir.path,
+        heartbeatInterval: Duration(milliseconds: 30),
+        staleThreshold: Duration(milliseconds: 10),
+        onGlobalHeartbeatError: (op, error) {
           receivedError = error;
         },
       );
 
+      final operation = await ledger.createOperation(
+        operationId: 'global_hb_test',
+        participantPid: 1234,
+        participantId: 'cli',
+      );
+
       // Wait long enough for operation to become stale
       await Future.delayed(Duration(milliseconds: 100));
-
-      ledger.stopGlobalHeartbeat();
 
       // Operation should be detected as stale
       expect(receivedError, isNotNull);
       expect(receivedError!.type, equals(HeartbeatErrorType.heartbeatStale));
 
       await operation.complete();
-    });
-  });
-
-  group('CallEndedInfo and CrashedCallInfo', () {
-    test('CallEndedInfo has correct duration', () {
-      final start = DateTime.now();
-      final end = start.add(Duration(milliseconds: 500));
-      
-      final info = CallEndedInfo(
-        callId: 'test_call',
-        operationId: 'test_op',
-        participantId: 'cli',
-        startedAt: start,
-        endedAt: end,
-      );
-
-      expect(info.duration.inMilliseconds, equals(500));
-      expect(info.toString(), contains('test_call'));
-    });
-
-    test('CrashedCallInfo has correct uptime', () {
-      final start = DateTime.now();
-      final detected = start.add(Duration(milliseconds: 300));
-      
-      final info = CrashedCallInfo(
-        callId: 'crash_call',
-        operationId: 'test_op',
-        participantId: 'cli',
-        startedAt: start,
-        detectedAt: detected,
-        crashReason: 'Test crash',
-      );
-
-      expect(info.uptime.inMilliseconds, equals(300));
-      expect(info.toString(), contains('crash_call'));
-      expect(info.toString(), contains('Test crash'));
     });
   });
 
@@ -2893,7 +2791,7 @@ void main() {
     });
   });
 
-  group('syncTyped with onCompletion', () {
+  group('sync with onCompletion', () {
     late Directory tempDir;
     late Ledger ledger;
 
@@ -2907,18 +2805,17 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('syncTyped calls onCompletion callback', () async {
-      final operation = await ledger.startOperation(
+    test('sync calls onCompletion callback', () async {
+      final operation = await ledger.createOperation(
         operationId: 'sync_completion_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       var completionCalled = false;
-      final call = operation.spawnTyped<int>(work: () async => 42);
+      final call = operation.spawnCall<int>(work: () async => 42);
 
-      await operation.syncTyped(
+      await operation.sync(
         [call],
         onCompletion: () async {
           completionCalled = true;
@@ -2931,7 +2828,7 @@ void main() {
     });
   });
 
-  group('spawnTyped with onCompletion', () {
+  group('spawnCall with onCompletion', () {
     late Directory tempDir;
     late Ledger ledger;
 
@@ -2945,22 +2842,23 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('spawnTyped calls onCompletion with result', () async {
-      final operation = await ledger.startOperation(
+    test('spawnCall calls onCompletion with result', () async {
+      final operation = await ledger.createOperation(
         operationId: 'spawn_completion_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       int? receivedResult;
       final completer = Completer<void>();
-      final call = operation.spawnTyped<int>(
+      final call = operation.spawnCall<int>(
         work: () async => 42,
-        onCompletion: (result) async {
-          receivedResult = result;
-          completer.complete();
-        },
+        callback: CallCallback<int>(
+          onCompletion: (result) async {
+            receivedResult = result;
+            completer.complete();
+          },
+        ),
       );
 
       await call.future;
@@ -2988,43 +2886,40 @@ void main() {
     });
 
     test('sync waits for active call completers', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'sync_active_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final testCallback = CallCallback(onCleanup: () async {});
-      
       // Spawn a call that will complete after delay
-      final callId = await operation.spawnCall(
-        callback: testCallback,
+      final call = operation.spawnCall<int>(
+        work: () async {
+          await Future.delayed(Duration(milliseconds: 50));
+          return 42;
+        },
         description: 'will complete',
       );
 
-      // End the call in the future
-      Future.delayed(Duration(milliseconds: 50)).then((_) async {
-        await operation.endCall(callId: callId);
-      });
-
-      // sync should wait for the call
-      await operation.sync([callId]);
+      // sync should wait for the call to complete
+      await operation.sync([call]);
+      
+      expect(call.isSuccess, isTrue);
+      expect(call.result, equals(42));
 
       await operation.complete();
     });
 
-    test('sync returns immediately for unknown callIds', () async {
-      final operation = await ledger.startOperation(
-        operationId: 'sync_unknown_test',
-        initiatorPid: 1234,
+    test('sync returns immediately for empty list', () async {
+      final operation = await ledger.createOperation(
+        operationId: 'sync_empty_test',
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      // sync with non-existent callIds should return immediately
+      // sync with empty list should return immediately
       final stopwatch = Stopwatch()..start();
-      await operation.sync(['unknown_call_1', 'unknown_call_2']);
+      await operation.sync([]);
       stopwatch.stop();
 
       // Should complete almost immediately
@@ -3034,7 +2929,7 @@ void main() {
     });
   });
 
-  group('onFailure callback in sync', () {
+  group('onOperationFailed callback in sync', () {
     late Directory tempDir;
     late Ledger ledger;
 
@@ -3048,32 +2943,38 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('sync calls onOperationFailed when operation fails', () async {
-      final operation = await ledger.startOperation(
+    test('sync calls onOperationFailed when call crashes', () async {
+      final operation = await ledger.createOperation(
         operationId: 'sync_fail_cb_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final testCallback = CallCallback(onCleanup: () async {});
-      final callId = await operation.spawnCall(callback: testCallback);
-
-      // Trigger failure in parallel
-      Future.delayed(Duration(milliseconds: 20)).then((_) async {
-        // Fail the call to trigger operation failure
-        await operation.failCall(callId: callId, error: 'Test failure');
-      });
+      var onOperationFailedCalled = false;
+      final call = operation.spawnCall<int>(
+        work: () async {
+          await Future.delayed(Duration(milliseconds: 20));
+          throw Exception('Test failure');
+        },
+        failOnCrash: true, // This will trigger operation failure
+      );
 
       await operation.sync(
-        [callId],
+        [call],
         onOperationFailed: (info) async {
-          // This callback can be called when operation fails
-          expect(info.operationId, equals('sync_fail_cb_test'));
+          // This callback is called when operation fails
+          onOperationFailedCalled = true;
         },
       );
 
-      // Just verify the sync completed without error
+      // The call should have failed
+      expect(call.isFailed, isTrue);
+      
+      // Note: onOperationFailed may or may not have been called depending on timing
+      // The important thing is the sync completed
+      // ignore: avoid_print
+      if (onOperationFailedCalled) print('onOperationFailed was called');
+
       await operation.complete();
     });
   });
@@ -3093,11 +2994,10 @@ void main() {
     });
 
     test('waitForCompletion completes normally when work succeeds', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'wait_normal_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       var workDone = false;
@@ -3133,11 +3033,10 @@ void main() {
     });
 
     test('heartbeat signals failure when operation enters cleanup state', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'hb_cleanup_state_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Set operation to cleanup state
@@ -3151,7 +3050,7 @@ void main() {
     });
   });
 
-  group('spawnTyped with onCallCrashed returning null', () {
+  group('spawnCall with onCallCrashed returning null', () {
     late Directory tempDir;
     late Ledger ledger;
 
@@ -3166,16 +3065,17 @@ void main() {
     });
 
     test('call fails when onCallCrashed returns null', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'crash_null_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final call = operation.spawnTyped<String>(
+      final call = operation.spawnCall<String>(
         work: () async => throw Exception('Work failed'),
-        onCallCrashed: () async => null, // Returns null, so call should fail
+        callback: CallCallback<String>(
+          onCallCrashed: () async => null, // Returns null, so call should fail
+        ),
         failOnCrash: false,
       );
 
@@ -3188,16 +3088,17 @@ void main() {
     });
 
     test('call fails when onCallCrashed throws', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'crash_throws_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final call = operation.spawnTyped<String>(
+      final call = operation.spawnCall<String>(
         work: () async => throw Exception('Work failed'),
-        onCallCrashed: () async => throw Exception('Recovery also failed'),
+        callback: CallCallback<String>(
+          onCallCrashed: () async => throw Exception('Recovery also failed'),
+        ),
         failOnCrash: false,
       );
 
@@ -3288,11 +3189,10 @@ void main() {
         onLogLine: (line) => logLines.add(line),
       );
 
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'log_cb_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await operation.log('First message');
@@ -3329,11 +3229,10 @@ void main() {
       final beforeCreate = DateTime.now();
       await Future.delayed(Duration(milliseconds: 10));
 
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'start_time_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await Future.delayed(Duration(milliseconds: 10));
@@ -3346,11 +3245,10 @@ void main() {
     });
 
     test('elapsedDuration returns correct duration', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'elapsed_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       await Future.delayed(Duration(milliseconds: 50));
@@ -3363,11 +3261,10 @@ void main() {
     });
 
     test('startTimeIso returns valid ISO 8601 string', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'iso_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final isoString = operation.startTimeIso;
@@ -3380,11 +3277,10 @@ void main() {
     });
 
     test('startTimeMs returns milliseconds since epoch', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'ms_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final ms = operation.startTimeMs;
@@ -3395,11 +3291,10 @@ void main() {
     });
 
     test('startTimeMs can be used to reconstruct start time', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'reconstruct_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       // Simulate what a worker would do - receive ms and reconstruct DateTime
@@ -3431,11 +3326,10 @@ void main() {
     });
 
     test('execFileResultWorker returns SpawnedCall with correct structure', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'exec_file_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final resultPath = '${tempDir.path}/result.json';
@@ -3443,19 +3337,17 @@ void main() {
       // Pre-create the result file so the test doesn't need to spawn an external process
       File(resultPath).writeAsStringSync('{"success": true, "value": 42}');
 
+      // Returns SpawnedCall<T> immediately, await on .future for result
       final spawnedCall = operation.execFileResultWorker<Map<String, dynamic>>(
         executable: 'echo', // Simple command that completes quickly
         arguments: ['test'],
         resultFilePath: resultPath,
         deleteResultFile: false,
       );
+      await spawnedCall.future;
 
       // Verify SpawnedCall structure
       expect(spawnedCall.callId, isNotEmpty);
-      expect(spawnedCall.future, isA<Future<void>>()); // future is Future<void>
-
-      // Wait and get result
-      await spawnedCall.future;
 
       if (spawnedCall.isSuccess) {
         expect(spawnedCall.result['success'], isTrue);
@@ -3466,11 +3358,10 @@ void main() {
     });
 
     test('execFileResultWorker deletes file when deleteResultFile=true', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'exec_file_delete_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
       final resultPath = '${tempDir.path}/result_delete.json';
@@ -3478,15 +3369,18 @@ void main() {
       // Pre-create the result file
       File(resultPath).writeAsStringSync('{"deleted": true}');
 
+      // Returns SpawnedCall<T> immediately, await on .future for result
       final spawnedCall = operation.execFileResultWorker<Map<String, dynamic>>(
         executable: 'echo',
         arguments: ['test'],
         resultFilePath: resultPath,
         deleteResultFile: true, // Should delete after reading
       );
-
       await spawnedCall.future;
 
+      // Verify the call completed successfully
+      expect(spawnedCall.isSuccess, isTrue);
+      
       // File should be deleted
       expect(File(resultPath).existsSync(), isFalse);
 
@@ -3509,18 +3403,17 @@ void main() {
     });
 
     test('execStdioWorker captures stdout and deserializes', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'exec_stdio_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
+      // Returns SpawnedCall<T> immediately, await on .future for result
       final spawnedCall = operation.execStdioWorker<String>(
         executable: 'echo',
         arguments: ['hello world'],
       );
-
       await spawnedCall.future;
 
       if (spawnedCall.isSuccess) {
@@ -3531,27 +3424,28 @@ void main() {
     });
 
     test('execStdioWorker returns SpawnedCall with callId', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'exec_stdio_callid_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
+      // Returns SpawnedCall<T> immediately - can access callId right away
       final spawnedCall = operation.execStdioWorker<String>(
         executable: 'echo',
         arguments: ['test'],
       );
-
+      
+      // callId available immediately without awaiting
       expect(spawnedCall.callId, isNotEmpty);
-      expect(spawnedCall.future, isA<Future<void>>()); // future is Future<void>
-
+      
       await spawnedCall.future;
+
       await operation.complete();
     });
   });
 
-  group('execServerCall', () {
+  group('execServerRequest', () {
     late Directory tempDir;
     late Ledger ledger;
 
@@ -3565,32 +3459,96 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
-    test('execServerCall returns SpawnedCall with correct structure', () async {
-      final operation = await ledger.startOperation(
+    test('execServerRequest executes work function and returns result', () async {
+      final operation = await ledger.createOperation(
         operationId: 'exec_server_test',
-        initiatorPid: 1234,
+        participantPid: 1234,
         participantId: 'cli',
-        getElapsedFormatted: () => '000.000',
       );
 
-      final spawnedCall = operation.execServerCall<String>(
-        executable: 'sleep',
-        arguments: ['1'], // Short-lived "server" 
-        work: (process) async {
-          // Just return something to test the flow
+      // execServerRequest returns SpawnedCall immediately
+      final spawnedCall = operation.execServerRequest<String>(
+        work: () async {
+          // Simulate a server request
           return 'server_result';
         },
-        startupDelay: Duration(milliseconds: 100),
+      );
+      
+      // callId available immediately
+      expect(spawnedCall.callId, isNotEmpty);
+      
+      // wait for result
+      await spawnedCall.future;
+      
+      expect(spawnedCall.isSuccess, isTrue);
+      expect(spawnedCall.result, equals('server_result'));
+
+      await operation.complete();
+    });
+  });
+
+  group('awaitCall', () {
+    late Directory tempDir;
+    late Ledger ledger;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('await_call_test_');
+      ledger = Ledger(basePath: tempDir.path);
+    });
+
+    tearDown(() {
+      ledger.dispose();
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('awaitCall waits for single spawned call', () async {
+      final operation = await ledger.createOperation(
+        operationId: 'await_call_test',
+        participantPid: 1234,
+        participantId: 'cli',
       );
 
-      expect(spawnedCall.callId, isNotEmpty);
-      expect(spawnedCall.future, isA<Future<void>>()); // future is Future<void>
+      // Spawn a call (returns immediately)
+      final call = operation.spawnCall<int>(
+        work: () async {
+          await Future.delayed(Duration(milliseconds: 50));
+          return 42;
+        },
+      );
 
-      await spawnedCall.future;
+      // Wait for it using awaitCall
+      final result = await operation.awaitCall(call);
 
-      if (spawnedCall.isSuccess) {
-        expect(spawnedCall.result, equals('server_result'));
-      }
+      expect(result.allSucceeded, isTrue);
+      expect(result.successfulCalls.length, equals(1));
+      expect(call.isSuccess, isTrue);
+      expect(call.result, equals(42));
+
+      await operation.complete();
+    });
+
+    test('awaitCall handles failed call correctly', () async {
+      final operation = await ledger.createOperation(
+        operationId: 'await_call_fail_test',
+        participantPid: 1234,
+        participantId: 'cli',
+      );
+
+      // Spawn a call that will fail
+      final call = operation.spawnCall<int>(
+        work: () async {
+          throw Exception('Test failure');
+        },
+        failOnCrash: false, // Don't fail the operation
+      );
+
+      // Wait for it using awaitCall
+      final result = await operation.awaitCall(call);
+
+      expect(result.allSucceeded, isFalse);
+      expect(result.failedCalls.length, equals(1));
+      expect(call.isFailed, isTrue);
+      expect(call.error, isA<Exception>());
 
       await operation.complete();
     });

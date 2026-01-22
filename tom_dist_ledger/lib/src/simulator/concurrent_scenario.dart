@@ -142,11 +142,10 @@ class IndependentParticipant {
     required int depth,
   }) async {
     printer.log(depth: depth, participant: name, message: 'startOperation($operationId)');
-    _operation = await ledger.startOperation(
+    _operation = await ledger.createOperation(
       operationId: operationId,
-      initiatorPid: pid,
+      participantPid: pid,
       participantId: name.toLowerCase(),
-      getElapsedFormatted: () => printer.elapsedFormatted,
     );
     // Set staleness threshold for crash detection
     _operation?.stalenessThresholdMs = heartbeatTimeoutMs;
@@ -158,32 +157,31 @@ class IndependentParticipant {
     required int depth,
   }) async {
     printer.log(depth: depth, participant: name, message: 'joinOperation($operationId)');
-    _operation = await ledger.participateInOperation(
+    _operation = await ledger.joinOperation(
       operationId: operationId,
       participantPid: pid,
       participantId: name.toLowerCase(),
-      getElapsedFormatted: () => printer.elapsedFormatted,
     );
     // Set staleness threshold for crash detection
     _operation?.stalenessThresholdMs = heartbeatTimeoutMs;
   }
   
-  /// Start call execution.
-  Future<void> startCallExecution({
+  /// Push a stack frame for a call.
+  Future<void> pushStackFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'startCallExecution($callId)');
-    await _operation?.startCallExecution(callId: callId);
+    printer.log(depth: depth, participant: name, message: 'pushStackFrame($callId)');
+    await _operation?.pushStackFrame(callId: callId);
   }
   
-  /// End call execution.
-  Future<void> endCallExecution({
+  /// Pop a stack frame for a call.
+  Future<void> popStackFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'endCallExecution($callId)');
-    await _operation?.endCallExecution(callId: callId);
+    printer.log(depth: depth, participant: name, message: 'popStackFrame($callId)');
+    await _operation?.popStackFrame(callId: callId);
   }
   
   /// Complete the operation.
@@ -454,7 +452,7 @@ class ConcurrentScenarioRunner {
       // Phase 1: CLI starts operation
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts operation'));
       await cli.startOperation(operationId: operationId, depth: 1);
-      await cli.startCallExecution(callId: 'cli-main', depth: 1);
+      await cli.pushStackFrame(callId: 'cli-main', depth: 1);
       cli.startHeartbeat(depth: 1, expectedStackDepth: 1);
       
       // Small delay before bridge joins
@@ -463,7 +461,7 @@ class ConcurrentScenarioRunner {
       // Phase 2: Bridge joins
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
       await bridge.joinOperation(operationId: operationId, depth: 2);
-      await bridge.startCallExecution(callId: 'bridge-process', depth: 2);
+      await bridge.pushStackFrame(callId: 'bridge-process', depth: 2);
       bridge.startHeartbeat(depth: 2, expectedStackDepth: 2);
       
       // Now CLI should monitor for 2 stack frames
@@ -562,7 +560,7 @@ class ConcurrentScenarioRunner {
       // CLI starts
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts'));
       await cli.startOperation(operationId: operationId, depth: 1);
-      await cli.startCallExecution(callId: 'cli-main', depth: 1);
+      await cli.pushStackFrame(callId: 'cli-main', depth: 1);
       cli.startHeartbeat(depth: 1, expectedStackDepth: 1);
       
       await Future.delayed(Duration(milliseconds: heartbeatIntervalMs));
@@ -570,7 +568,7 @@ class ConcurrentScenarioRunner {
       // Bridge joins
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins'));
       await bridge.joinOperation(operationId: operationId, depth: 2);
-      await bridge.startCallExecution(callId: 'bridge-process', depth: 2);
+      await bridge.pushStackFrame(callId: 'bridge-process', depth: 2);
       bridge.startHeartbeat(depth: 2, expectedStackDepth: 2);
       
       // Simulate work
@@ -579,12 +577,12 @@ class ConcurrentScenarioRunner {
       // Bridge completes
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge completes'));
       bridge.stopHeartbeat(depth: 2);
-      await bridge.endCallExecution(callId: 'bridge-process', depth: 2);
+      await bridge.popStackFrame(callId: 'bridge-process', depth: 2);
       
       // CLI completes
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI completes'));
       cli.stopHeartbeat(depth: 1);
-      await cli.endCallExecution(callId: 'cli-main', depth: 1);
+      await cli.popStackFrame(callId: 'cli-main', depth: 1);
       await cli.completeOperation(depth: 1);
       
       stopwatch.stop();
@@ -635,7 +633,7 @@ class ConcurrentScenarioRunner {
       // Phase 1: CLI starts operation
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts operation'));
       await cli.startOperation(operationId: operationId, depth: 1);
-      await cli.startCallExecution(callId: 'cli-main', depth: 1);
+      await cli.pushStackFrame(callId: 'cli-main', depth: 1);
       cli.startHeartbeat(depth: 1, expectedStackDepth: 1);
       
       await Future.delayed(Duration(milliseconds: heartbeatIntervalMs ~/ 2));
@@ -643,7 +641,7 @@ class ConcurrentScenarioRunner {
       // Phase 2: Bridge joins
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
       await bridge.joinOperation(operationId: operationId, depth: 2);
-      await bridge.startCallExecution(callId: 'bridge-process', depth: 2);
+      await bridge.pushStackFrame(callId: 'bridge-process', depth: 2);
       bridge.startHeartbeat(depth: 2, expectedStackDepth: 2);
       
       // Schedule abort (like user pressing Ctrl+C)

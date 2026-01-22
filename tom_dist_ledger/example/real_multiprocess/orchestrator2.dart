@@ -4,11 +4,15 @@
 /// but uses the exec helper methods for a much cleaner implementation:
 /// - execFileResultWorker() for file-based workers
 /// - execStdioWorker() for stdout-based workers
-/// - execServerCall() for server processes with custom work
+/// - execServerRequest() for server processes with socket communication
+///
+/// All workers receive parameters and return "$param1-$param2" to verify
+/// correct parameter passing. Workers have 5s delays to show heartbeat entries.
 ///
 /// Run with: dart run example/real_multiprocess/orchestrator2.dart
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
@@ -24,30 +28,23 @@ void main() async {
 
   final ledger = Ledger(
     basePath: tempDir.path,
+    participantId: 'orchestrator',
+    heartbeatInterval: const Duration(seconds: 2),
     onBackupCreated: (path) {
       print('📦 Backup created: ${path.split('/').last}');
     },
   );
 
-  // Track start time for elapsed formatting
-  DateTime? operationStartTime;
-
   try {
     // Start the operation
     final operation = await ledger.createOperation(
-      participantId: 'orchestrator',
-      participantPid: pid,
-      getElapsedFormatted: () {
-        // Use operation.startTime if available, else current time
-        final start = operationStartTime ?? DateTime.now();
-        final elapsed = DateTime.now().difference(start);
-        return '${elapsed.inSeconds.toString().padLeft(3, '0')}.${(elapsed.inMilliseconds % 1000).toString().padLeft(3, '0')}';
-      },
       description: 'Simplified multi-process demo',
     );
-    
-    // Now we can use operation.startTime
-    operationStartTime = operation.startTime;
+
+    // Start participant heartbeat to write to debug.log
+    operation.startHeartbeat(
+      interval: const Duration(seconds: 2),
+    );
 
     print('✅ Started operation: ${operation.operationId}');
     print('   Start time: ${operation.startTimeIso}');
@@ -67,16 +64,18 @@ void main() async {
     print('═══════════════════════════════════════════════════════════════════\n');
 
     final fileResultPath = '${tempDir.path}/file_worker_result.json';
-    await operation.log('Starting file-based worker with helper', level: LogLevel.info);
+    await operation.log('Starting file-based worker with param1=alpha, param2=beta', level: LogLevel.info);
 
-    // One line to spawn, wait, and get result!
+    // Spawn file-based worker with parameters
     final fileWorker = operation.execFileResultWorker<Map<String, dynamic>>(
       executable: 'dart',
       arguments: [
         'run',
         '$exampleDir/file_worker.dart',
         fileResultPath,
-        '--start-time=${operation.startTimeMs}', // Pass start time to worker!
+        '--param1=alpha',
+        '--param2=beta',
+        '--delay=5',
       ],
       resultFilePath: fileResultPath,
       description: 'File-based worker',
@@ -93,9 +92,11 @@ void main() async {
       final result = fileWorker.result;
       print('\n📄 File Worker Result:');
       print('   Status: ${result['status']}');
-      print('   Value: ${result['computed_value']}');
+      print('   Combined result: ${result['combined_result']}');
+      print('   (Expected: alpha-beta)');
+      print('   Delay: ${result['delay_seconds']}s');
       print('   Timestamp: ${result['timestamp']}');
-      await operation.log('File worker completed successfully', level: LogLevel.info);
+      await operation.log('File worker completed: ${result['combined_result']}', level: LogLevel.info);
       print('✅ File-based worker completed\n');
     } else {
       print('❌ File worker failed: ${fileWorker.error}');
@@ -108,12 +109,19 @@ void main() async {
     print('SCENARIO 2: Stdout-based Worker (using execStdioWorker)');
     print('═══════════════════════════════════════════════════════════════════\n');
 
-    await operation.log('Starting stdout-based worker with helper', level: LogLevel.info);
+    await operation.log('Starting stdout-based worker with param1=gamma, param2=delta', level: LogLevel.info);
 
-    // One line to spawn, wait, and parse stdout!
+    // Spawn stdout-based worker with parameters
+    // Note: execStdioWorker requires worker to output ONLY JSON to stdout
     final stdoutWorker = operation.execStdioWorker<Map<String, dynamic>>(
       executable: 'dart',
-      arguments: ['run', '$exampleDir/stdout_worker.dart'],
+      arguments: [
+        'run',
+        '$exampleDir/stdout_worker.dart',
+        '--param1=gamma',
+        '--param2=delta',
+        '--delay=5',
+      ],
       description: 'Stdout-based worker',
       onStderr: (line) => print('[StdoutWorker INFO] $line'),
     );
@@ -123,103 +131,145 @@ void main() async {
     if (stdoutWorker.isSuccess) {
       final result = stdoutWorker.result;
       print('\n📤 Stdout Worker Result:');
-      print('   Result: ${result['result']}');
-      print('   Value: ${result['value']}');
+      print('   Status: ${result['status']}');
+      print('   Combined result: ${result['combined_result']}');
+      print('   (Expected: gamma-delta)');
+      print('   Delay: ${result['delay_seconds']}s');
       print('   Worker: ${result['worker']}');
-      await operation.log('Stdout worker completed successfully', level: LogLevel.info);
+      await operation.log('Stdout worker completed: ${result['combined_result']}', level: LogLevel.info);
       print('✅ Stdout-based worker completed\n');
     } else {
       print('❌ Stdout worker failed: ${stdoutWorker.error}');
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // SCENARIO 3: Server process using execServerCall
+    // SCENARIO 3: Server process with socket communication
     // ─────────────────────────────────────────────────────────────────────
     print('═══════════════════════════════════════════════════════════════════');
-    print('SCENARIO 3: Server Process (using execServerCall)');
+    print('SCENARIO 3: Server Process (socket communication)');
     print('═══════════════════════════════════════════════════════════════════\n');
 
-    final serverResultPath = '${tempDir.path}/server_result.json';
-    await operation.log('Starting server process with helper', level: LogLevel.info);
+    const serverPort = 18765;
+    await operation.log('Starting server process on port $serverPort', level: LogLevel.info);
 
-    // Spawn server and execute custom work with it
-    final serverCall = operation.execServerCall<Map<String, dynamic>>(
-      executable: 'dart',
-      arguments: ['run', '$exampleDir/server_worker.dart', serverResultPath],
-      description: 'Server process',
-      startupDelay: Duration(milliseconds: 100), // Wait for server to start
-      onStdout: (line) => print('[Server] $line'),
-      onStderr: (line) => print('[Server ERR] $line'),
-      failOnCrash: false, // Server crash shouldn't fail entire operation
-      work: (server) async {
-        // This is where you would make HTTP calls, socket connections, etc.
-        // For this example, we just wait for the server to write its result file
-        print('Waiting for server to complete work...');
+    // Start the server process
+    final serverProcess = await Process.start(
+      'dart',
+      [
+        'run',
+        '$exampleDir/server_worker.dart',
+        '--port=$serverPort',
+      ],
+    );
+    serverProcess.stdout.transform(utf8.decoder).listen(
+      (line) => print('[Server] $line'),
+    );
+    serverProcess.stderr.transform(utf8.decoder).listen(
+      (line) => print('[Server ERR] $line'),
+    );
 
-        // Poll for the server result file
-        final result = await OperationHelper.pollFile<Map<String, dynamic>>(
-          path: serverResultPath,
-          delete: false,
-          timeout: Duration(seconds: 60),
-        )();
+    // Wait for server to start listening
+    await Future.delayed(Duration(milliseconds: 500));
 
+    // Use execServerRequest to track the work with the server
+    final serverCall = operation.execServerRequest<Map<String, dynamic>>(
+      description: 'Server request',
+      failOnCrash: false,
+      work: () async {
+        // Connect to the server via socket
+        print('Connecting to server on port $serverPort...');
+        final socket = await Socket.connect(InternetAddress.loopbackIPv4, serverPort);
+        
+        // Send request with parameters
+        final request = {
+          'param1': 'epsilon',
+          'param2': 'zeta',
+          'delay_seconds': 5,
+        };
+        socket.write('${json.encode(request)}\n');
+        await socket.flush();
+        
+        // Read response
+        final responseBuffer = StringBuffer();
+        await for (final data in socket) {
+          responseBuffer.write(utf8.decode(data));
+        }
+        await socket.close();
+        
+        final result = json.decode(responseBuffer.toString()) as Map<String, dynamic>;
         return result;
       },
     );
 
     await serverCall.future;
 
+    // Wait for server to shutdown gracefully
+    await Future.delayed(Duration(milliseconds: 100));
+    serverProcess.kill();
+
     if (serverCall.isSuccess) {
       final result = serverCall.result;
       print('\n📊 Server Result:');
-      print('   Requests handled: ${result['requests_handled']}');
-      print('   Total time: ${result['total_time_ms']}ms');
-
-      final requests = result['request_results'] as List;
-      for (final req in requests) {
-        print('   - ${req['request_id']}: ${req['status']} (${req['delay_ms']}ms)');
-      }
-      await operation.log('Server completed successfully', level: LogLevel.info);
+      print('   Status: ${result['status']}');
+      print('   Combined result: ${result['combined_result']}');
+      print('   (Expected: epsilon-zeta)');
+      print('   Delay: ${result['delay_seconds']}s');
+      print('   Port: ${result['port']}');
+      await operation.log('Server completed: ${result['combined_result']}', level: LogLevel.info);
       print('✅ Server process completed\n');
     } else {
       print('❌ Server call failed: ${serverCall.error}');
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // BONUS: Run multiple workers in parallel using syncTyped
+    // BONUS: Run multiple workers in parallel using sync
     // ─────────────────────────────────────────────────────────────────────
     print('═══════════════════════════════════════════════════════════════════');
-    print('BONUS: Parallel Workers with syncTyped');
+    print('BONUS: Parallel Workers with sync');
     print('═══════════════════════════════════════════════════════════════════\n');
 
     await operation.log('Starting parallel workers', level: LogLevel.info);
 
-    // Spawn multiple workers in parallel
+    // Spawn multiple workers in parallel with different parameters
     final worker1 = operation.execStdioWorker<Map<String, dynamic>>(
       executable: 'dart',
-      arguments: ['run', '$exampleDir/stdout_worker.dart'],
+      arguments: [
+        'run',
+        '$exampleDir/stdout_worker.dart',
+        '--param1=worker1',
+        '--param2=parallel',
+        '--delay=3',
+      ],
       description: 'Parallel worker 1',
+      onStderr: (line) => print('[Worker1] $line'),
     );
 
     final worker2 = operation.execStdioWorker<Map<String, dynamic>>(
       executable: 'dart',
-      arguments: ['run', '$exampleDir/stdout_worker.dart'],
+      arguments: [
+        'run',
+        '$exampleDir/stdout_worker.dart',
+        '--param1=worker2',
+        '--param2=parallel',
+        '--delay=3',
+      ],
       description: 'Parallel worker 2',
+      onStderr: (line) => print('[Worker2] $line'),
     );
 
-    // Wait for all workers using syncTyped
-    final syncResult = await operation.syncTyped([worker1, worker2]);
+    // Wait for all workers using sync
+    final syncResult = await operation.sync([worker1, worker2]);
 
     if (syncResult.allSucceeded) {
       print('✅ All ${syncResult.successfulCalls.length} parallel workers completed!');
-      print('   Worker 1 value: ${worker1.result['value']}');
-      print('   Worker 2 value: ${worker2.result['value']}');
+      print('   Worker 1 result: ${worker1.result['combined_result']} (expected: worker1-parallel)');
+      print('   Worker 2 result: ${worker2.result['combined_result']} (expected: worker2-parallel)');
     } else {
       print('❌ Some workers failed: ${syncResult.failedCalls.length} failed');
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Complete the operation
+    // Complete the operation and show heartbeat log
     // ─────────────────────────────────────────────────────────────────────
     print('\n═══════════════════════════════════════════════════════════════════');
     print('Completing Operation');
@@ -227,33 +277,35 @@ void main() async {
 
     final elapsed = operation.elapsedDuration;
     await operation.log('All workers completed in ${elapsed.inSeconds}s', level: LogLevel.info);
+    operation.stopHeartbeat();
     await operation.complete();
     print('✅ Operation completed successfully!');
     print('   Total elapsed: ${elapsed.inMilliseconds}ms\n');
 
-    // Show comparison
+    // Show debug log to demonstrate heartbeat entries
     print('═══════════════════════════════════════════════════════════════════');
-    print('Code Comparison');
-    print('═══════════════════════════════════════════════════════════════════');
-    print('');
-    print('Original orchestrator.dart: ~170 lines for 3 scenarios');
-    print('Simplified orchestrator2.dart: ~100 lines for 4 scenarios');
-    print('');
-    print('Key differences:');
-    print('  - No manual Process.start() calls');
-    print('  - No manual stdout/stderr stream handling');
-    print('  - No manual CallCallback creation');
-    print('  - No manual callId management');
-    print('  - startTime available for passing to workers');
-    print('  - Built-in timeout and error handling');
-    print('');
+    print('Debug Log (showing heartbeat entries)');
+    print('═══════════════════════════════════════════════════════════════════\n');
+    
+    final debugLogPath = '${tempDir.path}/${operation.operationId}.operation.debug.log';
+    final debugLogFile = File(debugLogPath);
+    if (debugLogFile.existsSync()) {
+      final lines = debugLogFile.readAsLinesSync();
+      // Show last 20 lines
+      final showLines = lines.length > 20 ? lines.sublist(lines.length - 20) : lines;
+      for (final line in showLines) {
+        print('  $line');
+      }
+      print('\n  (${lines.length} total lines, showing last 20)');
+    }
 
   } catch (e, st) {
     print('❌ Error: $e');
     print(st);
   } finally {
     ledger.dispose();
-    print('🧹 Ledger disposed');
+    print('\n🧹 Ledger disposed');
     print('📁 Temp directory (not deleted for inspection): ${tempDir.path}');
   }
 }
+

@@ -10,7 +10,10 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('dpl_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(
+        basePath: tempDir.path,
+        participantId: 'test',
+      );
     });
 
     tearDown(() {
@@ -19,11 +22,8 @@ void main() {
     });
 
     test('can start an operation', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'test_op_1',
-        initiatorPid: pid,
-        participantId: 'test',
-        getElapsedFormatted: () => '000.000',
       );
 
       expect(operation.operationId, equals('test_op_1'));
@@ -31,18 +31,15 @@ void main() {
     });
 
     test('can track call execution', () async {
-      final operation = await ledger.startOperation(
+      final operation = await ledger.createOperation(
         operationId: 'test_op_2',
-        initiatorPid: pid,
-        participantId: 'test',
-        getElapsedFormatted: () => '000.000',
       );
 
-      await operation.startCallExecution(callId: 'call-1');
-      // Stack has 1 frame (startCallExecution adds it)
+      await operation.pushStackFrame(callId: 'call-1');
+      // Stack has 1 frame (pushStackFrame adds it)
       expect(operation.cachedData?.stack.length, equals(1));
 
-      await operation.endCallExecution(callId: 'call-1');
+      await operation.popStackFrame(callId: 'call-1');
       // Stack should be empty now
       expect(operation.cachedData?.stack.length, equals(0));
     });

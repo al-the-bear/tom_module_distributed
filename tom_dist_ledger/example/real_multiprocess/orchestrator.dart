@@ -30,18 +30,11 @@ void main() async {
     },
   );
 
-  final stopwatch = Stopwatch()..start();
-
   try {
     // Start the operation
-    final operation = await ledger.startOperation(
+    final operation = await ledger.createOperation(
       operationId: 'multiprocess_demo_${DateTime.now().millisecondsSinceEpoch}',
-      initiatorPid: pid,
       participantId: 'orchestrator',
-      getElapsedFormatted: () {
-        final elapsed = stopwatch.elapsed;
-        return '${elapsed.inSeconds.toString().padLeft(3, '0')}.${(elapsed.inMilliseconds % 1000).toString().padLeft(3, '0')}';
-      },
     );
 
     print('✅ Started operation: ${operation.operationId}\n');
@@ -61,7 +54,7 @@ void main() async {
     final fileResultPath = '${tempDir.path}/file_worker_result.json';
     await operation.log('Starting file-based worker', level: LogLevel.info);
 
-    final fileCallId = await operation.startCall(
+    final fileCall = await operation.startCall(
       callback: CallCallback(
         onCleanup: () async {
           final file = File(fileResultPath);
@@ -107,7 +100,7 @@ void main() async {
     print('   Timestamp: ${fileResult['timestamp']}');
 
     await operation.log('File worker completed: ${jsonEncode(fileResult)}', level: LogLevel.info);
-    await operation.endCall(callId: fileCallId);
+    await fileCall.end();
     print('✅ File-based worker completed\n');
 
     // ─────────────────────────────────────────────────────────────────────
@@ -119,7 +112,7 @@ void main() async {
 
     await operation.log('Starting stdout-based worker', level: LogLevel.info);
 
-    final stdoutCallId = await operation.startCall(
+    final stdoutCall = await operation.startCall(
       callback: CallCallback(
         onCleanup: () async {
           print('[Cleanup] Stdout worker (no resources)');
@@ -152,7 +145,7 @@ void main() async {
     print('   Worker: ${stdoutResult['worker']}');
 
     await operation.log('Stdout worker completed: ${jsonEncode(stdoutResult)}', level: LogLevel.info);
-    await operation.endCall(callId: stdoutCallId);
+    await stdoutCall.end();
     print('✅ Stdout-based worker completed\n');
 
     // ─────────────────────────────────────────────────────────────────────
@@ -165,7 +158,7 @@ void main() async {
     final serverResultPath = '${tempDir.path}/server_result.json';
     await operation.log('Starting server process', level: LogLevel.info);
 
-    final serverCallId = await operation.startCall(
+    final serverCall = await operation.startCall(
       callback: CallCallback(
         onCleanup: () async {
           print('[Cleanup] Server process');
@@ -211,7 +204,7 @@ void main() async {
     }
 
     await operation.log('Server completed: ${jsonEncode(serverResult)}', level: LogLevel.info);
-    await operation.endCall(callId: serverCallId);
+    await serverCall.end();
     print('✅ Server process completed\n');
 
     // ─────────────────────────────────────────────────────────────────────

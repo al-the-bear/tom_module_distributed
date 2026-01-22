@@ -7,100 +7,41 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-/// Callback structure for call operations.
+/// Callback structure for spawned call operations.
 ///
-/// Provides hooks for cleanup and notifications during call lifecycle.
-class CallCallback {
+/// Provides hooks for cleanup, completion, crash handling, and operation failure.
+/// The type parameter [T] matches the result type of the spawned call.
+class CallCallback<T> {
   /// Called by ledger during cleanup (crash or normal operation end).
   /// Use this to release resources, close connections, delete temp files, etc.
-  final Future<void> Function() onCleanup;
+  final Future<void> Function()? onCleanup;
 
-  /// Optional: Called when call ends normally.
-  final Future<void> Function(CallEndedInfo info)? onEnded;
+  /// Called when the call completes successfully with a result.
+  final Future<void> Function(T result)? onCompletion;
 
-  /// Optional: Called when this call crashes (detected by another participant).
-  final Future<void> Function(CrashedCallInfo info)? onCrashed;
+  /// Called when this call crashes. Return a fallback result or null.
+  /// If a non-null value is returned, the call is considered successful with that value.
+  final Future<T?> Function()? onCallCrashed;
+
+  /// Called when the operation fails (not just this call, but the whole operation).
+  final Future<void> Function(OperationFailedInfo info)? onOperationFailed;
 
   CallCallback({
-    required this.onCleanup,
-    this.onEnded,
-    this.onCrashed,
-  });
-}
-
-/// Information passed to [CallCallback.onEnded] when a call completes normally.
-class CallEndedInfo {
-  /// The unique identifier for this call.
-  final String callId;
-
-  /// The operation this call belongs to.
-  final String operationId;
-
-  /// The participant that made this call.
-  final String participantId;
-
-  /// When the call started.
-  final DateTime startedAt;
-
-  /// When the call ended.
-  final DateTime endedAt;
-
-  CallEndedInfo({
-    required this.callId,
-    required this.operationId,
-    required this.participantId,
-    required this.startedAt,
-    required this.endedAt,
+    this.onCleanup,
+    this.onCompletion,
+    this.onCallCrashed,
+    this.onOperationFailed,
   });
 
-  /// Duration of the call.
-  Duration get duration => endedAt.difference(startedAt);
-
-  @override
-  String toString() =>
-      'CallEndedInfo(callId: $callId, duration: ${duration.inMilliseconds}ms)';
-}
-
-/// Information passed to [CallCallback.onCrashed] when a call crashes.
-class CrashedCallInfo {
-  /// The unique identifier for the crashed call.
-  final String callId;
-
-  /// The operation this call belongs to.
-  final String operationId;
-
-  /// The participant that made this call.
-  final String participantId;
-
-  /// When the call started.
-  final DateTime startedAt;
-
-  /// When the crash was detected.
-  final DateTime detectedAt;
-
-  /// The reason for the crash, if known.
-  final String? crashReason;
-
-  CrashedCallInfo({
-    required this.callId,
-    required this.operationId,
-    required this.participantId,
-    required this.startedAt,
-    required this.detectedAt,
-    this.crashReason,
-  });
-
-  /// How long the call was running before the crash was detected.
-  Duration get uptime => detectedAt.difference(startedAt);
-
-  @override
-  String toString() =>
-      'CrashedCallInfo(callId: $callId, uptime: ${uptime.inMilliseconds}ms, reason: $crashReason)';
+  /// Create a simple callback with just cleanup logic.
+  factory CallCallback.cleanup(Future<void> Function() onCleanup) {
+    return CallCallback<T>(onCleanup: onCleanup);
+  }
 }
 
 /// Information about an operation failure.
 ///
-/// Passed to crash callbacks in [Operation.waitForCompletion] and [Operation.sync].
+/// Passed to [CallCallback.onOperationFailed] and [Operation.sync].
 class OperationFailedInfo {
   /// The operation that failed.
   final String operationId;
@@ -126,6 +67,20 @@ class OperationFailedInfo {
       'OperationFailedInfo(operationId: $operationId, crashedCallIds: $crashedCallIds, reason: $reason)';
 }
 
+/// Exception thrown when an operation fails.
+///
+/// This exception wraps [OperationFailedInfo] and is thrown by methods like
+/// [Operation.waitForCompletion] when the operation fails before work completes.
+class OperationFailedException implements Exception {
+  /// The failure info.
+  final OperationFailedInfo info;
+
+  OperationFailedException(this.info);
+
+  @override
+  String toString() => 'OperationFailedException: ${info.reason ?? info.operationId}';
+}
+
 /// Log levels for operation logging.
 enum LogLevel {
   debug,
@@ -145,12 +100,123 @@ extension LogLevelExtension on LogLevel {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CALL CLASS (for synchronous call tracking)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Represents an active call that was started synchronously.
+///
+/// This class is returned by [Operation.startCall] and provides methods
+/// to end or fail the call without needing to track callIds manually.
+///
+/// Example:
+/// ```dart
+/// final call = await operation.startCall<int>(
+///   callback: CallCallback(onCleanup: () async => print('cleanup')),
+/// );
+/// try {
+///   // Do work...
+///   final result = await computeSomething();
+///   await call.end(result);
+/// } catch (e, st) {
+///   await call.fail(e, st);
+/// }
+/// ```
+class Call<T> {
+  /// The call ID generated by the ledger.
+  final String callId;
+
+  /// Optional description of this call.
+  final String? description;
+
+  /// The operation this call belongs to.
+  final dynamic _operation; // Operation type, but avoid circular import
+
+  /// When the call was started.
+  final DateTime startedAt;
+
+  /// Whether this call has been ended or failed.
+  bool _isCompleted = false;
+
+  /// Creates a Call instance.
+  /// 
+  /// This constructor is for internal use by the ledger API.
+  Call.internal({
+    required this.callId,
+    required dynamic operation,
+    required this.startedAt,
+    this.description,
+  }) : _operation = operation;
+
+  /// Whether this call has been ended or failed.
+  bool get isCompleted => _isCompleted;
+
+  /// End the call successfully with an optional result.
+  ///
+  /// This pops the stack frame, logs the completion, and triggers
+  /// the onCompletion callback if provided.
+  ///
+  /// Throws [StateError] if the call has already been completed.
+  Future<void> end([T? result]) async {
+    if (_isCompleted) {
+      throw StateError('Call $callId has already been completed');
+    }
+    _isCompleted = true;
+    await (_operation as dynamic).endCallInternal$(callId: callId, result: result);
+  }
+
+  /// Fail the call with an error.
+  ///
+  /// This pops the stack frame, logs the failure, triggers cleanup,
+  /// and may trigger operation failure if [failOnCrash] was true.
+  ///
+  /// Throws [StateError] if the call has already been completed.
+  Future<void> fail(Object error, [StackTrace? stackTrace]) async {
+    if (_isCompleted) {
+      throw StateError('Call $callId has already been completed');
+    }
+    _isCompleted = true;
+    await (_operation as dynamic).failCallInternal$(
+      callId: callId,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  @override
+  String toString() => 'Call(callId: $callId, completed: $_isCompleted)';
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // SPAWNED CALL CLASS
 // ═══════════════════════════════════════════════════════════════════
 
 /// Represents a call that was spawned asynchronously.
 ///
-/// This class tracks the state and result of a spawned call.
+/// This class tracks the state and result of a spawned call, and provides
+/// control methods to cancel or kill the call.
+///
+/// ## Control Methods
+/// 
+/// - [cancel] - Signals cancellation to cooperative work (sets [isCancelled])
+/// - [kill] - Forcefully terminates associated process
+/// - [await] - Waits for the call to complete and returns the result
+///
+/// ## Example
+/// ```dart
+/// final call = operation.execStdioWorker<Map>(
+///   executable: 'dart',
+///   arguments: ['run', 'worker.dart'],
+/// );
+///
+/// // Check for cancellation in the worker
+/// if (call.isCancelled) return null;
+///
+/// // Or kill the process
+/// call.kill();
+///
+/// // Wait for result
+/// final result = await call.await();
+/// ```
 class SpawnedCall<T> {
   /// The call ID generated by the ledger.
   final String callId;
@@ -164,6 +230,9 @@ class SpawnedCall<T> {
   /// Whether the call succeeded.
   bool _isSuccess = false;
 
+  /// Whether cancellation has been requested.
+  bool _isCancelled = false;
+
   /// The result of the call.
   T? _result;
 
@@ -172,6 +241,12 @@ class SpawnedCall<T> {
 
   /// The stack trace if the call failed.
   StackTrace? _stackTrace;
+
+  /// Optional process reference for process-based workers.
+  Process? _process;
+
+  /// Callback to be invoked when cancel() is called.
+  Future<void> Function()? _onCancel;
 
   SpawnedCall({
     required this.callId,
@@ -186,6 +261,12 @@ class SpawnedCall<T> {
 
   /// Whether the call failed/crashed.
   bool get isFailed => !_isSuccess && isCompleted;
+
+  /// Whether cancellation has been requested.
+  /// 
+  /// Work functions should check this periodically and exit gracefully
+  /// when true.
+  bool get isCancelled => _isCancelled;
 
   /// The result of the call (only valid if isSuccess is true).
   /// Throws StateError if accessed before completion or if call failed.
@@ -212,6 +293,40 @@ class SpawnedCall<T> {
   /// The stack trace if the call failed (null if success or not completed).
   StackTrace? get stackTrace => _stackTrace;
 
+  /// Request cancellation of this call.
+  /// 
+  /// This sets [isCancelled] to true and invokes the cancellation callback
+  /// if one was registered. Work functions should check [isCancelled]
+  /// periodically and exit gracefully.
+  ///
+  /// Note: This does not forcefully stop execution. Use [kill] to
+  /// forcefully terminate an associated process.
+  Future<void> cancel() async {
+    if (_isCancelled || isCompleted) return;
+    _isCancelled = true;
+    await _onCancel?.call();
+  }
+
+  /// Forcefully terminate the associated process.
+  ///
+  /// This immediately kills the process (SIGTERM on Unix, terminate on Windows).
+  /// Use [cancel] for graceful shutdown when possible.
+  ///
+  /// Returns true if a process was killed, false if no process was attached.
+  bool kill([ProcessSignal signal = ProcessSignal.sigterm]) {
+    if (_process == null || isCompleted) return false;
+    return _process!.kill(signal);
+  }
+
+  /// Wait for the call to complete and return the result.
+  ///
+  /// Throws [StateError] if the call failed.
+  /// This is an alias for `await future; return result;`
+  Future<T> await_() async {
+    await _completer.future;
+    return result;
+  }
+
   /// Complete this call successfully with the given result.
   void complete(T result) {
     if (_completer.isCompleted) return;
@@ -229,8 +344,22 @@ class SpawnedCall<T> {
     _completer.complete();
   }
 
+  /// Set the process reference for process-based workers.
+  /// 
+  /// **Note:** This is for internal use by the ledger API.
+  void setProcess$(Process process) {
+    _process = process;
+  }
+
+  /// Set the cancellation callback.
+  /// 
+  /// **Note:** This is for internal use by the ledger API.
+  void setOnCancel$(Future<void> Function() onCancel) {
+    _onCancel = onCancel;
+  }
+
   @override
-  String toString() => 'SpawnedCall<$T>(callId: $callId, completed: $isCompleted, success: $isSuccess)';
+  String toString() => 'SpawnedCall<$T>(callId: $callId, completed: $isCompleted, success: $isSuccess, cancelled: $_isCancelled)';
 }
 
 // ═══════════════════════════════════════════════════════════════════

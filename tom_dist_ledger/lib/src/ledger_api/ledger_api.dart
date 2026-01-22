@@ -9,9 +9,6 @@ import 'call_callback.dart';
 // Re-export callback types
 export 'call_callback.dart';
 
-/// Callback for getting elapsed time formatted string.
-typedef ElapsedFormattedCallback = String Function();
-
 /// Heartbeat error types.
 enum HeartbeatErrorType {
   ledgerNotFound,
@@ -82,7 +79,6 @@ class Operation {
   final String operationId;
   final String participantId;
   final int pid;
-  final ElapsedFormattedCallback getElapsedFormatted;
   final bool isInitiator;
 
   /// When this operation was started.
@@ -134,7 +130,6 @@ class Operation {
     required this.operationId,
     required this.participantId,
     required this.pid,
-    required this.getElapsedFormatted,
     required this.isInitiator,
     required this.startTime,
   }) : _ledger = ledger;
@@ -154,8 +149,13 @@ class Operation {
   /// Future that completes when operation fails.
   Future<OperationFailedInfo> get onFailure => _failureCompleter.future;
 
-  /// Get the current elapsed time formatted.
-  String get elapsedFormatted => getElapsedFormatted();
+  /// Get the current elapsed time formatted as "SSS.mmm" (seconds.milliseconds).
+  String get elapsedFormatted {
+    final duration = elapsedDuration;
+    final seconds = duration.inSeconds;
+    final millis = duration.inMilliseconds % 1000;
+    return '${seconds.toString().padLeft(3, '0')}.${millis.toString().padLeft(3, '0')}';
+  }
 
   /// Get the elapsed duration since operation start.
   ///
@@ -236,14 +236,28 @@ class Operation {
   // Call management (NEW API per specification)
   // ─────────────────────────────────────────────────────────────
 
-  /// Start a call.
+  /// Start a call and return a [Call<T>] object for lifecycle management.
   ///
-  /// Returns a ledger-generated callId.
-  /// 
+  /// The returned [Call<T>] object provides [Call.end] and [Call.fail] methods
+  /// for completing the call, eliminating the need to track callIds manually.
+  ///
   /// If [failOnCrash] is true (default), a crash in this call will fail the
   /// entire operation. If false, the crash is contained to this call only.
-  Future<String> startCall({
-    required CallCallback callback,
+  ///
+  /// Example:
+  /// ```dart
+  /// final call = await operation.startCall<int>(
+  ///   callback: CallCallback(onCleanup: () async => releaseResources()),
+  /// );
+  /// try {
+  ///   final result = await performWork();
+  ///   await call.end(result);  // End successfully with result
+  /// } catch (e, st) {
+  ///   await call.fail(e, st);  // Fail with error
+  /// }
+  /// ```
+  Future<Call<T>> startCall<T>({
+    CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) async {
@@ -253,7 +267,7 @@ class Operation {
     // Track locally
     _activeCalls[callId] = _ActiveCall(
       callId: callId,
-      callback: callback,
+      callback: callback ?? CallCallback<T>(),
       startedAt: now,
       description: description,
       isSpawned: false,
@@ -283,11 +297,31 @@ class Operation {
     // Log the call start
     await log('CALL_STARTED callId=$callId participant=$participantId');
 
-    return callId;
+    return Call<T>.internal(
+      callId: callId,
+      operation: this,
+      startedAt: now,
+      description: description,
+    );
   }
 
-  /// End a call.
+  /// End a call successfully.
+  ///
+  /// Prefer using [Call.end] on the returned Call object instead.
+  /// This method is kept for backward compatibility.
+  @Deprecated('Use Call.end() instead')
   Future<void> endCall({required String callId}) async {
+    await endCallInternal$(callId: callId, result: null);
+  }
+
+  /// Internal method to end a call, called by Call.end().
+  /// 
+  /// **Note:** This method is for internal use by the ledger API.
+  /// Users should call [Call.end] instead.
+  Future<void> endCallInternal$<T>({
+    required String callId,
+    T? result,
+  }) async {
     final activeCall = _activeCalls.remove(callId);
     if (activeCall == null) {
       throw StateError('No active call with ID: $callId');
@@ -315,15 +349,10 @@ class Operation {
     await log(
         'CALL_ENDED callId=$callId duration=${duration.inMilliseconds}ms');
 
-    // Call onEnded callback if provided
-    if (activeCall.callback.onEnded != null) {
-      await activeCall.callback.onEnded!(CallEndedInfo(
-        callId: callId,
-        operationId: operationId,
-        participantId: participantId,
-        startedAt: activeCall.startedAt,
-        endedAt: now,
-      ));
+    // Call onCompletion callback if result provided
+    if (result != null && activeCall.callback is CallCallback<T>) {
+      final callback = activeCall.callback as CallCallback<T>;
+      await callback.onCompletion?.call(result);
     }
 
     // Complete the completer for spawned calls
@@ -334,9 +363,25 @@ class Operation {
 
   /// Fail a call due to an error.
   ///
+  /// Prefer using [Call.fail] on the returned Call object instead.
+  /// This method is kept for backward compatibility.
+  ///
   /// This removes the stack frame, logs the failure, and calls cleanup.
   /// If [failOnCrash] was true for this call, it may trigger operation failure.
+  @Deprecated('Use Call.fail() instead')
   Future<void> failCall({
+    required String callId,
+    required Object error,
+    StackTrace? stackTrace,
+  }) async {
+    await failCallInternal$(callId: callId, error: error, stackTrace: stackTrace);
+  }
+
+  /// Internal method to fail a call, called by Call.fail().
+  /// 
+  /// **Note:** This method is for internal use by the ledger API.
+  /// Users should call [Call.fail] instead.
+  Future<void> failCallInternal$({
     required String callId,
     required Object error,
     StackTrace? stackTrace,
@@ -370,19 +415,7 @@ class Operation {
         level: LogLevel.error);
 
     // Call cleanup callback
-    await activeCall.callback.onCleanup();
-
-    // Call onCrashed callback if provided
-    if (activeCall.callback.onCrashed != null) {
-      await activeCall.callback.onCrashed!(CrashedCallInfo(
-        callId: callId,
-        operationId: operationId,
-        participantId: participantId,
-        startedAt: activeCall.startedAt,
-        detectedAt: now,
-        crashReason: error.toString(),
-      ));
-    }
+    await activeCall.callback.onCleanup?.call();
 
     // If this call had failOnCrash=true, signal operation failure
     if (activeCall.failOnCrash) {
@@ -400,124 +433,97 @@ class Operation {
     }
   }
 
-  /// Spawn a call that runs asynchronously.
-  ///
-  /// Returns callId immediately without waiting for completion.
-  /// 
-  /// If [failOnCrash] is true (default), a crash in this call will fail the
-  /// entire operation. If false, the crash is contained to this call only.
-  Future<String> spawnCall({
-    required CallCallback callback,
-    String? description,
-    bool failOnCrash = true,
-  }) async {
-    final callId = _generateCallId();
-    final now = DateTime.now();
-
-    // Track locally
-    _activeCalls[callId] = _ActiveCall(
-      callId: callId,
-      callback: callback,
-      startedAt: now,
-      description: description,
-      isSpawned: true,
-      failOnCrash: failOnCrash,
-    );
-
-    // Push stack frame
-    final updated = await _ledger._modifyOperation(
-      operationId: operationId,
-      elapsedFormatted: elapsedFormatted,
-      updater: (data) {
-        data.stack.add(StackFrame(
-          participantId: participantId,
-          callId: callId,
-          pid: pid,
-          startTime: now,
-          lastHeartbeat: now,
-          description: description,
-          failOnCrash: failOnCrash,
-        ));
-        data.lastHeartbeat = now;
-        return data;
-      },
-    );
-    if (updated != null) _updateCache(updated);
-
-    // Log the call start
-    await log('CALL_SPAWNED callId=$callId participant=$participantId');
-
-    return callId;
-  }
-
-  /// Wait for spawned calls to complete.
-  ///
-  /// Note: Individual call crash handling is done via the onCallCrashed callback
-  /// provided to spawnCall() at spawn time. This method only notifies about
-  /// operation-level failures.
-  Future<void> sync(
-    List<String> callIds, {
-    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
-  }) async {
-    if (callIds.isEmpty) return;
-
-    // Get completers for all specified calls
-    final futures = <Future<void>>[];
-    for (final callId in callIds) {
-      final activeCall = _activeCalls[callId];
-      if (activeCall != null) {
-        futures.add(activeCall.completer.future);
-      }
-    }
-
-    if (futures.isEmpty) return;
-
-    // Race between call completions and operation failure
-    await Future.any([
-      Future.wait(futures),
-      onFailure.then((info) async {
-        await onOperationFailed?.call(info);
-      }),
-    ]);
-  }
-
   /// Execute work while monitoring operation state.
   ///
   /// If the operation enters cleanup/failed state, the work is interrupted.
-  Future<void> waitForCompletion(
-    Future<void> Function() work, {
+  /// Returns the result of the work function.
+  ///
+  /// Parameters:
+  /// - [work] - Async function that produces the result
+  /// - [onOperationFailed] - Called if operation fails before work completes
+  /// - [onError] - Called if work throws an error; can return a fallback value
+  ///
+  /// Example:
+  /// ```dart
+  /// final result = await operation.waitForCompletion<int>(
+  ///   work: () async => await computeValue(),
+  ///   onOperationFailed: (info) async => print('Operation failed!'),
+  ///   onError: (error, stackTrace) async {
+  ///     print('Error: $error');
+  ///     return -1; // Fallback value
+  ///   },
+  /// );
+  /// ```
+  Future<T> waitForCompletion<T>(
+    Future<T> Function() work, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<T> Function(Object error, StackTrace stackTrace)? onError,
   }) async {
-    // Race between work completion and operation failure
-    await Future.any([
-      work(),
-      onFailure.then((info) async {
-        await onOperationFailed?.call(info);
-      }),
-    ]);
+    try {
+      // Race between work completion and operation failure
+      return await Future.any<T>([
+        work(),
+        onFailure.then<T>((info) async {
+          await onOperationFailed?.call(info);
+          throw OperationFailedException(info);
+        }),
+      ]);
+    } catch (e, st) {
+      if (onError != null && e is! OperationFailedException) {
+        return await onError(e, st);
+      }
+      rethrow;
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Typed Spawned Call API (per specification)
+  // Spawned Call API
   // ─────────────────────────────────────────────────────────────
 
-  /// Tracking for typed spawned calls.
+  /// Tracking for spawned calls.
   final Map<String, SpawnedCall> _spawnedCalls = {};
 
-  /// Spawn a typed call that runs asynchronously.
+  /// Spawn a call that runs asynchronously.
   ///
   /// Returns [SpawnedCall<T>] immediately. The call executes `work` asynchronously
   /// and manages its own lifecycle (no need to call endCall).
   ///
-  /// If [failOnCrash] is true (default), a crash in this call will fail the
-  /// entire operation. If false, the crash is contained.
-  SpawnedCall<T> spawnTyped<T>({
-    required Future<T> Function() work,
-    Future<T?> Function()? onCallCrashed,
-    Future<void> Function(T result)? onCompletion,
+  /// Parameters:
+  /// - [work] - Async function that produces the result
+  /// - [callback] - Optional callbacks for completion, crash, cleanup, and operation failure
+  /// - [description] - Optional description for logging
+  /// - [failOnCrash] - If true (default), a crash fails the entire operation
+  ///
+  /// Example:
+  /// ```dart
+  /// final call = operation.spawnCall<int>(
+  ///   work: () async => await computeExpensiveValue(),
+  ///   callback: CallCallback(
+  ///     onCompletion: (result) async => print('Got: $result'),
+  ///     onCallCrashed: () async => 0, // Fallback value
+  ///     onOperationFailed: (info) async => print('Op failed!'),
+  ///   ),
+  /// );
+  /// 
+  /// // Access callId immediately
+  /// print('Call started: ${call.callId}');
+  /// 
+  /// // Wait for result later
+  /// await call.future;
+  /// print('Result: ${call.result}');
+  /// ```
+  SpawnedCall<T> spawnCall<T>({
+    Future<T> Function()? work,
+    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) {
+    // Either work or workWithCall must be provided
+    if (work == null && workWithCall == null) {
+      throw ArgumentError('Either work or workWithCall must be provided');
+    }
+    
     final callId = _generateCallId();
     final now = DateTime.now();
 
@@ -528,28 +534,30 @@ class Operation {
     );
     _spawnedCalls[callId] = spawnedCall;
 
-    // Create callback
-    final callback = CallCallback(
-      onCleanup: () async {}, // Cleanup handled by _runSpawnedCall
+    // Create internal callback for cleanup
+    final internalCallback = CallCallback<dynamic>(
+      onCleanup: callback?.onCleanup,
     );
 
     // Track locally
     _activeCalls[callId] = _ActiveCall(
       callId: callId,
-      callback: callback,
+      callback: internalCallback,
       startedAt: now,
       description: description,
       isSpawned: true,
       failOnCrash: failOnCrash,
     );
 
+    // Create the actual work function
+    final actualWork = work ?? (() => workWithCall!(spawnedCall));
+
     // Execute asynchronously
     _runSpawnedCall<T>(
       callId: callId,
-      work: work,
+      work: actualWork,
       spawnedCall: spawnedCall,
-      onCallCrashed: onCallCrashed,
-      onCompletion: onCompletion,
+      callback: callback,
       failOnCrash: failOnCrash,
     );
 
@@ -561,8 +569,7 @@ class Operation {
     required String callId,
     required Future<T> Function() work,
     required SpawnedCall<T> spawnedCall,
-    Future<T?> Function()? onCallCrashed,
-    Future<void> Function(T result)? onCompletion,
+    CallCallback<T>? callback,
     required bool failOnCrash,
   }) async {
     final now = DateTime.now();
@@ -589,6 +596,11 @@ class Operation {
 
     await log('CALL_SPAWNED callId=$callId participant=$participantId');
 
+    // Monitor for operation failure
+    onFailure.then((info) async {
+      await callback?.onOperationFailed?.call(info);
+    });
+
     try {
       // Execute work
       final result = await work();
@@ -611,7 +623,7 @@ class Operation {
       await log('CALL_COMPLETED callId=$callId');
 
       // Call onCompletion callback
-      await onCompletion?.call(result);
+      await callback?.onCompletion?.call(result);
 
       // Cleanup active call tracking
       final activeCall = _activeCalls.remove(callId);
@@ -621,9 +633,9 @@ class Operation {
     } catch (e, st) {
       // Failure - try to get fallback from onCallCrashed
       T? fallbackResult;
-      if (onCallCrashed != null) {
+      if (callback?.onCallCrashed != null) {
         try {
-          fallbackResult = await onCallCrashed();
+          fallbackResult = await callback!.onCallCrashed!();
           if (fallbackResult != null) {
             // Got a fallback, treat as success
             spawnedCall.complete(fallbackResult);
@@ -669,14 +681,14 @@ class Operation {
     }
   }
 
-  /// Sync on typed spawned calls and get a SyncResult.
+  /// Wait for spawned calls to complete and get a SyncResult.
   ///
   /// Waits for all specified calls to complete and returns status.
   /// 
   /// Note: Individual call crash handling is done via the onCallCrashed callback
-  /// provided to spawnTyped() at spawn time. This method only notifies about
+  /// provided to spawnCall() at spawn time. This method only notifies about
   /// operation-level failures.
-  Future<SyncResult> syncTyped(
+  Future<SyncResult> sync(
     List<SpawnedCall> calls, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
     Future<void> Function()? onCompletion,
@@ -729,6 +741,52 @@ class Operation {
     );
   }
 
+  /// Await a single spawned call to complete.
+  ///
+  /// This is a convenience method equivalent to `syncTyped([call], ...)`.
+  /// Use this when you have a single spawned call that you want to wait for.
+  ///
+  /// Returns a [SyncResult] with the call categorized as successful, failed,
+  /// or unknown (if operation failed before the call completed).
+  ///
+  /// Note: Individual call crash handling is done via the onCallCrashed callback
+  /// provided to spawnTyped() at spawn time. This method only notifies about
+  /// operation-level failures.
+  /// 
+  /// For direct result access, use [SpawnedCall.await_] which returns `T`
+  /// directly or throws on failure.
+  /// 
+  /// Example:
+  /// ```dart
+  /// final call = operation.spawnCall<int>(
+  ///   work: () async => 42,
+  /// );
+  /// 
+  /// final result = await operation.awaitCall(call);
+  /// if (result.allSucceeded) {
+  ///   print('Result: ${call.result}');
+  /// }
+  /// 
+  /// // Or use the direct await pattern:
+  /// try {
+  ///   final value = await call.await_();
+  ///   print('Got: $value');
+  /// } catch (e) {
+  ///   print('Failed: $e');
+  /// }
+  /// ```
+  Future<SyncResult> awaitCall<T>(
+    SpawnedCall<T> call, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<void> Function()? onCompletion,
+  }) {
+    return sync(
+      [call],
+      onOperationFailed: onOperationFailed,
+      onCompletion: onCompletion,
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Exec Helper Methods (convenience API for process spawning)
   // ─────────────────────────────────────────────────────────────
@@ -753,9 +811,27 @@ class Operation {
   /// - [timeout] - Optional timeout for the entire operation
   /// - [onStdout] - Optional callback for stdout lines
   /// - [onStderr] - Optional callback for stderr lines
+  /// - [onExit] - Optional callback when process exits (receives exit code)
   /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  /// - [callback] - Optional callbacks for completion, crash, cleanup, and operation failure
   ///
-  /// Returns a [SpawnedCall<T>] that completes with the parsed result.
+  /// Returns a [SpawnedCall<T>] immediately. The call executes asynchronously.
+  /// Access `callId` immediately, await `future` for results.
+  /// 
+  /// Example:
+  /// ```dart
+  /// final worker = operation.execFileResultWorker<Map>(
+  ///   executable: 'dart',
+  ///   arguments: ['run', 'worker.dart', '--output', resultPath],
+  ///   resultFilePath: resultPath,
+  ///   onExit: (exitCode) => print('Worker exited with code: $exitCode'),
+  /// );
+  /// print('Started: ${worker.callId}');
+  /// await worker.future;
+  /// if (worker.isSuccess) {
+  ///   print('Result: ${worker.result}');
+  /// }
+  /// ```
   SpawnedCall<T> execFileResultWorker<T>({
     required String executable,
     required List<String> arguments,
@@ -768,16 +844,21 @@ class Operation {
     Duration? timeout,
     void Function(String line)? onStdout,
     void Function(String line)? onStderr,
+    void Function(int exitCode)? onExit,
     bool failOnCrash = true,
+    CallCallback<T>? callback,
   }) {
-    return spawnTyped<T>(
-      work: () async {
+    return spawnCall<T>(
+      workWithCall: (call) async {
         // Start the process
         final process = await Process.start(
           executable,
           arguments,
           workingDirectory: workingDirectory ?? Directory.current.path,
         );
+        
+        // Attach process to SpawnedCall for kill/cancel support
+        call.setProcess$(process);
 
         // Handle stdout
         process.stdout.transform(utf8.decoder).listen((data) {
@@ -807,12 +888,14 @@ class Operation {
         )();
 
         // Wait for process to exit
-        await process.exitCode;
+        final exitCode = await process.exitCode;
+        onExit?.call(exitCode);
 
         return result;
       },
       description: description ?? 'File result worker',
       failOnCrash: failOnCrash,
+      callback: callback,
     );
   }
 
@@ -824,17 +907,65 @@ class Operation {
   /// This is a convenience method for processes that communicate their result
   /// via stdout (common for CLI tools and simple workers).
   ///
-  /// Parameters:
+  /// ## Worker Requirements
+  ///
+  /// The worker process MUST:
+  /// - Output ONLY the JSON result to stdout (no other content)
+  /// - Use stderr for all status messages, progress, and debugging
+  /// - Exit with code 0 on success
+  ///
+  /// Example worker implementation:
+  /// ```dart
+  /// void main(List<String> args) async {
+  ///   // Parse parameters from args
+  ///   final param1 = args.firstWhere((a) => a.startsWith('--param1=')).split('=')[1];
+  ///   
+  ///   // All status messages go to stderr
+  ///   stderr.writeln('Processing with param: $param1');
+  ///   
+  ///   // Do work...
+  ///   await Future.delayed(Duration(seconds: 2));
+  ///   
+  ///   // ONLY the result goes to stdout (as JSON)
+  ///   final result = {'status': 'success', 'value': param1};
+  ///   stdout.write(jsonEncode(result));  // No newline needed
+  ///   
+  ///   stderr.writeln('Done!');
+  /// }
+  /// ```
+  ///
+  /// ## Parameters
   /// - [executable] - The executable to run (e.g., 'dart')
-  /// - [arguments] - Command-line arguments
+  /// - [arguments] - Command-line arguments (including parameters for the worker)
   /// - [workingDirectory] - Optional working directory for the process
   /// - [description] - Optional description for logging
-  /// - [deserializer] - Optional function to parse stdout content
-  /// - [onStderr] - Optional callback for stderr lines
+  /// - [deserializer] - Optional function to parse stdout content (default: json.decode)
+  /// - [onStderr] - Optional callback for stderr lines (for monitoring worker progress)
+  /// - [onExit] - Optional callback when process exits (receives exit code)
   /// - [timeout] - Optional timeout for the entire operation
   /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  /// - [callback] - Optional callbacks for completion, crash, cleanup, and operation failure
   ///
-  /// Returns a [SpawnedCall<T>] that completes with the parsed result.
+  /// Returns a [SpawnedCall<T>] immediately. The call executes asynchronously.
+  /// Access `callId` immediately, await `future` for results.
+  /// 
+  /// ## Example
+  /// ```dart
+  /// final worker = operation.execStdioWorker<Map<String, dynamic>>(
+  ///   executable: 'dart',
+  ///   arguments: [
+  ///     'run', 'worker.dart',
+  ///     '--param1=hello',
+  ///     '--param2=world',
+  ///   ],
+  ///   onStderr: (line) => print('[Worker] $line'),
+  ///   onExit: (exitCode) => print('Exited: $exitCode'),
+  /// );
+  /// await worker.future;
+  /// if (worker.isSuccess) {
+  ///   print('Result: ${worker.result['combined_result']}');
+  /// }
+  /// ```
   SpawnedCall<T> execStdioWorker<T>({
     required String executable,
     required List<String> arguments,
@@ -842,17 +973,22 @@ class Operation {
     String? description,
     T Function(String content)? deserializer,
     void Function(String line)? onStderr,
+    void Function(int exitCode)? onExit,
     Duration? timeout,
     bool failOnCrash = true,
+    CallCallback<T>? callback,
   }) {
-    return spawnTyped<T>(
-      work: () async {
+    return spawnCall<T>(
+      workWithCall: (call) async {
         // Start the process
         final process = await Process.start(
           executable,
           arguments,
           workingDirectory: workingDirectory ?? Directory.current.path,
         );
+        
+        // Attach process to SpawnedCall for kill/cancel support
+        call.setProcess$(process);
 
         // Handle stderr
         process.stderr.transform(utf8.decoder).listen((data) {
@@ -871,6 +1007,8 @@ class Operation {
 
         // Wait for process to exit
         final exitCode = await process.exitCode;
+        onExit?.call(exitCode);
+        
         if (exitCode != 0) {
           throw ProcessException(
             executable,
@@ -894,102 +1032,94 @@ class Operation {
       },
       description: description ?? 'Stdout worker',
       failOnCrash: failOnCrash,
+      callback: callback,
     );
   }
 
-  /// Execute a server call with a custom work function.
+  /// Execute a request to an already-running server process.
   ///
-  /// Spawns a long-running server process, executes the provided work function
-  /// (which should make calls to the server), and then terminates the server.
+  /// Makes a request to a server that is already running (started separately,
+  /// perhaps at the beginning of the operation). The server and client share
+  /// the filesystem and can communicate via files in the operation directory.
   ///
-  /// This is a convenience method for scenarios where you need to start a
-  /// server, perform some work with it (HTTP calls, socket communication, etc.),
-  /// and then shut it down.
+  /// This is a convenience method for scenarios where a long-running server
+  /// process handles multiple requests during an operation. The server should
+  /// be started at the beginning of the operation and stay running throughout.
+  ///
+  /// Communication pattern (file-based for local participants):
+  /// 1. Client writes request to a request file (e.g., `request_<callId>.json`)
+  /// 2. Server polls for request files, processes them
+  /// 3. Server writes response to a response file (e.g., `response_<callId>.json`)
+  /// 4. Client polls for response file and reads result
   ///
   /// Parameters:
-  /// - [executable] - The executable to run (e.g., 'dart')
-  /// - [arguments] - Command-line arguments
-  /// - [work] - Async function that performs the actual work with the server
-  /// - [workingDirectory] - Optional working directory for the process
+  /// - [work] - Async function that performs the actual request to the server
   /// - [description] - Optional description for logging
-  /// - [startupDelay] - Time to wait for server to start before calling work (default: 500ms)
-  /// - [onStdout] - Optional callback for stdout lines
-  /// - [onStderr] - Optional callback for stderr lines
+  /// - [timeout] - Optional timeout for the request
   /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  /// - [callback] - Optional callbacks for completion, crash, cleanup, and operation failure
   ///
-  /// Returns a [SpawnedCall<T>] that completes with the result of the work function.
-  SpawnedCall<T> execServerCall<T>({
-    required String executable,
-    required List<String> arguments,
-    required Future<T> Function(Process server) work,
-    String? workingDirectory,
+  /// Returns a [SpawnedCall<T>] immediately. The call executes asynchronously.
+  /// Access `callId` immediately, await `future` for results.
+  /// 
+  /// Example:
+  /// ```dart
+  /// // Write request file, poll for response
+  /// final call = operation.execServerRequest<Map>(
+  ///   work: () async {
+  ///     // Write request
+  ///     final requestPath = '${ledger.basePath}/request_${callId}.json';
+  ///     await File(requestPath).writeAsString(jsonEncode({'action': 'process'}));
+  ///     
+  ///     // Poll for response
+  ///     return await OperationHelper.pollFile<Map>(
+  ///       path: '${ledger.basePath}/response_${callId}.json',
+  ///       delete: true,
+  ///     )();
+  ///   },
+  /// );
+  /// print('Started: ${call.callId}');
+  /// await call.future;
+  /// if (call.isSuccess) {
+  ///   print('Server response: ${call.result}');
+  /// }
+  /// ```
+  SpawnedCall<T> execServerRequest<T>({
+    required Future<T> Function() work,
     String? description,
-    Duration startupDelay = const Duration(milliseconds: 500),
-    void Function(String line)? onStdout,
-    void Function(String line)? onStderr,
+    Duration? timeout,
     bool failOnCrash = true,
+    CallCallback<T>? callback,
   }) {
-    return spawnTyped<T>(
+    return spawnCall<T>(
       work: () async {
-        // Start the server process
-        final process = await Process.start(
-          executable,
-          arguments,
-          workingDirectory: workingDirectory ?? Directory.current.path,
-        );
-
-        // Handle stdout
-        process.stdout.transform(utf8.decoder).listen((data) {
-          if (onStdout != null) {
-            for (final line in data.split('\n')) {
-              if (line.isNotEmpty) onStdout(line);
-            }
-          }
-        });
-
-        // Handle stderr
-        process.stderr.transform(utf8.decoder).listen((data) {
-          if (onStderr != null) {
-            for (final line in data.split('\n')) {
-              if (line.isNotEmpty) onStderr(line);
-            }
-          }
-        });
-
-        try {
-          // Wait for server to start
-          await Future.delayed(startupDelay);
-
-          // Execute the work function
-          final result = await work(process);
-
-          return result;
-        } finally {
-          // Terminate the server
-          process.kill();
-          await process.exitCode.timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              process.kill(ProcessSignal.sigkill);
-              return -1;
-            },
-          );
+        if (timeout != null) {
+          return await work().timeout(timeout);
         }
+        return await work();
       },
-      description: description ?? 'Server call',
+      description: description ?? 'Server request',
       failOnCrash: failOnCrash,
+      callback: callback,
     );
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Legacy call methods (for backward compatibility with simulator)
+  // ─────────────────────────────────────────────────────────────
+  // Low-level stack frame operations
   // ─────────────────────────────────────────────────────────────
 
-  /// Start tracking a call execution (push stack frame).
-  /// @deprecated Use [startCall] instead.
-  Future<void> startCallExecution({
-    required String callId,
-  }) async {
+  /// Push a stack frame for a call (low-level operation).
+  ///
+  /// This is a lower-level method that directly manipulates the stack.
+  /// For most use cases, prefer [startCall] which provides structured
+  /// call tracking with callbacks.
+  ///
+  /// Use this method when:
+  /// - You need direct control over stack frame management
+  /// - Testing stack behavior without callback overhead
+  /// - Implementing custom call patterns
+  Future<void> pushStackFrame({required String callId}) async {
     final now = DateTime.now();
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
@@ -1009,11 +1139,17 @@ class Operation {
     if (updated != null) _updateCache(updated);
   }
 
-  /// End tracking a call execution (pop stack frame).
-  /// @deprecated Use [endCall] instead.
-  Future<void> endCallExecution({
-    required String callId,
-  }) async {
+  /// Pop a stack frame for a call (low-level operation).
+  ///
+  /// This is a lower-level method that directly manipulates the stack.
+  /// For most use cases, prefer [Call.end] which provides structured
+  /// call tracking.
+  ///
+  /// Use this method when:
+  /// - You need direct control over stack frame management
+  /// - Testing stack behavior without callback overhead
+  /// - Implementing custom call patterns
+  Future<void> popStackFrame({required String callId}) async {
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
@@ -1209,22 +1345,28 @@ class Operation {
     }
   }
 
-  /// Handle detected crash - invoke callbacks for affected calls.
+  /// Handle detected crash - log affected calls and signal failure.
   Future<void> _handleDetectedCrash(List<String> staleParticipants) async {
-    // Find calls from stale participants and invoke onCrashed
+    // Find calls from stale participants and log
+    final crashedCallIds = <String>[];
     for (final call in _activeCalls.values) {
       if (staleParticipants.contains(participantId)) {
-        if (call.callback.onCrashed != null) {
-          await call.callback.onCrashed!(CrashedCallInfo(
-            callId: call.callId,
-            operationId: operationId,
-            participantId: participantId,
-            startedAt: call.startedAt,
-            detectedAt: DateTime.now(),
-            crashReason: 'Stale heartbeat detected',
-          ));
-        }
+        crashedCallIds.add(call.callId);
+        await log(
+          'CRASH_DETECTED callId=${call.callId} reason=Stale heartbeat',
+          level: LogLevel.error,
+        );
       }
+    }
+    
+    // Signal operation failure if there were crashes
+    if (crashedCallIds.isNotEmpty) {
+      _signalFailure(OperationFailedInfo(
+        operationId: operationId,
+        failedAt: DateTime.now(),
+        reason: 'Stale heartbeat detected for ${crashedCallIds.length} calls',
+        crashedCallIds: crashedCallIds,
+      ));
     }
   }
 
@@ -1237,12 +1379,15 @@ class Operation {
       if (!file.existsSync()) return null;
 
       // Create backup
-      await _ledger._createBackup(operationId, elapsedFormatted);
+      await _ledger._createTrailSnapshot(operationId, elapsedFormatted);
 
       // Read current state
       final content = await file.readAsString();
       final data =
           LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
+      
+      // Copy the data before modification for the result
+      final dataBefore = LedgerData.fromJson(data.toJson());
 
       // Calculate global heartbeat age before updating (for backward compatibility)
       final heartbeatAge =
@@ -1293,6 +1438,8 @@ class Operation {
         participantHeartbeatAges: participantAges,
         staleParticipants:
             staleParticipants.where((p) => p != participantId).toList(),
+        dataBefore: dataBefore,
+        dataAfter: data,
       );
     } finally {
       await _ledger._releaseLock(operationId);
@@ -1395,8 +1542,44 @@ class Operation {
 /// - Providing global heartbeat monitoring
 /// - Managing log files for each operation
 /// - Managing backups and backup cleanup
+///
+/// ## Participant Identity
+///
+/// Participant identity can be set at Ledger creation time (recommended for
+/// production) or per-operation (for simulations and testing):
+///
+/// **Production pattern (one identity per Ledger):**
+/// ```dart
+/// final ledger = Ledger(
+///   basePath: '/tmp/ledger',
+///   participantId: 'orchestrator',
+/// );
+/// final op = await ledger.createOperation(); // Uses ledger's participantId
+/// ```
+///
+/// **Simulation pattern (multiple identities per Ledger):**
+/// ```dart
+/// final ledger = Ledger(basePath: '/tmp/ledger');
+/// final cliOp = await ledger.createOperation(participantId: 'cli');
+/// final bridgeOp = await ledger.joinOperation(
+///   operationId: opId,
+///   participantId: 'bridge',
+/// );
+/// ```
 class Ledger {
   final String basePath;
+
+  /// The default participant ID for this ledger instance.
+  ///
+  /// If set, this will be used as the participantId for operations unless
+  /// overridden in createOperation/joinOperation calls.
+  final String? participantId;
+
+  /// The default process ID for this participant.
+  ///
+  /// Defaults to the current process PID if not specified in constructor.
+  final int participantPid;
+
   final void Function(String)? onBackupCreated;
   final void Function(String)? onLogLine;
 
@@ -1419,12 +1602,23 @@ class Ledger {
   static const _lockTimeout = Duration(seconds: 2);
   static const _lockRetryInterval = Duration(milliseconds: 50);
 
+  /// Heartbeat interval for global monitoring.
+  final Duration heartbeatInterval;
+
+  /// Staleness threshold for detecting crashed operations.
+  final Duration staleThreshold;
+
   Ledger({
     required this.basePath,
+    this.participantId,
+    int? participantPid,
     this.onBackupCreated,
     this.onLogLine,
+    this.onGlobalHeartbeatError,
     this.maxBackups = 20,
-  }) {
+    this.heartbeatInterval = const Duration(seconds: 5),
+    this.staleThreshold = const Duration(seconds: 15),
+  }) : participantPid = participantPid ?? pid {
     _ledgerDir = Directory(basePath);
     _backupDir = Directory('$basePath/backup');
     if (!_ledgerDir.existsSync()) {
@@ -1433,6 +1627,8 @@ class Ledger {
     if (!_backupDir.existsSync()) {
       _backupDir.createSync(recursive: true);
     }
+    // Auto-start global heartbeat
+    _startGlobalHeartbeat();
   }
 
   /// Get all active operations.
@@ -1469,10 +1665,10 @@ class Ledger {
   String _backupFolderPath(String operationId) =>
       '${_backupDir.path}/$operationId';
 
-  // Legacy trail path for backward compatibility
+  // Trail folder for per-modification snapshots
   String _trailPath(String operationId) => '$basePath/${operationId}_trail';
 
-  String _legacyBackupPath(String operationId, String elapsedFormatted) =>
+  String _trailSnapshotPath(String operationId, String elapsedFormatted) =>
       '${_trailPath(operationId)}/${elapsedFormatted}_$operationId.json';
 
   // ─────────────────────────────────────────────────────────────
@@ -1535,23 +1731,23 @@ class Ledger {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Backup (legacy - for trail folder)
+  // Trail snapshots (per-modification backups for debugging)
   // ─────────────────────────────────────────────────────────────
 
-  Future<String> _createBackup(
+  Future<String> _createTrailSnapshot(
       String operationId, String elapsedFormatted) async {
     final sourceFile = File(_operationPath(operationId));
     if (!sourceFile.existsSync()) return '';
 
-    final backupPath = _legacyBackupPath(operationId, elapsedFormatted);
+    final snapshotPath = _trailSnapshotPath(operationId, elapsedFormatted);
     final trailDir = Directory(_trailPath(operationId));
     if (!trailDir.existsSync()) {
       await trailDir.create(recursive: true);
     }
 
-    await sourceFile.copy(backupPath);
-    onBackupCreated?.call(backupPath);
-    return backupPath;
+    await sourceFile.copy(snapshotPath);
+    onBackupCreated?.call(snapshotPath);
+    return snapshotPath;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1595,37 +1791,48 @@ class Ledger {
   ///
   /// Creates the operation file and returns an [Operation] object
   /// that can be used to interact with the operation.
-  Future<Operation> createOperation({
-    required String participantId,
-    required int participantPid,
-    required ElapsedFormattedCallback getElapsedFormatted,
-    String? description,
-  }) async {
-    final operationId = _generateOperationId(participantId);
-    return await _startOperationWithId(
-      operationId: operationId,
-      participantId: participantId,
-      participantPid: participantPid,
-      getElapsedFormatted: getElapsedFormatted,
-      description: description,
-    );
-  }
-
-  /// Start a new operation with a specified ID (legacy API).
   ///
-  /// Use [createOperation] for new code.
-  Future<Operation> startOperation({
-    required String operationId,
-    required int initiatorPid,
-    required String participantId,
-    required ElapsedFormattedCallback getElapsedFormatted,
+  /// ## Participant Identity
+  ///
+  /// Uses identity from constructor if set, otherwise requires explicit params:
+  ///
+  /// **With constructor identity (recommended for production):**
+  /// ```dart
+  /// final ledger = Ledger(basePath: path, participantId: 'orchestrator');
+  /// final op = await ledger.createOperation(); // Uses 'orchestrator'
+  /// ```
+  ///
+  /// **With explicit identity (for simulations):**
+  /// ```dart
+  /// final ledger = Ledger(basePath: path);
+  /// final op = await ledger.createOperation(
+  ///   participantId: 'cli',
+  ///   participantPid: 1234,
+  /// );
+  /// ```
+  ///
+  /// [operationId] is optional. If not provided, a unique ID will be
+  /// auto-generated based on timestamp and participantId. Provide an
+  /// explicit ID only for testing or external coordination purposes.
+  Future<Operation> createOperation({
+    String? operationId,
+    String? participantId,
+    int? participantPid,
     String? description,
   }) async {
+    final effectiveParticipantId = participantId ?? this.participantId;
+    if (effectiveParticipantId == null) {
+      throw ArgumentError(
+        'participantId is required. Either set it in the Ledger constructor '
+        'or pass it to createOperation().',
+      );
+    }
+    final effectivePid = participantPid ?? this.participantPid;
+    final effectiveOperationId = operationId ?? _generateOperationId(effectiveParticipantId);
     return await _startOperationWithId(
-      operationId: operationId,
-      participantId: participantId,
-      participantPid: initiatorPid,
-      getElapsedFormatted: getElapsedFormatted,
+      operationId: effectiveOperationId,
+      participantId: effectiveParticipantId,
+      participantPid: effectivePid,
       description: description,
     );
   }
@@ -1634,7 +1841,6 @@ class Ledger {
     required String operationId,
     required String participantId,
     required int participantPid,
-    required ElapsedFormattedCallback getElapsedFormatted,
     String? description,
   }) async {
     final acquired = await _acquireLock(operationId);
@@ -1665,7 +1871,6 @@ class Ledger {
         operationId: operationId,
         participantId: participantId,
         pid: participantPid,
-        getElapsedFormatted: getElapsedFormatted,
         isInitiator: true,
         startTime: timestamp,
       );
@@ -1682,38 +1887,49 @@ class Ledger {
   }
 
   /// Join an existing operation.
-  Future<Operation> joinOperation({
-    required String operationId,
-    required String participantId,
-    required int participantPid,
-    required ElapsedFormattedCallback getElapsedFormatted,
-  }) async {
-    return await participateInOperation(
-      operationId: operationId,
-      participantId: participantId,
-      participantPid: participantPid,
-      getElapsedFormatted: getElapsedFormatted,
-    );
-  }
-
-  /// Participate in an existing operation (legacy API).
   ///
   /// Returns an [Operation] object for the participant to interact with.
-  Future<Operation> participateInOperation({
+  ///
+  /// ## Participant Identity
+  ///
+  /// Uses identity from constructor if set, otherwise requires explicit params:
+  ///
+  /// **With constructor identity (recommended for production):**
+  /// ```dart
+  /// final ledger = Ledger(basePath: path, participantId: 'worker_1');
+  /// final op = await ledger.joinOperation(operationId: opId);
+  /// ```
+  ///
+  /// **With explicit identity (for simulations):**
+  /// ```dart
+  /// final ledger = Ledger(basePath: path);
+  /// final op = await ledger.joinOperation(
+  ///   operationId: opId,
+  ///   participantId: 'bridge',
+  ///   participantPid: 5678,
+  /// );
+  /// ```
+  Future<Operation> joinOperation({
     required String operationId,
-    required int participantPid,
-    required String participantId,
-    required ElapsedFormattedCallback getElapsedFormatted,
+    String? participantId,
+    int? participantPid,
   }) async {
+    final effectiveParticipantId = participantId ?? this.participantId;
+    if (effectiveParticipantId == null) {
+      throw ArgumentError(
+        'participantId is required. Either set it in the Ledger constructor '
+        'or pass it to joinOperation().',
+      );
+    }
+    final effectivePid = participantPid ?? this.participantPid;
     final joinTime = DateTime.now();
     
     // Create operation object
     final operation = Operation._(
       ledger: this,
       operationId: operationId,
-      participantId: participantId,
-      pid: participantPid,
-      getElapsedFormatted: getElapsedFormatted,
+      participantId: effectiveParticipantId,
+      pid: effectivePid,
       isInitiator: false,
       startTime: joinTime,
     );
@@ -1769,8 +1985,8 @@ class Ledger {
         throw StateError('Operation file does not exist: $operationId');
       }
 
-      // Create backup
-      await _createBackup(operationId, elapsedFormatted);
+      // Create trail snapshot
+      await _createTrailSnapshot(operationId, elapsedFormatted);
 
       // Read current state
       final content = await file.readAsString();
@@ -1820,8 +2036,8 @@ class Ledger {
     String elapsedFormatted,
   ) async {
     try {
-      // Create backup
-      await _createBackup(operationId, elapsedFormatted);
+      // Create trail snapshot
+      await _createTrailSnapshot(operationId, elapsedFormatted);
 
       // Write updated data
       final file = File(_operationPath(operationId));
@@ -1913,28 +2129,22 @@ class Ledger {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Global heartbeat
+  // Global heartbeat (internal)
   // ─────────────────────────────────────────────────────────────
 
   /// Start the global heartbeat that monitors all operations.
   ///
-  /// The global heartbeat checks each registered operation's cached
-  /// last change timestamp to detect stale operations.
-  void startGlobalHeartbeat({
-    Duration interval = const Duration(seconds: 5),
-    Duration staleThreshold = const Duration(seconds: 15),
-    HeartbeatErrorCallback? onError,
-  }) {
-    onGlobalHeartbeatError = onError;
-
+  /// Called automatically in the constructor. Uses [heartbeatInterval]
+  /// and [staleThreshold] from constructor parameters.
+  void _startGlobalHeartbeat() {
     _globalHeartbeatTimer?.cancel();
-    _globalHeartbeatTimer = Timer.periodic(interval, (_) {
+    _globalHeartbeatTimer = Timer.periodic(heartbeatInterval, (_) {
       _checkAllOperations(staleThreshold);
     });
   }
 
   /// Stop the global heartbeat.
-  void stopGlobalHeartbeat() {
+  void _stopGlobalHeartbeat() {
     _globalHeartbeatTimer?.cancel();
     _globalHeartbeatTimer = null;
   }
@@ -1974,7 +2184,7 @@ class Ledger {
 
   /// Dispose of the ledger and stop all heartbeats.
   void dispose() {
-    stopGlobalHeartbeat();
+    _stopGlobalHeartbeat();
     for (final operation in _operations.values) {
       operation.stopHeartbeat();
     }
