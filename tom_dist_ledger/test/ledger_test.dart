@@ -200,6 +200,7 @@ void main() {
       backups.clear();
       ledger = Ledger(
         basePath: tempDir.path,
+        participantId: 'test',
         onBackupCreated: (path) => backups.add(path),
       );
     });
@@ -213,7 +214,7 @@ void main() {
         final newPath = '${tempDir.path}/new_ledger';
         expect(Directory(newPath).existsSync(), isFalse);
 
-        final newLedger = Ledger(basePath: newPath);
+        final newLedger = Ledger(basePath: newPath, participantId: 'test');
         expect(Directory(newPath).existsSync(), isTrue);
         newLedger.dispose();
       });
@@ -229,18 +230,15 @@ void main() {
 
     group('startOperation', () {
       test('creates operation file in ledger directory', () async {
-        final operation = await ledger.createOperation(
-          operationId: 'test_op_1',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final operation = await ledger.createOperation();
+        final operationId = operation.operationId;
 
-        final opFile = File('${tempDir.path}/test_op_1.operation.json');
+        final opFile = File('${tempDir.path}/$operationId.operation.json');
         expect(opFile.existsSync(), isTrue);
 
         final content = json.decode(opFile.readAsStringSync());
-        expect(content['operationId'], equals('test_op_1'));
-        expect(content['initiatorId'], equals('cli'));
+        expect(content['operationId'], equals(operationId));
+        expect(content['initiatorId'], equals('test'));
         expect(content['aborted'], isFalse);
         // Stack starts empty in new implementation
         expect(content['stack'], isEmpty);
@@ -249,13 +247,10 @@ void main() {
       });
 
       test('stack is initially empty', () async {
-        final operation = await ledger.createOperation(
-          operationId: 'test_op_2',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final operation = await ledger.createOperation();
+        final operationId = operation.operationId;
 
-        final opFile = File('${tempDir.path}/test_op_2.operation.json');
+        final opFile = File('${tempDir.path}/$operationId.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
@@ -266,24 +261,17 @@ void main() {
       });
 
       test('registers operation in ledger', () async {
-        final operation = await ledger.createOperation(
-          operationId: 'test_op_3',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final operation = await ledger.createOperation();
+        final operationId = operation.operationId;
 
-        expect(ledger.operations.containsKey('test_op_3'), isTrue);
-        expect(ledger.getOperation('test_op_3'), equals(operation));
+        expect(ledger.operations.containsKey(operationId), isTrue);
+        expect(ledger.getOperation(operationId), equals(operation));
 
         await operation.complete();
       });
 
       test('sets isInitiator to true', () async {
-        final operation = await ledger.createOperation(
-          operationId: 'test_op_4',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final operation = await ledger.createOperation();
 
         expect(operation.isInitiator, isTrue);
 
@@ -294,54 +282,47 @@ void main() {
     group('joinOperation', () {
       test('creates operation object for existing operation', () async {
         // First, create an operation as initiator
-        final initiator = await ledger.createOperation(
-          operationId: 'test_op_5',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final initiatorLedger = Ledger(basePath: tempDir.path, participantId: 'cli');
+        final initiator = await initiatorLedger.createOperation();
+        final operationId = initiator.operationId;
 
         // Then, participate as another process
-        final participant = await ledger.joinOperation(
-          operationId: 'test_op_5',
-          participantPid: 5678,
-          participantId: 'bridge',
+        final participantLedger = Ledger(basePath: tempDir.path, participantId: 'bridge');
+        final participant = await participantLedger.joinOperation(
+          operationId: operationId,
         );
 
-        expect(participant.operationId, equals('test_op_5'));
+        expect(participant.operationId, equals(operationId));
         expect(participant.participantId, equals('bridge'));
-        expect(participant.pid, equals(5678));
         expect(participant.isInitiator, isFalse);
 
         await initiator.complete();
+        initiatorLedger.dispose();
+        participantLedger.dispose();
       });
 
       test('loads cached data from existing operation file', () async {
-        final initiator = await ledger.createOperation(
-          operationId: 'test_op_6',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final initiatorLedger = Ledger(basePath: tempDir.path, participantId: 'cli');
+        final initiator = await initiatorLedger.createOperation();
+        final operationId = initiator.operationId;
 
-        final participant = await ledger.joinOperation(
-          operationId: 'test_op_6',
-          participantPid: 5678,
-          participantId: 'bridge',
+        final participantLedger = Ledger(basePath: tempDir.path, participantId: 'bridge');
+        final participant = await participantLedger.joinOperation(
+          operationId: operationId,
         );
 
         expect(participant.cachedData, isNotNull);
-        expect(participant.cachedData!.operationId, equals('test_op_6'));
+        expect(participant.cachedData!.operationId, equals(operationId));
 
         await initiator.complete();
+        initiatorLedger.dispose();
+        participantLedger.dispose();
       });
     });
 
     group('dispose', () {
       test('stops all heartbeats and clears operations', () async {
-        await ledger.createOperation(
-          operationId: 'test_op_7',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        await ledger.createOperation();
 
         expect(ledger.operations.length, equals(1));
 
@@ -365,13 +346,10 @@ void main() {
       backups.clear();
       ledger = Ledger(
         basePath: tempDir.path,
+        participantId: 'test',
         onBackupCreated: (path) => backups.add(path),
       );
-      operation = await ledger.createOperation(
-        operationId: 'op_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      operation = await ledger.createOperation();
     });
 
     tearDown(() {
@@ -382,14 +360,14 @@ void main() {
       test('adds stack frame to operation file', () async {
         await operation.pushStackFrame(callId: 'call-1');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
         // Stack starts empty, pushStackFrame adds one frame
         expect(stack.length, equals(1));
         expect(stack[0]['callId'], equals('call-1'));
-        expect(stack[0]['participantId'], equals('cli'));
+        expect(stack[0]['participantId'], equals('test'));
 
         await operation.complete();
       });
@@ -398,14 +376,14 @@ void main() {
         await operation.pushStackFrame(callId: 'call-1');
 
         expect(backups.length, equals(1));
-        expect(backups[0], contains('op_test'));
+        expect(backups[0], contains(operation.operationId));
         expect(File(backups[0]).existsSync(), isTrue);
 
         await operation.complete();
       });
 
       test('updates lastHeartbeat timestamp', () async {
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final beforeContent = json.decode(opFile.readAsStringSync());
         final beforeHeartbeat =
             DateTime.parse(beforeContent['lastHeartbeat'] as String);
@@ -438,7 +416,7 @@ void main() {
         await operation.pushStackFrame(callId: 'call-1');
         await operation.popStackFrame(callId: 'call-1');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
@@ -453,7 +431,7 @@ void main() {
         await operation.pushStackFrame(callId: 'call-2');
         await operation.popStackFrame(callId: 'call-1');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final stack = content['stack'] as List;
 
@@ -480,13 +458,12 @@ void main() {
       test('adds temp resource to operation file', () async {
         await operation.registerTempResource(path: '/tmp/test.txt');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
         expect(resources.length, equals(1));
         expect(resources[0]['path'], equals('/tmp/test.txt'));
-        expect(resources[0]['owner'], equals(1234));
 
         await operation.complete();
       });
@@ -495,7 +472,7 @@ void main() {
         await operation.registerTempResource(path: '/tmp/file1.txt');
         await operation.registerTempResource(path: '/tmp/file2.txt');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -510,7 +487,7 @@ void main() {
         await operation.registerTempResource(path: '/tmp/test.txt');
         await operation.unregisterTempResource(path: '/tmp/test.txt');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -524,7 +501,7 @@ void main() {
         await operation.registerTempResource(path: '/tmp/file2.txt');
         await operation.unregisterTempResource(path: '/tmp/file1.txt');
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
         final resources = content['tempResources'] as List;
 
@@ -539,7 +516,7 @@ void main() {
       test('sets abort flag in operation file', () async {
         await operation.setAbortFlag(true);
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
 
         expect(content['aborted'], isTrue);
@@ -551,7 +528,7 @@ void main() {
         await operation.setAbortFlag(true);
         await operation.setAbortFlag(false);
 
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
         final content = json.decode(opFile.readAsStringSync());
 
         expect(content['aborted'], isFalse);
@@ -600,10 +577,11 @@ void main() {
 
     group('complete', () {
       test('moves operation file to backup folder', () async {
+        final operationId = operation.operationId;
         await operation.complete();
 
         // Main file should be gone
-        final opFile = File('${tempDir.path}/op_test.operation.json');
+        final opFile = File('${tempDir.path}/$operationId.operation.json');
         expect(opFile.existsSync(), isFalse);
 
         // Backup folder should exist
@@ -611,18 +589,19 @@ void main() {
         expect(backupDir.existsSync(), isTrue);
 
         // Operation folder should exist in backup
-        final opBackupDir = Directory('${tempDir.path}/backup/op_test');
+        final opBackupDir = Directory('${tempDir.path}/backup/$operationId');
         expect(opBackupDir.existsSync(), isTrue);
         
         // Operation file should exist in backup folder
-        final backupFile = File('${tempDir.path}/backup/op_test/operation.json');
+        final backupFile = File('${tempDir.path}/backup/$operationId/operation.json');
         expect(backupFile.existsSync(), isTrue);
       });
 
       test('sets operationState to completed in backup file', () async {
+        final operationId = operation.operationId;
         await operation.complete();
 
-        final backupFile = File('${tempDir.path}/backup/op_test/operation.json');
+        final backupFile = File('${tempDir.path}/backup/$operationId/operation.json');
         expect(backupFile.existsSync(), isTrue);
 
         final content = json.decode(backupFile.readAsStringSync());
@@ -630,23 +609,24 @@ void main() {
       });
 
       test('unregisters operation from ledger', () async {
-        expect(ledger.operations.containsKey('op_test'), isTrue);
+        final operationId = operation.operationId;
+        expect(ledger.operations.containsKey(operationId), isTrue);
 
         await operation.complete();
 
-        expect(ledger.operations.containsKey('op_test'), isFalse);
+        expect(ledger.operations.containsKey(operationId), isFalse);
       });
 
       test('throws if not initiator', () async {
-        final participant = await ledger.joinOperation(
-          operationId: 'op_test',
-          participantPid: 5678,
-          participantId: 'bridge',
+        final participantLedger = Ledger(basePath: tempDir.path, participantId: 'bridge');
+        final participant = await participantLedger.joinOperation(
+          operationId: operation.operationId,
         );
 
         expect(() => participant.complete(), throwsStateError);
 
         await operation.complete();
+        participantLedger.dispose();
       });
     });
 
@@ -655,7 +635,7 @@ void main() {
         await operation.log('Test log line 1');
         await operation.log('Test log line 2');
 
-        final logFile = File('${tempDir.path}/op_test.operation.log');
+        final logFile = File('${tempDir.path}/${operation.operationId}.operation.log');
         expect(logFile.existsSync(), isTrue);
 
         final content = logFile.readAsStringSync();
@@ -670,7 +650,7 @@ void main() {
         await operation.log('Line 2');
         await operation.log('Line 3');
 
-        final logFile = File('${tempDir.path}/op_test.operation.log');
+        final logFile = File('${tempDir.path}/${operation.operationId}.operation.log');
         final lines = logFile.readAsLinesSync();
 
         expect(lines.length, equals(3));
@@ -692,6 +672,7 @@ void main() {
       backups.clear();
       ledger = Ledger(
         basePath: tempDir.path,
+        participantId: 'test',
         onBackupCreated: (path) => backups.add(path),
       );
     });
@@ -701,13 +682,10 @@ void main() {
     });
 
     test('creates trail directory on first backup', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'trail_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
-      final trailDir = Directory('${tempDir.path}/trail_test_trail');
+      final trailDir = Directory('${tempDir.path}/${operationId}_trail');
       expect(trailDir.existsSync(), isFalse);
 
       await operation.pushStackFrame(callId: 'call-1');
@@ -718,11 +696,8 @@ void main() {
     });
 
     test('backup files contain correct operation state', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'trail_test_2',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       await operation.pushStackFrame(callId: 'call-1');
 
@@ -730,17 +705,13 @@ void main() {
 
       final backupContent = json.decode(File(backups[0]).readAsStringSync());
       // Backup should contain state BEFORE the modification
-      expect(backupContent['operationId'], equals('trail_test_2'));
+      expect(backupContent['operationId'], equals(operationId));
 
       await operation.complete();
     });
 
     test('multiple backups are created for multiple modifications', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'trail_test_3',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       await operation.pushStackFrame(callId: 'call-1');
       await operation.pushStackFrame(callId: 'call-2');
@@ -754,11 +725,7 @@ void main() {
     });
 
     test('backup filename includes timestamp', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'timestamp_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       await operation.pushStackFrame(callId: 'call-1');
 
@@ -778,7 +745,7 @@ void main() {
     late Ledger ledger;
 
     setUp(() {
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -786,14 +753,11 @@ void main() {
     });
 
     test('lock file is created during operation', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'lock_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       // Lock should be released after startOperation
-      final lockFile = File('${tempDir.path}/lock_test.operation.json.lock');
+      final lockFile = File('${tempDir.path}/$operationId.operation.json.lock');
       expect(lockFile.existsSync(), isFalse);
 
       await operation.complete();
@@ -817,8 +781,6 @@ void main() {
 
       final operation = await ledger.joinOperation(
         operationId: 'stale_test',
-        participantPid: 1234,
-        participantId: 'cli',
       );
 
       expect(operation, isNotNull);
@@ -845,29 +807,16 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('Concurrent Access', () {
-    late Ledger ledger;
-
-    setUp(() {
-      ledger = Ledger(basePath: tempDir.path);
-    });
-
-    tearDown(() {
-      ledger.dispose();
-    });
-
     test('multiple participants can modify the same operation', () async {
       // Start as initiator
-      final initiator = await ledger.createOperation(
-        operationId: 'concurrent_test',
-        participantPid: 1111,
-        participantId: 'cli',
-      );
+      final initiatorLedger = Ledger(basePath: tempDir.path, participantId: 'cli');
+      final initiator = await initiatorLedger.createOperation();
+      final operationId = initiator.operationId;
 
       // Join as participant
-      final participant = await ledger.joinOperation(
-        operationId: 'concurrent_test',
-        participantPid: 2222,
-        participantId: 'bridge',
+      final participantLedger = Ledger(basePath: tempDir.path, participantId: 'bridge');
+      final participant = await participantLedger.joinOperation(
+        operationId: operationId,
       );
 
       // Both modify the operation
@@ -875,13 +824,15 @@ void main() {
       await participant.pushStackFrame(callId: 'bridge-call');
 
       // Verify both calls are in the stack
-      final opFile = File('${tempDir.path}/concurrent_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       final content = json.decode(opFile.readAsStringSync());
       final stack = content['stack'] as List;
 
       expect(stack.length, equals(2)); // cli-call + bridge-call
 
       await initiator.complete();
+      initiatorLedger.dispose();
+      participantLedger.dispose();
     });
   });
 
@@ -890,49 +841,46 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('Full Operation Lifecycle', () {
-    late Ledger ledger;
     final List<String> backups = [];
 
-    setUp(() {
+    test('complete lifecycle with multiple participants', () async {
       backups.clear();
-      ledger = Ledger(
+      
+      // 1. CLI starts operation
+      final cliLedger = Ledger(
         basePath: tempDir.path,
+        participantId: 'cli',
         onBackupCreated: (path) => backups.add(path),
       );
-    });
-
-    tearDown(() {
-      ledger.dispose();
-    });
-
-    test('complete lifecycle with multiple participants', () async {
-      // 1. CLI starts operation
-      final cli = await ledger.createOperation(
-        operationId: 'lifecycle_test',
-        participantPid: 1000,
-        participantId: 'cli',
-      );
+      final cli = await cliLedger.createOperation();
+      final operationId = cli.operationId;
       await cli.pushStackFrame(callId: 'cli-main');
 
       // 2. Bridge joins and starts processing
-      final bridge = await ledger.joinOperation(
-        operationId: 'lifecycle_test',
-        participantPid: 2000,
+      final bridgeLedger = Ledger(
+        basePath: tempDir.path,
         participantId: 'bridge',
+        onBackupCreated: (path) => backups.add(path),
+      );
+      final bridge = await bridgeLedger.joinOperation(
+        operationId: operationId,
       );
       await bridge.pushStackFrame(callId: 'bridge-process');
       await bridge.registerTempResource(path: '/tmp/work.txt');
 
       // 3. VSCode joins and calls external service
-      final vscode = await ledger.joinOperation(
-        operationId: 'lifecycle_test',
-        participantPid: 3000,
+      final vscodeLedger = Ledger(
+        basePath: tempDir.path,
         participantId: 'vscode',
+        onBackupCreated: (path) => backups.add(path),
+      );
+      final vscode = await vscodeLedger.joinOperation(
+        operationId: operationId,
       );
       await vscode.pushStackFrame(callId: 'vscode-copilot');
 
       // Verify full stack
-      var opFile = File('${tempDir.path}/lifecycle_test.operation.json');
+      var opFile = File('${tempDir.path}/$operationId.operation.json');
       var content = json.decode(opFile.readAsStringSync());
       var stack = content['stack'] as List;
       expect(stack.length, equals(3)); // 3 calls (no initial frame)
@@ -958,6 +906,10 @@ void main() {
 
       // Should have multiple backups
       expect(backups.length, greaterThan(5));
+      
+      cliLedger.dispose();
+      bridgeLedger.dispose();
+      vscodeLedger.dispose();
     });
   });
 
@@ -1010,7 +962,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('heartbeat_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1021,11 +973,7 @@ void main() {
     });
 
     test('onHeartbeatSuccess is called on successful heartbeat', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'hb_success_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       HeartbeatResult? receivedResult;
       Operation? receivedOperation;
@@ -1053,11 +1001,7 @@ void main() {
     });
 
     test('onHeartbeatError called when abort flag is set', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'hb_abort_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       HeartbeatError? receivedError;
 
@@ -1084,11 +1028,8 @@ void main() {
     });
 
     test('onHeartbeatError called when ledger file is deleted', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'hb_deleted_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       HeartbeatError? receivedError;
 
@@ -1101,7 +1042,7 @@ void main() {
       );
 
       // Delete the operation file to simulate crash
-      final opFile = File('${tempDir.path}/hb_deleted_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       await opFile.delete();
 
       // Wait for heartbeat to detect missing file
@@ -1114,17 +1055,14 @@ void main() {
     });
 
     test('onHeartbeatSuccess detects stale children', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'hb_stale_cb_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       // Add a second participant to the stack (simulating another process)
       await operation.pushStackFrame(callId: 'test-call');
       
       // Manually set another participant's heartbeat to be stale
-      final opFile = File('${tempDir.path}/hb_stale_cb_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       var content =
           json.decode(opFile.readAsStringSync()) as Map<String, dynamic>;
       
@@ -1165,11 +1103,8 @@ void main() {
     });
 
     test('onHeartbeatError called on IO exception', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'hb_io_error_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       HeartbeatError? ioError;
 
@@ -1182,7 +1117,7 @@ void main() {
       );
 
       // Corrupt the file to cause JSON parse error
-      final opFile = File('${tempDir.path}/hb_io_error_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       await opFile.writeAsString('not valid json {{{');
 
       // Wait for heartbeat to hit the error
@@ -1266,7 +1201,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('op_extra_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1277,11 +1212,7 @@ void main() {
     });
 
     test('elapsedFormatted returns computed elapsed time', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'elapsed_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // elapsedFormatted now computes elapsed time from startTime
       // Format is SSS.mmm (seconds.milliseconds)
@@ -1296,20 +1227,17 @@ void main() {
     });
 
     test('logMessage formats with timestamp and participant', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'log_msg_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       await operation.logMessage(depth: 1, message: 'Test message');
 
-      final logFile = File('${tempDir.path}/log_msg_test.operation.log');
+      final logFile = File('${tempDir.path}/$operationId.operation.log');
       final content = logFile.readAsStringSync();
 
       // elapsedFormatted now computes elapsed time in SSS.mmm format
       expect(content, matches(RegExp(r'\d{3}\.\d{3}')));
-      expect(content, contains('[cli]'));
+      expect(content, contains('[test]'));
       expect(content, contains('Test message'));
       expect(content, contains('    ')); // indentation for depth 1
 
@@ -1317,11 +1245,7 @@ void main() {
     });
 
     test('stopHeartbeat can be called when no heartbeat is running', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'stop_no_hb',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Should not throw
       operation.stopHeartbeat();
@@ -1330,11 +1254,7 @@ void main() {
     });
 
     test('lastChangeTimestamp is updated on modifications', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'timestamp_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final initialTimestamp = operation.lastChangeTimestamp;
       expect(initialTimestamp, isNotNull);
@@ -1361,7 +1281,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('new_api_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1370,11 +1290,7 @@ void main() {
     });
 
     test('startCall adds stack frame with ledger-generated callId', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'start_call_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback(
         onCleanup: () async {},
@@ -1394,11 +1310,7 @@ void main() {
     });
 
     test('startCall callId has correct format', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'callid_format_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback(onCleanup: () async {});
 
@@ -1408,17 +1320,13 @@ void main() {
       );
       
       // Format: call_{participantId}_{counter}_{random}
-      expect(call.callId, matches(RegExp(r'^call_cli_\d+_[0-9a-f]+$')));
+      expect(call.callId, matches(RegExp(r'^call_test_\d+_[0-9a-f]+$')));
 
       await operation.complete();
     });
 
     test('startCall with callback for cleanup', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'callback_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       var cleanupCalled = false;
       final testCallback = CallCallback(
@@ -1437,11 +1345,7 @@ void main() {
     });
 
     test('endCall removes matching stack frame', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'end_call_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback(onCleanup: () async {});
       final call = await operation.startCall(callback: testCallback, description: 'test');
@@ -1454,11 +1358,7 @@ void main() {
     });
 
     test('endCall removes correct frame when multiple exist', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'multi_end_call_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback(onCleanup: () async {});
       final call1 = await operation.startCall(callback: testCallback, description: 'call 1');
@@ -1473,11 +1373,7 @@ void main() {
     });
 
     test('startCall failOnCrash defaults to true', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'failoncrash_default_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback(onCleanup: () async {});
       await operation.startCall(
@@ -1491,11 +1387,8 @@ void main() {
     });
 
     test('startCall failOnCrash can be set to false', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'failoncrash_false_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       final testCallback = CallCallback(onCleanup: () async {});
       await operation.startCall(
@@ -1507,7 +1400,7 @@ void main() {
       expect(operation.cachedData!.stack[0].failOnCrash, isFalse);
 
       // Verify persisted to file
-      final opFile = File('${tempDir.path}/failoncrash_false_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       final content = json.decode(opFile.readAsStringSync());
       expect(content['stack'][0]['failOnCrash'], isFalse);
 
@@ -1516,11 +1409,8 @@ void main() {
 
     test('startCall failOnCrash is persisted and restored', () async {
       // Create operation with failOnCrash=false call
-      final operation1 = await ledger.createOperation(
-        operationId: 'failoncrash_persist_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation1 = await ledger.createOperation();
+      final operationId = operation1.operationId;
 
       final testCallback = CallCallback(onCleanup: () async {});
       await operation1.startCall(
@@ -1535,7 +1425,7 @@ void main() {
       );
       
       // Read and verify from file directly
-      final opFile = File('${tempDir.path}/failoncrash_persist_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       final content = json.decode(opFile.readAsStringSync()) as Map<String, dynamic>;
       final data = LedgerData.fromJson(content);
       
@@ -1554,7 +1444,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('log_level_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1563,17 +1453,14 @@ void main() {
     });
 
     test('log with different levels writes to operation log', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'log_level_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       await operation.log('Info message', level: LogLevel.info);
       await operation.log('Warning message', level: LogLevel.warning);
       await operation.log('Error message', level: LogLevel.error);
 
-      final logFile = File('${tempDir.path}/log_level_test.operation.log');
+      final logFile = File('${tempDir.path}/$operationId.operation.log');
       final content = logFile.readAsStringSync();
 
       expect(content, contains('[INFO] Info message'));
@@ -1584,21 +1471,18 @@ void main() {
     });
 
     test('debugLog writes to debug log only', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'debug_log_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       await operation.debugLog('Debug message');
 
-      final debugLogFile = File('${tempDir.path}/debug_log_test.operation.debug.log');
+      final debugLogFile = File('${tempDir.path}/$operationId.operation.debug.log');
       final content = debugLogFile.readAsStringSync();
 
       expect(content, contains('Debug message'));
 
       // Debug log should not be in operation log
-      final opLogFile = File('${tempDir.path}/debug_log_test.operation.log');
+      final opLogFile = File('${tempDir.path}/$operationId.operation.log');
       final opContent = opLogFile.readAsStringSync();
       expect(opContent, isNot(contains('Debug message')));
 
@@ -1612,7 +1496,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('create_op_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1621,13 +1505,10 @@ void main() {
     });
 
     test('createOperation generates operation ID', () async {
-      final operation = await ledger.createOperation(
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Format: YYYYMMDDTHH:MM:SS.sss-participantId-random
-      expect(operation.operationId, matches(RegExp(r'^\d{8}T\d{2}:\d{2}:\d{2}\.\d{3}-cli-\w+$')));
+      expect(operation.operationId, matches(RegExp(r'^\d{8}T\d{2}:\d{2}:\d{2}\.\d{3}-test-\w+$')));
 
       await operation.complete();
     });
@@ -1639,7 +1520,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('backup_cleanup_test_');
-      ledger = Ledger(basePath: tempDir.path, maxBackups: 3);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test', maxBackups: 3);
     });
 
     tearDown(() {
@@ -1650,11 +1531,7 @@ void main() {
     test('maxBackups limits number of backup files', () async {
       // Create multiple operations to generate backups
       for (var i = 0; i < 5; i++) {
-        final operation = await ledger.createOperation(
-          operationId: 'backup_test_$i',
-          participantPid: 1234,
-          participantId: 'cli',
-        );
+        final operation = await ledger.createOperation();
         await operation.complete();
       }
 
@@ -1678,7 +1555,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawnCall_failoncrash_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1687,11 +1564,7 @@ void main() {
     });
 
     test('spawnCall failOnCrash defaults to true', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'spawn_default_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final spawnedCall = operation.spawnCall<int>(
         work: () async => 42,
@@ -1710,11 +1583,7 @@ void main() {
     });
 
     test('spawnCall failOnCrash can be set to false', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'spawn_false_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final spawnedCall = operation.spawnCall<int>(
         work: () async {
@@ -1738,11 +1607,7 @@ void main() {
     });
 
     test('mixed startCall and spawnCall with different failOnCrash', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'mixed_calls_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback<int>(onCleanup: () async {});
       
@@ -1794,7 +1659,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('failCall_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1803,11 +1668,8 @@ void main() {
     });
 
     test('failCall removes stack frame and logs error', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'fail_call_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       var cleanupCalled = false;
       final testCallback = CallCallback(
@@ -1827,7 +1689,7 @@ void main() {
       expect(cleanupCalled, isTrue);
 
       // Check log file for error entry
-      final logFile = File('${tempDir.path}/fail_call_test.operation.log');
+      final logFile = File('${tempDir.path}/$operationId.operation.log');
       expect(logFile.existsSync(), isTrue);
       final logContent = logFile.readAsStringSync();
       expect(logContent, contains('CALL_FAILED'));
@@ -1837,11 +1699,7 @@ void main() {
     });
 
     test('failCall throws for unknown callId', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'fail_call_unknown_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       expect(
         // ignore: deprecated_member_use_from_same_package
@@ -1853,11 +1711,7 @@ void main() {
     });
 
     test('failCall signals operation failure when failOnCrash is true', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'fail_call_crashed_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       OperationFailedInfo? failedInfo;
       operation.onFailure.then((info) {
@@ -1893,7 +1747,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawnCall_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1902,11 +1756,7 @@ void main() {
     });
 
     test('spawnCall returns SpawnedCall and executes work', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'spawn_typed_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final spawned = operation.spawnCall<int>(
         work: () async {
@@ -1930,11 +1780,7 @@ void main() {
     });
 
     test('spawnCall with onCallCrashed provides fallback', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'spawn_typed_fallback_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final spawned = operation.spawnCall<String>(
         work: () async {
@@ -1956,11 +1802,7 @@ void main() {
     });
 
     test('spawnCall marks call as failed when no fallback', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'spawn_typed_fail_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final spawned = operation.spawnCall<int>(
         work: () async {
@@ -1979,11 +1821,7 @@ void main() {
     });
 
     test('sync waits for multiple calls', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_typed_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final call1 = operation.spawnCall<int>(
         work: () async => 1,
@@ -2005,11 +1843,7 @@ void main() {
     });
 
     test('sync reports failed calls', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_typed_fail_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final call1 = operation.spawnCall<int>(
         work: () async => 1,
@@ -2251,7 +2085,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('endcall_callback_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2260,11 +2094,7 @@ void main() {
     });
 
     test('endCall removes stack frame and logs duration', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'end_call_cb_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final testCallback = CallCallback<int>(
         onCleanup: () async {},
@@ -2286,11 +2116,7 @@ void main() {
     });
 
     test('endCall throws for unknown callId', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'end_call_unknown_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       expect(
         // ignore: deprecated_member_use_from_same_package
@@ -2308,7 +2134,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_method_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2317,11 +2143,7 @@ void main() {
     });
 
     test('sync waits for spawned calls to complete', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_wait_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       var completed = false;
       final call = operation.spawnCall<int>(
@@ -2355,7 +2177,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('wait_completion_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2364,11 +2186,7 @@ void main() {
     });
 
     test('waitForCompletion executes work', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'wait_comp_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       var workExecuted = false;
       await operation.waitForCompletion(() async {
@@ -2381,11 +2199,7 @@ void main() {
     });
 
     test('waitForCompletion with async delay', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'wait_comp_delay_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final stopwatch = Stopwatch()..start();
       await operation.waitForCompletion(() async {
@@ -2405,7 +2219,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('single_heartbeat_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2414,11 +2228,7 @@ void main() {
     });
 
     test('heartbeat() returns result on success', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'single_hb_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final result = await operation.heartbeat();
 
@@ -2430,14 +2240,11 @@ void main() {
     });
 
     test('heartbeat() returns null when file missing', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'single_hb_missing_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       // Delete the operation file
-      final opFile = File('${tempDir.path}/single_hb_missing_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       await opFile.delete();
 
       final result = await operation.heartbeat();
@@ -2451,7 +2258,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('op_state_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2460,11 +2267,7 @@ void main() {
     });
 
     test('getOperationState returns running by default', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'state_default_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final state = await operation.getOperationState();
       expect(state, equals(OperationState.running));
@@ -2473,11 +2276,7 @@ void main() {
     });
 
     test('setOperationState changes state', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'state_change_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       await operation.setOperationState(OperationState.cleanup);
       var state = await operation.getOperationState();
@@ -2491,15 +2290,12 @@ void main() {
     });
 
     test('setOperationState logs state change', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'state_log_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       await operation.setOperationState(OperationState.cleanup);
 
-      final logFile = File('${tempDir.path}/state_log_test.operation.log');
+      final logFile = File('${tempDir.path}/$operationId.operation.log');
       final content = logFile.readAsStringSync();
       expect(content, contains('OPERATION_STATE_CHANGED'));
       expect(content, contains('cleanup'));
@@ -2514,7 +2310,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('lock_op_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2523,15 +2319,12 @@ void main() {
     });
 
     test('retrieveAndLockOperation returns data and unlocks', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'retrieve_lock_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       final data = await operation.retrieveAndLockOperation();
       expect(data, isNotNull);
-      expect(data!.operationId, equals('retrieve_lock_test'));
+      expect(data!.operationId, equals(operationId));
 
       await operation.unlockOperation();
 
@@ -2539,11 +2332,8 @@ void main() {
     });
 
     test('writeAndUnlockOperation writes data', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'write_unlock_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
+      final operationId = operation.operationId;
 
       final data = await operation.retrieveAndLockOperation();
       data!.aborted = true;
@@ -2551,7 +2341,7 @@ void main() {
       await operation.writeAndUnlockOperation(data);
 
       // Verify change was persisted
-      final opFile = File('${tempDir.path}/write_unlock_test.operation.json');
+      final opFile = File('${tempDir.path}/$operationId.operation.json');
       final content = json.decode(opFile.readAsStringSync());
       expect(content['aborted'], isTrue);
 
@@ -2561,34 +2351,31 @@ void main() {
 
   group('joinOperation', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late Ledger initiatorLedger;
+    late Ledger participantLedger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('join_op_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      initiatorLedger = Ledger(basePath: tempDir.path, participantId: 'cli');
+      participantLedger = Ledger(basePath: tempDir.path, participantId: 'bridge');
     });
 
     tearDown(() {
-      ledger.dispose();
+      initiatorLedger.dispose();
+      participantLedger.dispose();
       tempDir.deleteSync(recursive: true);
     });
 
     test('joinOperation works like joinOperation', () async {
-      final initiator = await ledger.createOperation(
-        operationId: 'join_test',
-        participantPid: 1234,
-        participantId: 'cli',
+      final initiator = await initiatorLedger.createOperation();
+      final operationId = initiator.operationId;
+
+      final participant = await participantLedger.joinOperation(
+        operationId: operationId,
       );
 
-      final participant = await ledger.joinOperation(
-        operationId: 'join_test',
-        participantId: 'bridge',
-        participantPid: 5678,
-      );
-
-      expect(participant.operationId, equals('join_test'));
+      expect(participant.operationId, equals(operationId));
       expect(participant.participantId, equals('bridge'));
-      expect(participant.pid, equals(5678));
       expect(participant.isInitiator, isFalse);
 
       await initiator.complete();
@@ -2601,7 +2388,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('global_hb_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2615,6 +2402,7 @@ void main() {
       HeartbeatError? receivedError;
       ledger = Ledger(
         basePath: tempDir.path,
+        participantId: 'test',
         heartbeatInterval: Duration(milliseconds: 30),
         staleThreshold: Duration(milliseconds: 10),
         onGlobalHeartbeatError: (op, error) {
@@ -2622,11 +2410,7 @@ void main() {
         },
       );
 
-      final operation = await ledger.createOperation(
-        operationId: 'global_hb_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Wait long enough for operation to become stale
       await Future.delayed(Duration(milliseconds: 100));
@@ -2797,7 +2581,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_oncompletion_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2806,11 +2590,7 @@ void main() {
     });
 
     test('sync calls onCompletion callback', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_completion_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       var completionCalled = false;
       final call = operation.spawnCall<int>(work: () async => 42);
@@ -2834,7 +2614,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawn_oncompletion_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2843,11 +2623,7 @@ void main() {
     });
 
     test('spawnCall calls onCompletion with result', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'spawn_completion_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       int? receivedResult;
       final completer = Completer<void>();
@@ -2877,7 +2653,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_active_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2886,11 +2662,7 @@ void main() {
     });
 
     test('sync waits for active call completers', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_active_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Spawn a call that will complete after delay
       final call = operation.spawnCall<int>(
@@ -2911,11 +2683,7 @@ void main() {
     });
 
     test('sync returns immediately for empty list', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_empty_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // sync with empty list should return immediately
       final stopwatch = Stopwatch()..start();
@@ -2935,7 +2703,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_onfailure_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2944,11 +2712,7 @@ void main() {
     });
 
     test('sync calls onOperationFailed when call crashes', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'sync_fail_cb_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       var onOperationFailedCalled = false;
       final call = operation.spawnCall<int>(
@@ -2985,7 +2749,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('wait_fail_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2994,11 +2758,7 @@ void main() {
     });
 
     test('waitForCompletion completes normally when work succeeds', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'wait_normal_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       var workDone = false;
       await operation.waitForCompletion(
@@ -3024,7 +2784,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('hb_state_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3033,11 +2793,7 @@ void main() {
     });
 
     test('heartbeat signals failure when operation enters cleanup state', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'hb_cleanup_state_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Set operation to cleanup state
       await operation.setOperationState(OperationState.cleanup);
@@ -3056,7 +2812,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawn_crash_null_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3065,11 +2821,7 @@ void main() {
     });
 
     test('call fails when onCallCrashed returns null', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'crash_null_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final call = operation.spawnCall<String>(
         work: () async => throw Exception('Work failed'),
@@ -3088,11 +2840,7 @@ void main() {
     });
 
     test('call fails when onCallCrashed throws', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'crash_throws_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final call = operation.spawnCall<String>(
         work: () async => throw Exception('Work failed'),
@@ -3186,14 +2934,11 @@ void main() {
       final logLines = <String>[];
       final ledger = Ledger(
         basePath: tempDir.path,
+        participantId: 'cli',
         onLogLine: (line) => logLines.add(line),
       );
 
-      final operation = await ledger.createOperation(
-        operationId: 'log_cb_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       await operation.log('First message');
       await operation.log('Second message');
@@ -3217,7 +2962,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('start_time_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3229,11 +2974,7 @@ void main() {
       final beforeCreate = DateTime.now();
       await Future.delayed(Duration(milliseconds: 10));
 
-      final operation = await ledger.createOperation(
-        operationId: 'start_time_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       await Future.delayed(Duration(milliseconds: 10));
       final afterCreate = DateTime.now();
@@ -3245,11 +2986,7 @@ void main() {
     });
 
     test('elapsedDuration returns correct duration', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'elapsed_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       await Future.delayed(Duration(milliseconds: 50));
       final elapsed = operation.elapsedDuration;
@@ -3261,11 +2998,7 @@ void main() {
     });
 
     test('startTimeIso returns valid ISO 8601 string', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'iso_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final isoString = operation.startTimeIso;
 
@@ -3277,11 +3010,7 @@ void main() {
     });
 
     test('startTimeMs returns milliseconds since epoch', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'ms_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final ms = operation.startTimeMs;
 
@@ -3291,11 +3020,7 @@ void main() {
     });
 
     test('startTimeMs can be used to reconstruct start time', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'reconstruct_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Simulate what a worker would do - receive ms and reconstruct DateTime
       final msFromCli = operation.startTimeMs;
@@ -3317,7 +3042,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('exec_file_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3326,11 +3051,7 @@ void main() {
     });
 
     test('execFileResultWorker returns SpawnedCall with correct structure', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'exec_file_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final resultPath = '${tempDir.path}/result.json';
       
@@ -3358,11 +3079,7 @@ void main() {
     });
 
     test('execFileResultWorker deletes file when deleteResultFile=true', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'exec_file_delete_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       final resultPath = '${tempDir.path}/result_delete.json';
       
@@ -3394,7 +3111,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('exec_stdio_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3403,11 +3120,7 @@ void main() {
     });
 
     test('execStdioWorker captures stdout and deserializes', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'exec_stdio_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Returns SpawnedCall<T> immediately, await on .future for result
       final spawnedCall = operation.execStdioWorker<String>(
@@ -3424,11 +3137,7 @@ void main() {
     });
 
     test('execStdioWorker returns SpawnedCall with callId', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'exec_stdio_callid_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Returns SpawnedCall<T> immediately - can access callId right away
       final spawnedCall = operation.execStdioWorker<String>(
@@ -3451,7 +3160,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('exec_server_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3460,11 +3169,7 @@ void main() {
     });
 
     test('execServerRequest executes work function and returns result', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'exec_server_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // execServerRequest returns SpawnedCall immediately
       final spawnedCall = operation.execServerRequest<String>(
@@ -3493,7 +3198,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('await_call_test_');
-      ledger = Ledger(basePath: tempDir.path);
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3502,11 +3207,7 @@ void main() {
     });
 
     test('awaitCall waits for single spawned call', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'await_call_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Spawn a call (returns immediately)
       final call = operation.spawnCall<int>(
@@ -3528,11 +3229,7 @@ void main() {
     });
 
     test('awaitCall handles failed call correctly', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'await_call_fail_test',
-        participantPid: 1234,
-        participantId: 'cli',
-      );
+      final operation = await ledger.createOperation();
 
       // Spawn a call that will fail
       final call = operation.spawnCall<int>(

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:tom_dist_ledger/src/simulator/concurrent_scenario.dart';
 import 'package:tom_dist_ledger/src/simulator/async_simulation.dart';
-import 'package:tom_dist_ledger/src/ledger_api/ledger_api.dart';
 
 /// Tests for the concurrent scenario runner that demonstrates
 /// actual async failure detection through heartbeat monitoring.
@@ -33,7 +32,6 @@ void main() {
       
       // Use generous threshold (5x interval) to avoid false positives
       final result = await runner.runHappyPath(
-        operationId: 'happy_${DateTime.now().millisecondsSinceEpoch}',
         processingMs: 500,
         heartbeatIntervalMs: 100,
         heartbeatTimeoutMs: 2000, // Generous threshold to avoid false positives
@@ -56,7 +54,6 @@ void main() {
       // Crash after 1 second, with 500ms heartbeat interval and 1.5s timeout
       // Detection should happen at ~2-2.5s (crash + timeout + next heartbeat)
       final result = await runner.runCrashDetectionScenario(
-        operationId: 'crash_bridge_${DateTime.now().millisecondsSinceEpoch}',
         crashingParticipant: 'Bridge',
         crashAfterMs: 1000,
         heartbeatIntervalMs: 500,
@@ -81,7 +78,6 @@ void main() {
       final runner = ConcurrentScenarioRunner(ledgerPath: ledgerPath);
       
       final result = await runner.runCrashDetectionScenario(
-        operationId: 'crash_cli_${DateTime.now().millisecondsSinceEpoch}',
         crashingParticipant: 'CLI',
         crashAfterMs: 1000,
         heartbeatIntervalMs: 500,
@@ -106,7 +102,6 @@ void main() {
       final runner = ConcurrentScenarioRunner(ledgerPath: ledgerPath);
       
       final result = await runner.runAbortScenario(
-        operationId: 'abort_${DateTime.now().millisecondsSinceEpoch}',
         abortAfterMs: 800,
         heartbeatIntervalMs: 200,
         heartbeatTimeoutMs: 1000,
@@ -135,7 +130,6 @@ void main() {
       // Bridge heartbeats at ~0.5s, ~1.5s, then crashes at 2s
       // So last heartbeat is at ~1.5s, staleness detected when time > 1.5s + 2s = 3.5s
       final result = await runner.runCrashDetectionScenario(
-        operationId: 'timing_${DateTime.now().millisecondsSinceEpoch}',
         crashingParticipant: 'Bridge',
         crashAfterMs: 2000,
         heartbeatIntervalMs: 1000,
@@ -178,12 +172,11 @@ void main() {
   group('IndependentParticipant', () {
     test('crash() hangs indefinitely and stops heartbeat', () async {
       final printer = AsyncSimulationPrinter();
-      final ledger = Ledger(basePath: ledgerPath);
       
       final participant = IndependentParticipant(
         name: 'TestParticipant',
         pid: 9999,
-        ledger: ledger,
+        basePath: ledgerPath,
         printer: printer,
         heartbeatIntervalMs: 100,
         heartbeatTimeoutMs: 500,
@@ -191,7 +184,6 @@ void main() {
       
       try {
         await participant.startOperation(
-          operationId: 'test_crash_${DateTime.now().millisecondsSinceEpoch}',
           depth: 1,
         );
         await participant.pushStackFrame(callId: 'test-call', depth: 1);
@@ -214,7 +206,6 @@ void main() {
         
       } finally {
         participant.forceStop();
-        ledger.dispose();
       }
     });
   });

@@ -32,6 +32,7 @@ void main() async {
   
   final ledger = Ledger(
     basePath: tempDir.path,
+    participantId: 'orchestrator',
     onBackupCreated: (path) {
       backups.add(path);
       print('📦 Backup created: ${path.split('/').last}');
@@ -45,7 +46,6 @@ void main() async {
   try {
     // Start the operation
     final operation = await ledger.createOperation(
-      participantId: 'orchestrator',
       description: 'True distributed multi-process demo',
     );
 

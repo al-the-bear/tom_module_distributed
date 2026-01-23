@@ -64,6 +64,7 @@ void main(List<String> args) async {
   // Create ledger instance pointing to the same directory
   final ledger = Ledger(
     basePath: ledgerPath,
+    participantId: participantId,
     onBackupCreated: (path) {
       stderr.writeln('[$participantId] 📦 Backup: ${path.split('/').last}');
     },
@@ -74,7 +75,6 @@ void main(List<String> args) async {
     stderr.writeln('[$participantId] Joining operation...');
     final operation = await ledger.joinOperation(
       operationId: operationId,
-      participantId: participantId,
     );
 
     stderr.writeln('[$participantId] ✅ Joined operation');

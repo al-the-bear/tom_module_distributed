@@ -21,10 +21,15 @@ class AsyncSimCopilotChat {
   bool _isProcessing = false;
 
   AsyncSimCopilotChat({
-    required this.ledger,
+    required String basePath,
     required this.printer,
     required this.config,
-  });
+    void Function(String)? onBackupCreated,
+  }) : ledger = Ledger(
+          basePath: basePath,
+          participantId: 'copilot',
+          onBackupCreated: onBackupCreated,
+        );
 
   /// Get the response file path for an operation.
   String _responseFilePath(String operationId) =>

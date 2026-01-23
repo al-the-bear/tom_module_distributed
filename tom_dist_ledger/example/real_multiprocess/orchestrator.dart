@@ -25,6 +25,7 @@ void main() async {
 
   final ledger = Ledger(
     basePath: tempDir.path,
+    participantId: 'orchestrator',
     onBackupCreated: (path) {
       print('📦 Backup created: ${path.split('/').last}');
     },
@@ -33,8 +34,7 @@ void main() async {
   try {
     // Start the operation
     final operation = await ledger.createOperation(
-      operationId: 'multiprocess_demo_${DateTime.now().millisecondsSinceEpoch}',
-      participantId: 'orchestrator',
+      description: 'multiprocess_demo',
     );
 
     print('✅ Started operation: ${operation.operationId}\n');

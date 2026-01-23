@@ -126,29 +126,32 @@ class IndependentParticipant {
   IndependentParticipant({
     required this.name,
     required this.pid,
-    required this.ledger,
+    required String basePath,
     required this.printer,
     this.heartbeatIntervalMs = 4500,
     this.heartbeatTimeoutMs = 10000,
-  });
+    void Function(String)? onBackupCreated,
+  }) : ledger = Ledger(
+          basePath: basePath,
+          participantId: name.toLowerCase(),
+          participantPid: pid,
+          onBackupCreated: onBackupCreated,
+        );
   
   bool get hasOperation => _operation != null;
   Operation get operation => _operation!;
   bool get isCrashed => _isCrashed;
   
   /// Start a new operation (initiator only).
-  Future<void> startOperation({
-    required String operationId,
+  Future<Operation> startOperation({
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'startOperation($operationId)');
-    _operation = await ledger.createOperation(
-      operationId: operationId,
-      participantPid: pid,
-      participantId: name.toLowerCase(),
-    );
+    printer.log(depth: depth, participant: name, message: 'startOperation()');
+    _operation = await ledger.createOperation();
+    printer.log(depth: depth, participant: name, message: '  → operationId: "${_operation!.operationId}"');
     // Set staleness threshold for crash detection
     _operation?.stalenessThresholdMs = heartbeatTimeoutMs;
+    return _operation!;
   }
   
   /// Join an existing operation.
@@ -159,11 +162,15 @@ class IndependentParticipant {
     printer.log(depth: depth, participant: name, message: 'joinOperation($operationId)');
     _operation = await ledger.joinOperation(
       operationId: operationId,
-      participantPid: pid,
-      participantId: name.toLowerCase(),
     );
     // Set staleness threshold for crash detection
     _operation?.stalenessThresholdMs = heartbeatTimeoutMs;
+  }
+  
+  /// Dispose this participant's ledger.
+  void dispose() {
+    _heartbeatController.close();
+    ledger.dispose();
   }
   
   /// Push a stack frame for a call.
@@ -360,9 +367,11 @@ class ConcurrentScenarioRunner {
   final String ledgerPath;
   final void Function(String)? onLog;
   
-  late Ledger _ledger;
   late AsyncSimulationPrinter _printer;
   final Map<String, IndependentParticipant> _participants = {};
+  
+  /// Current operation ID (set by initiator).
+  String? _currentOperationId;
   
   ConcurrentScenarioRunner({
     required this.ledgerPath,
@@ -375,46 +384,57 @@ class ConcurrentScenarioRunner {
     required int heartbeatTimeoutMs,
   }) {
     _printer = AsyncSimulationPrinter(onLog: onLog);
-    _ledger = Ledger(
-      basePath: ledgerPath,
-      onBackupCreated: (path) {
+    
+    _participants.clear();
+    _currentOperationId = null;
+
+    void Function(String) _onBackupCreated(String participantName) {
+      return (path) {
         final relativePath = path.replaceFirst('$ledgerPath/', '');
         _printer.log(
           depth: 0,
-          participant: 'Ledger',
+          participant: participantName,
           message: 'backup → $relativePath',
         );
-      },
-    );
-    
-    _participants.clear();
+      };
+    }
     
     _participants['CLI'] = IndependentParticipant(
       name: 'CLI',
       pid: 1001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
       heartbeatIntervalMs: heartbeatIntervalMs,
       heartbeatTimeoutMs: heartbeatTimeoutMs,
+      onBackupCreated: _onBackupCreated('CLI'),
     );
     
     _participants['Bridge'] = IndependentParticipant(
       name: 'Bridge',
       pid: 2001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
       heartbeatIntervalMs: heartbeatIntervalMs,
       heartbeatTimeoutMs: heartbeatTimeoutMs,
+      onBackupCreated: _onBackupCreated('Bridge'),
     );
     
     _participants['VSCode'] = IndependentParticipant(
       name: 'VSCode',
       pid: 3001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
       heartbeatIntervalMs: heartbeatIntervalMs,
       heartbeatTimeoutMs: heartbeatTimeoutMs,
+      onBackupCreated: _onBackupCreated('VSCode'),
     );
+  }
+  
+  /// Dispose all participant ledgers.
+  void dispose() {
+    for (final participant in _participants.values) {
+      participant.dispose();
+    }
   }
   
   /// Run a crash detection test.
@@ -426,7 +446,6 @@ class ConcurrentScenarioRunner {
   /// 4. CLI's heartbeat detects stale heartbeat
   /// 5. CLI performs cleanup
   Future<ConcurrentScenarioResult> runCrashDetectionScenario({
-    required String operationId,
     required String crashingParticipant,
     required int crashAfterMs,
     int heartbeatIntervalMs = 1000,
@@ -451,7 +470,8 @@ class ConcurrentScenarioRunner {
       
       // Phase 1: CLI starts operation
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts operation'));
-      await cli.startOperation(operationId: operationId, depth: 1);
+      final operation = await cli.startOperation(depth: 1);
+      _currentOperationId = operation.operationId;
       await cli.pushStackFrame(callId: 'cli-main', depth: 1);
       cli.startHeartbeat(depth: 1, expectedStackDepth: 1);
       
@@ -460,7 +480,7 @@ class ConcurrentScenarioRunner {
       
       // Phase 2: Bridge joins
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
-      await bridge.joinOperation(operationId: operationId, depth: 2);
+      await bridge.joinOperation(operationId: _currentOperationId!, depth: 2);
       await bridge.pushStackFrame(callId: 'bridge-process', depth: 2);
       bridge.startHeartbeat(depth: 2, expectedStackDepth: 2);
       
@@ -532,13 +552,12 @@ class ConcurrentScenarioRunner {
       for (final p in _participants.values) {
         p.forceStop();
       }
-      _ledger.dispose();
+      dispose();
     }
   }
   
   /// Run a simple happy path to verify normal operation works.
   Future<ConcurrentScenarioResult> runHappyPath({
-    required String operationId,
     int processingMs = 2000,
     int heartbeatIntervalMs = 500,
     int heartbeatTimeoutMs = 2000,
@@ -559,7 +578,8 @@ class ConcurrentScenarioRunner {
       
       // CLI starts
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts'));
-      await cli.startOperation(operationId: operationId, depth: 1);
+      final operation = await cli.startOperation(depth: 1);
+      _currentOperationId = operation.operationId;
       await cli.pushStackFrame(callId: 'cli-main', depth: 1);
       cli.startHeartbeat(depth: 1, expectedStackDepth: 1);
       
@@ -567,7 +587,7 @@ class ConcurrentScenarioRunner {
       
       // Bridge joins
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins'));
-      await bridge.joinOperation(operationId: operationId, depth: 2);
+      await bridge.joinOperation(operationId: _currentOperationId!, depth: 2);
       await bridge.pushStackFrame(callId: 'bridge-process', depth: 2);
       bridge.startHeartbeat(depth: 2, expectedStackDepth: 2);
       
@@ -597,7 +617,7 @@ class ConcurrentScenarioRunner {
       for (final p in _participants.values) {
         p.forceStop();
       }
-      _ledger.dispose();
+      dispose();
     }
   }
   
@@ -609,7 +629,6 @@ class ConcurrentScenarioRunner {
   /// 3. Participants detect abort via heartbeat
   /// 4. All participants clean up
   Future<ConcurrentScenarioResult> runAbortScenario({
-    required String operationId,
     required int abortAfterMs,
     int heartbeatIntervalMs = 500,
     int heartbeatTimeoutMs = 2000,
@@ -632,7 +651,8 @@ class ConcurrentScenarioRunner {
       
       // Phase 1: CLI starts operation
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts operation'));
-      await cli.startOperation(operationId: operationId, depth: 1);
+      final operation = await cli.startOperation(depth: 1);
+      _currentOperationId = operation.operationId;
       await cli.pushStackFrame(callId: 'cli-main', depth: 1);
       cli.startHeartbeat(depth: 1, expectedStackDepth: 1);
       
@@ -640,7 +660,7 @@ class ConcurrentScenarioRunner {
       
       // Phase 2: Bridge joins
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
-      await bridge.joinOperation(operationId: operationId, depth: 2);
+      await bridge.joinOperation(operationId: _currentOperationId!, depth: 2);
       await bridge.pushStackFrame(callId: 'bridge-process', depth: 2);
       bridge.startHeartbeat(depth: 2, expectedStackDepth: 2);
       
@@ -706,7 +726,7 @@ class ConcurrentScenarioRunner {
       for (final p in _participants.values) {
         p.forceStop();
       }
-      _ledger.dispose();
+      dispose();
     }
   }
 }

@@ -210,7 +210,6 @@ class ScenarioRunner {
   final String ledgerPath;
   final void Function(String)? onLog;
 
-  late Ledger _ledger;
   late AsyncSimulationPrinter _printer;
   final Map<FailingParticipant, _SimulatedParticipant> _participants = {};
 
@@ -220,6 +219,9 @@ class ScenarioRunner {
   bool _isAborted = false;
   bool _isCrashed = false;
   _CrashException? _crashException;
+  
+  /// The current operation ID (set by initiator).
+  String? _currentOperationId;
 
   ScenarioRunner({
     required this.ledgerPath,
@@ -229,17 +231,7 @@ class ScenarioRunner {
   /// Initialize the runner for a scenario.
   void _initialize(SimulationScenario scenario) {
     _printer = AsyncSimulationPrinter(onLog: onLog);
-    _ledger = Ledger(
-      basePath: ledgerPath,
-      onBackupCreated: (path) {
-        final relativePath = path.replaceFirst('$ledgerPath/', '');
-        _printer.log(
-          depth: 0,
-          participant: 'Ledger',
-          message: 'backup → $relativePath',
-        );
-      },
-    );
+    // Note: _ledger is no longer used - each participant creates its own ledger
 
     _participants.clear();
     _abortCompleter = Completer<void>();
@@ -250,31 +242,46 @@ class ScenarioRunner {
     _isCrashed = false;
     _crashException = null;
 
-    // Create participants
+    void Function(String) _onBackupCreated(String participantName) {
+      return (path) {
+        final relativePath = path.replaceFirst('$ledgerPath/', '');
+        _printer.log(
+          depth: 0,
+          participant: participantName,
+          message: 'backup → $relativePath',
+        );
+      };
+    }
+
+    // Create participants - each with their own Ledger
     _participants[FailingParticipant.cli] = _SimulatedParticipant(
       name: 'CLI',
       pid: 1001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
       isInitiator: true,
+      onBackupCreated: _onBackupCreated('CLI'),
     );
     _participants[FailingParticipant.bridge] = _SimulatedParticipant(
       name: 'Bridge',
       pid: 2001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
+      onBackupCreated: _onBackupCreated('Bridge'),
     );
     _participants[FailingParticipant.vscode] = _SimulatedParticipant(
       name: 'VSCode',
       pid: 3001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
+      onBackupCreated: _onBackupCreated('VSCode'),
     );
     _participants[FailingParticipant.copilot] = _SimulatedParticipant(
       name: 'Copilot',
       pid: 4001,
-      ledger: _ledger,
+      basePath: ledgerPath,
       printer: _printer,
+      onBackupCreated: _onBackupCreated('Copilot'),
     );
   }
 
@@ -296,12 +303,9 @@ class ScenarioRunner {
         _scheduleFailure(failure, scenario.config);
       }
 
-      // Generate operation ID
-      final operationId = 'scenario_${DateTime.now().millisecondsSinceEpoch}';
-
-      // Execute the call tree
+      // Execute the call tree (operationId will be set by initiator)
+      _currentOperationId = null;
       await _executeCallTree(
-        operationId: operationId,
         calls: scenario.callTree,
         depth: 1,
         config: scenario.config,
@@ -368,7 +372,7 @@ class ScenarioRunner {
       );
     } finally {
       _crashTimer?.cancel();
-      _ledger.dispose();
+      dispose();
     }
   }
 
@@ -406,14 +410,12 @@ class ScenarioRunner {
   }
 
   Future<void> _executeCallTree({
-    required String operationId,
     required List<ScenarioCall> calls,
     required int depth,
     required SimulationConfig config,
   }) async {
     for (final call in calls) {
       await _executeCall(
-        operationId: operationId,
         call: call,
         depth: depth,
         config: config,
@@ -422,7 +424,6 @@ class ScenarioRunner {
   }
 
   Future<void> _executeCall({
-    required String operationId,
     required ScenarioCall call,
     required int depth,
     required SimulationConfig config,
@@ -432,14 +433,15 @@ class ScenarioRunner {
     // Check for crash or abort
     _checkCrash();
     if (_isAborted) {
-      throw AbortedException(operationId);
+      throw AbortedException(_currentOperationId ?? 'unknown');
     }
 
     // Start or join operation
     if (participant.isInitiator && !participant.hasOperation) {
-      await participant.startOperation(operationId: operationId, depth: depth);
+      final operation = await participant.startOperation(depth: depth);
+      _currentOperationId = operation.operationId;
     } else if (!participant.hasOperation) {
-      await participant.joinOperation(operationId: operationId, depth: depth);
+      await participant.joinOperation(operationId: _currentOperationId!, depth: depth);
     }
 
     // Start call execution
@@ -452,14 +454,13 @@ class ScenarioRunner {
     // Check for crash or abort
     _checkCrash();
     if (_isAborted) {
-      await _cleanupOnAbort(operationId, depth);
-      throw AbortedException(operationId);
+      await _cleanupOnAbort(_currentOperationId!, depth);
+      throw AbortedException(_currentOperationId!);
     }
 
     // Execute nested calls
     if (call.nestedCalls.isNotEmpty) {
       await _executeCallTree(
-        operationId: operationId,
         calls: call.nestedCalls,
         depth: depth + 1,
         config: config,
@@ -469,7 +470,6 @@ class ScenarioRunner {
     // Handle external calls (like Copilot)
     if (call.isExternal && call.callee == FailingParticipant.copilot) {
       await _executeCopilotCall(
-        operationId: operationId,
         call: call,
         depth: depth,
         config: config,
@@ -487,7 +487,6 @@ class ScenarioRunner {
   }
 
   Future<void> _executeCopilotCall({
-    required String operationId,
     required ScenarioCall call,
     required int depth,
     required SimulationConfig config,
@@ -539,6 +538,13 @@ class ScenarioRunner {
       }
     }
   }
+  
+  /// Dispose all participant ledgers.
+  void dispose() {
+    for (final participant in _participants.values) {
+      participant.dispose();
+    }
+  }
 }
 
 /// Internal simulated participant for scenario execution.
@@ -555,24 +561,27 @@ class _SimulatedParticipant {
   _SimulatedParticipant({
     required this.name,
     required this.pid,
-    required this.ledger,
+    required String basePath,
     required this.printer,
     this.isInitiator = false,
-  });
+    void Function(String)? onBackupCreated,
+  }) : ledger = Ledger(
+          basePath: basePath,
+          participantId: name.toLowerCase(),
+          participantPid: pid,
+          onBackupCreated: onBackupCreated,
+        );
 
   bool get hasOperation => _operation != null;
   Operation get operation => _operation!;
 
-  Future<void> startOperation({
-    required String operationId,
+  Future<Operation> startOperation({
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'startOperation($operationId)');
-    _operation = await ledger.createOperation(
-      operationId: operationId,
-      participantPid: pid,
-      participantId: name.toLowerCase(),
-    );
+    printer.log(depth: depth, participant: name, message: 'startOperation()');
+    _operation = await ledger.createOperation();
+    printer.log(depth: depth, participant: name, message: '  → operationId: "${_operation!.operationId}"');
+    return _operation!;
   }
 
   Future<void> joinOperation({
@@ -582,8 +591,6 @@ class _SimulatedParticipant {
     printer.log(depth: depth, participant: name, message: 'joinOperation($operationId)');
     _operation = await ledger.joinOperation(
       operationId: operationId,
-      participantPid: pid,
-      participantId: name.toLowerCase(),
     );
   }
 
@@ -621,6 +628,10 @@ class _SimulatedParticipant {
     printer.log(depth: depth, participant: name, message: 'stopHeartbeat()');
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+  }
+  
+  void dispose() {
+    ledger.dispose();
   }
 }
 

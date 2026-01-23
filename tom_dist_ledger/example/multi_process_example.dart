@@ -156,6 +156,7 @@ void main() async {
 
   final ledger = Ledger(
     basePath: tempDir.path,
+    participantId: 'orchestrator',
     onBackupCreated: (path) => print('📦 Backup created: $path'),
   );
 
@@ -165,8 +166,7 @@ void main() async {
   try {
     // Start the main operation
     final operation = await ledger.createOperation(
-      operationId: 'multi_process_demo',
-      participantId: 'orchestrator',
+      description: 'multi_process_demo',
     );
 
     print('✅ Started operation: ${operation.operationId}\n');

@@ -22,18 +22,14 @@ void main() {
     });
 
     test('can start an operation', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'test_op_1',
-      );
+      final operation = await ledger.createOperation();
 
-      expect(operation.operationId, equals('test_op_1'));
+      expect(operation.operationId, isNotEmpty);
       expect(operation.isInitiator, isTrue);
     });
 
     test('can track call execution', () async {
-      final operation = await ledger.createOperation(
-        operationId: 'test_op_2',
-      );
+      final operation = await ledger.createOperation();
 
       await operation.pushStackFrame(callId: 'call-1');
       // Stack has 1 frame (pushStackFrame adds it)

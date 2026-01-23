@@ -18,15 +18,13 @@ void main() async {
 
   final ledger = Ledger(
     basePath: tempDir.path,
+    participantId: 'example',
     onBackupCreated: (path) => print('Backup: $path'),
   );
 
   try {
     // Start an operation
-    final operation = await ledger.createOperation(
-      operationId: 'example_op_${DateTime.now().millisecondsSinceEpoch}',
-      participantId: 'example',
-    );
+    final operation = await ledger.createOperation();
 
     print('Started operation: ${operation.operationId}');
 

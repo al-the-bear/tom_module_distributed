@@ -3,12 +3,15 @@ import '../async_simulation.dart';
 /// Async simulated DartScript Bridge using Ledger API.
 class AsyncSimDartScriptBridge extends AsyncSimParticipant {
   AsyncSimDartScriptBridge({
-    required super.ledger,
+    required String basePath,
     required super.printer,
     required super.config,
+    void Function(String)? onBackupCreated,
   }) : super(
           name: 'Bridge',
           pid: 222,
+          basePath: basePath,
+          onBackupCreated: onBackupCreated,
         );
 
   /// Simulate file deletion.

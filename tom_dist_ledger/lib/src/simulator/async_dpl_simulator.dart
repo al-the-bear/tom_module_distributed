@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'async_simulation.dart';
-import '../ledger_api/ledger_api.dart';
 import 'participants/async_sim_copilot_chat.dart';
 import 'participants/async_sim_dartscript_bridge.dart';
 import 'participants/async_sim_tom_cli.dart';
@@ -10,9 +9,10 @@ import 'participants/async_sim_vscode_extension.dart';
 import 'simulation_config.dart';
 
 /// Async DPL Simulator - uses the Ledger API.
+/// 
+/// Each participant has its own Ledger instance with its own participantId.
 class AsyncDPLSimulator {
   final SimulationConfig config;
-  late final Ledger ledger;
   late final AsyncSimulationPrinter printer;
 
   late final AsyncSimTomCLI cli;
@@ -22,34 +22,38 @@ class AsyncDPLSimulator {
 
   String? _currentOperationId;
 
+  void Function(String)? _onBackupCreated(String participantName) {
+    return (path) {
+      final relativePath = path.replaceFirst('${config.ledgerPath}/', '');
+      print('${printer.elapsedFormatted} | [$participantName] backup → $relativePath');
+    };
+  }
+
   AsyncDPLSimulator({required this.config}) {
     printer = AsyncSimulationPrinter();
-    ledger = Ledger(
-      basePath: config.ledgerPath,
-      onBackupCreated: (path) {
-        final relativePath = path.replaceFirst('${config.ledgerPath}/', '');
-        print('${printer.elapsedFormatted} | [Ledger] backup → $relativePath');
-      },
-    );
     cli = AsyncSimTomCLI(
-      ledger: ledger,
+      basePath: config.ledgerPath,
       printer: printer,
       config: config,
+      onBackupCreated: _onBackupCreated('CLI'),
     );
     bridge = AsyncSimDartScriptBridge(
-      ledger: ledger,
+      basePath: config.ledgerPath,
       printer: printer,
       config: config,
+      onBackupCreated: _onBackupCreated('Bridge'),
     );
     vscode = AsyncSimVSCodeExtension(
-      ledger: ledger,
+      basePath: config.ledgerPath,
       printer: printer,
       config: config,
+      onBackupCreated: _onBackupCreated('VSCode'),
     );
     copilotChat = AsyncSimCopilotChat(
-      ledger: ledger,
+      basePath: config.ledgerPath,
       printer: printer,
       config: config,
+      onBackupCreated: _onBackupCreated('Copilot'),
     );
   }
 
@@ -75,12 +79,9 @@ class AsyncDPLSimulator {
   Future<void> runNormalFlow() async {
     printer.printHeader('Normal Flow - File Operation with DPL (Ledger API)');
 
-    final operationId = 'op_${DateTime.now().millisecondsSinceEpoch}';
-    _currentOperationId = operationId;
-
     try {
-      // Phase 1: CLI initiates operation
-      await _cliInitiatesPhase(operationId);
+      // Phase 1: CLI initiates operation (operation ID is auto-generated)
+      await _cliInitiatesPhase(_currentOperationId ?? '');
 
       // Phase 2: Bridge receives request and starts work
       await _bridgeProcessesPhase();
@@ -109,12 +110,9 @@ class AsyncDPLSimulator {
   Future<void> runAbortFlow() async {
     printer.printHeader('Abort Flow - Ctrl-C During Operation (Ledger API)');
 
-    final operationId = 'op_${DateTime.now().millisecondsSinceEpoch}';
-    _currentOperationId = operationId;
-
     try {
-      // Phase 1: CLI initiates operation
-      await _cliInitiatesPhase(operationId);
+      // Phase 1: CLI initiates operation (operation ID is auto-generated)
+      await _cliInitiatesPhase(_currentOperationId ?? '');
 
       // Phase 2: Bridge starts processing
       await _bridgeProcessesPhase();
@@ -140,7 +138,8 @@ class AsyncDPLSimulator {
   Future<void> _cliInitiatesPhase(String operationId) async {
     printer.printPhase('Phase 1: CLI Initiates Operation');
 
-    await cli.startOperation(depth: 1, operationId: operationId);
+    final operation = await cli.startOperation(depth: 1);
+    _currentOperationId = operation.operationId;
     await _callDelay();
     await cli.pushStackFrame(depth: 1, callId: 'cli-invoke-1');
     cli.startHeartbeat(depth: 1);
@@ -279,8 +278,11 @@ class AsyncDPLSimulator {
     }
   }
 
-  /// Dispose of the ledger.
+  /// Dispose of all participant ledgers.
   void dispose() {
-    ledger.dispose();
+    cli.ledger.dispose();
+    bridge.ledger.dispose();
+    vscode.ledger.dispose();
+    copilotChat.ledger.dispose();
   }
 }

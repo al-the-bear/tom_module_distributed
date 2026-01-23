@@ -1569,13 +1569,13 @@ class Operation {
 class Ledger {
   final String basePath;
 
-  /// The default participant ID for this ledger instance.
+  /// The participant ID for this ledger instance.
   ///
-  /// If set, this will be used as the participantId for operations unless
-  /// overridden in createOperation/joinOperation calls.
-  final String? participantId;
+  /// This identifies who is interacting with the ledger. Each participant
+  /// (CLI, Bridge, VS Code, etc.) should have its own unique ID.
+  final String participantId;
 
-  /// The default process ID for this participant.
+  /// The process ID for this participant.
   ///
   /// Defaults to the current process PID if not specified in constructor.
   final int participantPid;
@@ -1610,7 +1610,7 @@ class Ledger {
 
   Ledger({
     required this.basePath,
-    this.participantId,
+    required this.participantId,
     int? participantPid,
     this.onBackupCreated,
     this.onLogLine,
@@ -1792,47 +1792,22 @@ class Ledger {
   /// Creates the operation file and returns an [Operation] object
   /// that can be used to interact with the operation.
   ///
-  /// ## Participant Identity
-  ///
-  /// Uses identity from constructor if set, otherwise requires explicit params:
-  ///
-  /// **With constructor identity (recommended for production):**
+  /// The participant identity is taken from the Ledger constructor:
   /// ```dart
   /// final ledger = Ledger(basePath: path, participantId: 'orchestrator');
   /// final op = await ledger.createOperation(); // Uses 'orchestrator'
   /// ```
   ///
-  /// **With explicit identity (for simulations):**
-  /// ```dart
-  /// final ledger = Ledger(basePath: path);
-  /// final op = await ledger.createOperation(
-  ///   participantId: 'cli',
-  ///   participantPid: 1234,
-  /// );
-  /// ```
-  ///
-  /// [operationId] is optional. If not provided, a unique ID will be
-  /// auto-generated based on timestamp and participantId. Provide an
-  /// explicit ID only for testing or external coordination purposes.
+  /// An operation ID will be auto-generated based on timestamp and
+  /// participantId.
   Future<Operation> createOperation({
-    String? operationId,
-    String? participantId,
-    int? participantPid,
     String? description,
   }) async {
-    final effectiveParticipantId = participantId ?? this.participantId;
-    if (effectiveParticipantId == null) {
-      throw ArgumentError(
-        'participantId is required. Either set it in the Ledger constructor '
-        'or pass it to createOperation().',
-      );
-    }
-    final effectivePid = participantPid ?? this.participantPid;
-    final effectiveOperationId = operationId ?? _generateOperationId(effectiveParticipantId);
+    final operationId = _generateOperationId(participantId);
     return await _startOperationWithId(
-      operationId: effectiveOperationId,
-      participantId: effectiveParticipantId,
-      participantPid: effectivePid,
+      operationId: operationId,
+      participantId: participantId,
+      participantPid: participantPid,
       description: description,
     );
   }
@@ -1890,46 +1865,22 @@ class Ledger {
   ///
   /// Returns an [Operation] object for the participant to interact with.
   ///
-  /// ## Participant Identity
-  ///
-  /// Uses identity from constructor if set, otherwise requires explicit params:
-  ///
-  /// **With constructor identity (recommended for production):**
+  /// The participant identity is taken from the Ledger constructor:
   /// ```dart
   /// final ledger = Ledger(basePath: path, participantId: 'worker_1');
   /// final op = await ledger.joinOperation(operationId: opId);
   /// ```
-  ///
-  /// **With explicit identity (for simulations):**
-  /// ```dart
-  /// final ledger = Ledger(basePath: path);
-  /// final op = await ledger.joinOperation(
-  ///   operationId: opId,
-  ///   participantId: 'bridge',
-  ///   participantPid: 5678,
-  /// );
-  /// ```
   Future<Operation> joinOperation({
     required String operationId,
-    String? participantId,
-    int? participantPid,
   }) async {
-    final effectiveParticipantId = participantId ?? this.participantId;
-    if (effectiveParticipantId == null) {
-      throw ArgumentError(
-        'participantId is required. Either set it in the Ledger constructor '
-        'or pass it to joinOperation().',
-      );
-    }
-    final effectivePid = participantPid ?? this.participantPid;
     final joinTime = DateTime.now();
     
     // Create operation object
     final operation = Operation._(
       ledger: this,
       operationId: operationId,
-      participantId: effectiveParticipantId,
-      pid: effectivePid,
+      participantId: participantId,
+      pid: participantPid,
       isInitiator: false,
       startTime: joinTime,
     );
