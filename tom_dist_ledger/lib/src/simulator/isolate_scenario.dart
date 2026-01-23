@@ -431,6 +431,9 @@ class _IsolateRunner {
       description: 'CLI initiated operation',
     );
     _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
+    
+    // Stop the auto-started heartbeat - we use our own with failure detection
+    _operation!.stopHeartbeat();
 
     final operationId = _operation!.operationId;
     _log('  → operationId: "$operationId"');
@@ -494,6 +497,10 @@ class _IsolateRunner {
     _log('joinOperation($operationId)');
     _operation = await _ledger.joinOperation(operationId: operationId);
     _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
+    
+    // Stop the auto-started heartbeat - we use our own with failure detection
+    _operation!.stopHeartbeat();
+    
     _event('operationJoined', {'operationId': operationId});
 
     // Start a call for processing
@@ -574,6 +581,10 @@ class _IsolateRunner {
     _log('joinOperation($operationId) [monitor mode]');
     _operation = await _ledger.joinOperation(operationId: operationId);
     _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
+    
+    // Stop the auto-started heartbeat - we use our own with failure detection
+    _operation!.stopHeartbeat();
+    
     _event('operationJoined', {'operationId': operationId});
 
     // Schedule configured events (failures, aborts)

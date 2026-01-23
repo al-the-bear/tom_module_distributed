@@ -618,6 +618,8 @@ class _SimulatedParticipant {
 
   void startHeartbeat({required int depth}) {
     printer.log(depth: depth, participant: name, message: 'startHeartbeat()');
+    // The Ledger now auto-starts heartbeat on join/create.
+    // This method starts an additional local timer for testing purposes.
     // Simplified heartbeat for testing
     _heartbeatTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       // Heartbeat tick (silent in tests)

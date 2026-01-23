@@ -79,7 +79,10 @@ Future<Operation> createOperation({
 | `participantId` | `String?` | ledger default | Override participant ID |
 | `description` | `String?` | `null` | Optional description |
 
-**Returns:** `Operation` - The new operation.
+**Returns:** `Operation` - The new operation with heartbeat auto-started.
+
+**Note:** Heartbeat is automatically started when the operation is created.
+Call `Operation.complete()` to stop heartbeat and archive the operation.
 
 #### joinOperation
 
@@ -97,7 +100,11 @@ Future<Operation> joinOperation({
 | `operationId` | `String` | required | The operation to join |
 | `participantId` | `String?` | ledger default | Override participant ID |
 
-**Returns:** `Operation` - Handle to the joined operation.
+**Returns:** `Operation` - Handle to the joined operation with heartbeat auto-started.
+
+**Note:** Heartbeat is automatically started on first join. If the same operation
+is joined multiple times, the join count is incremented and the same Operation
+object is returned. Each join should be matched with a `leaveOperation()` call.
 
 #### getOperation
 
@@ -142,6 +149,7 @@ class Operation
 | `isAborted` | `bool` | Whether this participant is aborted |
 | `onAbort` | `Future<void>` | Completes when abort is signaled |
 | `onFailure` | `Future<OperationFailedInfo>` | Completes when operation fails |
+| `joinCount` | `int` | Number of times this operation has been joined |
 
 ### Call Management Methods
 
@@ -464,7 +472,14 @@ void triggerAbort()
 
 #### startHeartbeat
 
-Start heartbeat for this participant.
+Start or reconfigure heartbeat for this participant.
+
+**Note:** Heartbeat is automatically started when an operation is created
+or joined. This method is primarily useful for:
+- Restarting heartbeat with different settings
+- Adding custom callbacks (onError, onSuccess)
+
+If heartbeat is already running, it will be stopped and restarted with the new settings.
 
 ```dart
 void startHeartbeat({
@@ -490,6 +505,54 @@ Perform a single heartbeat.
 ```dart
 Future<HeartbeatResult?> heartbeat()
 ```
+
+### Operation Lifecycle Methods
+
+#### leaveOperation
+
+Leave the operation (decrements the join count).
+
+A participant may join the same operation multiple times when handling
+multiple calls. Each join increments the join count, and each leave
+decrements it. When the join count reaches 0, the heartbeat is automatically
+stopped and the operation is unregistered from this participant's ledger.
+
+```dart
+void leaveOperation()
+```
+
+**Note:** This is for participants who joined an operation. Initiators
+should call `complete()` instead.
+
+**Example:**
+```dart
+// First call joins the operation
+final op = await ledger.joinOperation(operationId: opId);
+// ... do work for first call ...
+op.leaveOperation(); // join count: 1 -> 0, heartbeat stops
+```
+
+For multiple joins:
+```dart
+final op1 = await ledger.joinOperation(operationId: opId);
+final op2 = await ledger.joinOperation(operationId: opId); // Same op
+// join count is now 2
+op1.leaveOperation(); // join count: 2 -> 1, heartbeat continues
+op2.leaveOperation(); // join count: 1 -> 0, heartbeat stops
+```
+
+#### complete
+
+Complete the operation (for initiator only).
+
+This stops the heartbeat, logs completion, moves files to backup,
+and unregisters the operation.
+
+```dart
+Future<void> complete()
+```
+
+**Note:** Throws `StateError` if called by non-initiator.
 
 ### Resource Methods
 

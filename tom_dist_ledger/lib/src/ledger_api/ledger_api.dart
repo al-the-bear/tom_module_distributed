@@ -134,6 +134,16 @@ class Operation {
     required this.startTime,
   }) : _ledger = ledger;
 
+  /// Number of times this operation has been joined.
+  /// 
+  /// A participant may join the same operation multiple times (e.g., handling
+  /// multiple calls for the same operation). Heartbeat is started on first
+  /// join and stopped when join count reaches 0 via [leaveOperation].
+  int _joinCount = 0;
+
+  /// Get the join count for this operation.
+  int get joinCount => _joinCount;
+
   /// Get the cached operation data.
   LedgerData? get cachedData => _cachedData;
 
@@ -1253,12 +1263,23 @@ class Operation {
   /// 3. Checks for stale child processes
   /// 4. Calls onHeartbeatError if issues are detected
   /// 5. Calls onHeartbeatSuccess if everything is OK
+  ///
+  /// **Note:** Heartbeat is automatically started when an operation is
+  /// created or joined. This method is primarily useful for:
+  /// - Restarting heartbeat with different settings
+  /// - Adding custom callbacks (onError, onSuccess)
+  ///
+  /// If heartbeat is already running, it will be stopped and restarted
+  /// with the new settings.
   void startHeartbeat({
     Duration interval = const Duration(milliseconds: 4500),
     int jitterMs = 500,
     HeartbeatErrorCallback? onError,
     HeartbeatSuccessCallback? onSuccess,
   }) {
+    // Cancel any existing heartbeat timer
+    stopHeartbeat();
+    
     onHeartbeatError = onError;
     onHeartbeatSuccess = onSuccess;
     _scheduleNextHeartbeat(interval: interval, jitterMs: jitterMs);
@@ -1462,18 +1483,79 @@ class Operation {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // Leave operation (decrements join count)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Leave the operation (decrements the join count).
+  ///
+  /// A participant may join the same operation multiple times when handling
+  /// multiple calls. Each join increments the join count, and each leave
+  /// decrements it.
+  ///
+  /// When the join count reaches 0:
+  /// - The heartbeat is automatically stopped
+  /// - The operation is unregistered from this participant's ledger
+  ///
+  /// This is the counterpart to [Ledger.joinOperation]. Call this when
+  /// finished with a call/task for this operation.
+  ///
+  /// Example:
+  /// ```dart
+  /// // First call joins the operation
+  /// final op = await ledger.joinOperation(operationId: opId);
+  /// // ... do work for first call ...
+  /// op.leaveOperation(); // join count: 1 -> 0, heartbeat stops
+  /// ```
+  ///
+  /// For multiple joins:
+  /// ```dart
+  /// final op1 = await ledger.joinOperation(operationId: opId);
+  /// final op2 = await ledger.joinOperation(operationId: opId); // Same op
+  /// // join count is now 2
+  /// op1.leaveOperation(); // join count: 2 -> 1, heartbeat continues
+  /// op2.leaveOperation(); // join count: 1 -> 0, heartbeat stops
+  /// ```
+  void leaveOperation() {
+    if (_joinCount <= 0) {
+      throw StateError('Cannot leave operation - join count is already 0');
+    }
+    
+    _joinCount--;
+    
+    if (_joinCount == 0) {
+      stopHeartbeat();
+      _ledger._unregisterOperation(operationId);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // Complete operation
   // ─────────────────────────────────────────────────────────────
 
   /// Complete the operation (for initiator only).
   ///
-  /// This moves the operation files to the backup folder and
-  /// unregisters it from the ledger.
+  /// This:
+  /// 1. Stops the heartbeat
+  /// 2. Logs the completion
+  /// 3. Moves the operation files to the backup folder
+  /// 4. Unregisters the operation from the ledger
+  ///
+  /// **Note:** This is different from [leaveOperation], which is for
+  /// participants who joined an operation. Initiators should call
+  /// [complete] when the operation is done.
+  ///
+  /// Example:
+  /// ```dart
+  /// final op = await ledger.createOperation();
+  /// // ... do work ...
+  /// await op.complete(); // Archives the operation
+  /// ```
   Future<void> complete() async {
     if (!isInitiator) {
       throw StateError('Only the initiator can complete an operation');
     }
     stopHeartbeat();
+    _joinCount = 0; // Reset join count
 
     // Log completion
     await log('OPERATION_COMPLETED');
@@ -1792,10 +1874,17 @@ class Ledger {
   /// Creates the operation file and returns an [Operation] object
   /// that can be used to interact with the operation.
   ///
+  /// **Automatic heartbeat management:** The heartbeat is automatically
+  /// started when the operation is created. Call [Operation.complete] to
+  /// complete the operation, which stops the heartbeat and moves files
+  /// to backup.
+  ///
   /// The participant identity is taken from the Ledger constructor:
   /// ```dart
   /// final ledger = Ledger(basePath: path, participantId: 'orchestrator');
-  /// final op = await ledger.createOperation(); // Uses 'orchestrator'
+  /// final op = await ledger.createOperation();
+  /// // ... do work ...
+  /// await op.complete(); // Stops heartbeat and archives files
   /// ```
   ///
   /// An operation ID will be auto-generated based on timestamp and
@@ -1854,6 +1943,12 @@ class Ledger {
 
       // Register in global registry
       _operations[operationId] = operation;
+      
+      // Auto-start heartbeat for initiator
+      operation._joinCount = 1;
+      operation.startHeartbeat(
+        interval: heartbeatInterval,
+      );
 
       return operation;
     } finally {
@@ -1864,15 +1959,34 @@ class Ledger {
   /// Join an existing operation.
   ///
   /// Returns an [Operation] object for the participant to interact with.
+  /// 
+  /// **Automatic heartbeat management:** The heartbeat is automatically
+  /// started on first join and stopped when [Operation.leaveOperation] is
+  /// called and the join count reaches 0.
+  ///
+  /// If the same operation is joined multiple times by the same participant
+  /// (e.g., handling multiple calls for the same operation), the join count
+  /// is incremented and the same Operation object is returned. Each join
+  /// should be matched with a corresponding [Operation.leaveOperation] call.
   ///
   /// The participant identity is taken from the Ledger constructor:
   /// ```dart
   /// final ledger = Ledger(basePath: path, participantId: 'worker_1');
   /// final op = await ledger.joinOperation(operationId: opId);
+  /// // ... do work ...
+  /// op.leaveOperation(); // Stops heartbeat when join count reaches 0
   /// ```
   Future<Operation> joinOperation({
     required String operationId,
   }) async {
+    // Check if already joined
+    final existingOp = _operations[operationId];
+    if (existingOp != null) {
+      // Already joined - increment join count and return same operation
+      existingOp._joinCount++;
+      return existingOp;
+    }
+    
     final joinTime = DateTime.now();
     
     // Create operation object
@@ -1890,6 +2004,12 @@ class Ledger {
 
     // Register in global registry
     _operations[operationId] = operation;
+    
+    // First join - set join count and start heartbeat
+    operation._joinCount = 1;
+    operation.startHeartbeat(
+      interval: heartbeatInterval,
+    );
 
     return operation;
   }

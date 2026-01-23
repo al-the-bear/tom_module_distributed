@@ -116,18 +116,26 @@ final ledger = Ledger(
 ### Creating and Joining Operations
 
 ```dart
-// Initiator creates operation
+// Initiator creates operation - heartbeat auto-starts
 final operation = await ledger.createOperation(
   participantId: 'initiator',  // Optional override
   description: 'My operation',
 );
+// ... do work ...
+await operation.complete();  // Stops heartbeat, archives files
 
-// Participant joins existing operation
+// Participant joins existing operation - heartbeat auto-starts
 final operation = await ledger.joinOperation(
   operationId: 'known-operation-id',
   participantId: 'worker-1',  // Optional override
 );
+// ... do work ...
+operation.leaveOperation();  // Stops heartbeat when join count reaches 0
 ```
+
+**Join Count:** A participant may join the same operation multiple times
+when handling multiple calls. Each `joinOperation` increments the join count,
+and each `leaveOperation` decrements it. Heartbeat stops when count reaches 0.
 
 ### Call<T> Pattern
 
@@ -666,11 +674,10 @@ Future<List<WorkerResult>> runParallelWorkers(String operationId) async {
 
 ```dart
 Future<BuildResult> coordinateBuild(BuildConfig config) async {
+  // Heartbeat is auto-started when operation is created
   final operation = await ledger.createOperation(
     description: 'Build ${config.projectName}',
   );
-  
-  operation.startHeartbeat();
   
   final call = await operation.startCall<void>(
     callback: CallCallback(
@@ -691,7 +698,7 @@ Future<BuildResult> coordinateBuild(BuildConfig config) async {
     );
     
     await call.end();
-    await operation.complete();
+    await operation.complete(); // Stops heartbeat and archives files
     
     return BuildResult(outputs: results);
   } catch (e, st) {

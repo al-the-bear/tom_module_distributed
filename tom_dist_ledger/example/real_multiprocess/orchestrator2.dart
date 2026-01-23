@@ -41,7 +41,7 @@ void main() async {
       description: 'Simplified multi-process demo',
     );
 
-    // Start participant heartbeat to write to debug.log
+    // Reconfigure heartbeat with custom interval (replaces auto-started heartbeat)
     operation.startHeartbeat(
       interval: const Duration(seconds: 2),
     );
