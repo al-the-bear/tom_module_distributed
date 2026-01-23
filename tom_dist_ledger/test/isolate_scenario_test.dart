@@ -284,6 +284,194 @@ void main() {
       // Error is reported through failure detection mechanism
       expect(result.detectedFailure!.message, contains('Error'));
     }, timeout: Timeout(Duration(seconds: 90)));
+
+    test('chain scenario: crash in last participant (VSBridge)', () async {
+      final heartbeatMs = randomHeartbeatMs();
+      final crashAfterMs = randomOperationDelayMs();
+      final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
+      final maxWaitMs = crashAfterMs + timeoutMs + (heartbeatMs * 3);
+
+      print('');
+      print('Test parameters:');
+      print('  Heartbeat interval: ${heartbeatMs}ms');
+      print('  Heartbeat timeout: ${timeoutMs}ms');
+      print('  Crash after: ${crashAfterMs}ms');
+      print('  Max wait: ${maxWaitMs}ms');
+      print('');
+
+      final runner = IsolateScenarioRunner(
+        ledgerPath: tempDir.path,
+        onLog: (msg) => print(msg),
+      );
+
+      final result = await runner.runChainScenario(
+        failingParticipant: 'VSBridge',
+        failureType: SimulatedFailure.crash,
+        failAfterMs: crashAfterMs,
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: crashAfterMs + maxWaitMs,
+        maxWaitMs: maxWaitMs,
+      );
+
+      print('');
+      print('Chain crash detection completed in ${result.elapsed.inMilliseconds}ms');
+      print('Events:');
+      for (final event in result.events) {
+        print('  $event');
+      }
+      print('');
+      print('Detected: ${result.detectedFailure}');
+
+      expect(result.success, isTrue);
+      expect(result.detectedFailure, isNotNull);
+      expect(result.detectedFailure!.type, DetectedFailureType.staleHeartbeat);
+      // Either CLI or Bridge should detect the VSBridge crash
+      expect(['CLI', 'Bridge'], contains(result.detectedFailure!.participant));
+    }, timeout: Timeout(Duration(seconds: 120)));
+
+    test('chain scenario: error in last participant (VSBridge)', () async {
+      final heartbeatMs = randomHeartbeatMs();
+      final errorAfterMs = randomOperationDelayMs();
+      final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
+      final maxWaitMs = errorAfterMs + (heartbeatMs * 3);
+
+      print('');
+      print('Test parameters:');
+      print('  Heartbeat interval: ${heartbeatMs}ms');
+      print('  Heartbeat timeout: ${timeoutMs}ms');
+      print('  Error after: ${errorAfterMs}ms');
+      print('  Max wait: ${maxWaitMs}ms');
+      print('');
+
+      final runner = IsolateScenarioRunner(
+        ledgerPath: tempDir.path,
+        onLog: (msg) => print(msg),
+      );
+
+      final result = await runner.runChainScenario(
+        failingParticipant: 'VSBridge',
+        failureType: SimulatedFailure.error,
+        failAfterMs: errorAfterMs,
+        errorMessage: 'VSBridge processing failed',
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: errorAfterMs + maxWaitMs,
+        maxWaitMs: maxWaitMs,
+      );
+
+      print('');
+      print('Chain error detection completed in ${result.elapsed.inMilliseconds}ms');
+      print('Events:');
+      for (final event in result.events) {
+        print('  $event');
+      }
+      print('');
+      print('Detected: ${result.detectedFailure}');
+
+      expect(result.success, isTrue);
+      expect(result.detectedFailure, isNotNull);
+      // VSBridge detects its own error
+      expect(result.detectedFailure!.participant, 'VSBridge');
+      expect(result.detectedFailure!.message, contains('Error'));
+    }, timeout: Timeout(Duration(seconds: 120)));
+
+    test('chain scenario with VSCode callback: crash in Bridge', () async {
+      final heartbeatMs = randomHeartbeatMs();
+      final crashAfterMs = randomOperationDelayMs();
+      final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
+      final maxWaitMs = crashAfterMs + timeoutMs + (heartbeatMs * 3);
+
+      print('');
+      print('Test parameters:');
+      print('  Heartbeat interval: ${heartbeatMs}ms');
+      print('  Heartbeat timeout: ${timeoutMs}ms');
+      print('  Crash after: ${crashAfterMs}ms');
+      print('  Max wait: ${maxWaitMs}ms');
+      print('  Chain: CLI -> Bridge -> VSBridge -> VSCode callback');
+      print('');
+
+      final runner = IsolateScenarioRunner(
+        ledgerPath: tempDir.path,
+        onLog: (msg) => print(msg),
+      );
+
+      // Bridge crashes while VSCode is calling back through it
+      final result = await runner.runChainScenario(
+        failingParticipant: 'Bridge',
+        failureType: SimulatedFailure.crash,
+        failAfterMs: crashAfterMs,
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: crashAfterMs + maxWaitMs,
+        maxWaitMs: maxWaitMs,
+        includeVSCodeCallback: true,
+      );
+
+      print('');
+      print('Chain with callback crash detection completed in ${result.elapsed.inMilliseconds}ms');
+      print('Events:');
+      for (final event in result.events) {
+        print('  $event');
+      }
+      print('');
+      print('Detected: ${result.detectedFailure}');
+
+      expect(result.success, isTrue);
+      expect(result.detectedFailure, isNotNull);
+      expect(result.detectedFailure!.type, DetectedFailureType.staleHeartbeat);
+      // CLI, VSBridge, or VSCode should detect the Bridge crash
+      expect(['CLI', 'VSBridge', 'VSCode'], contains(result.detectedFailure!.participant));
+    }, timeout: Timeout(Duration(seconds: 120)));
+
+    test('chain scenario with VSCode callback: error in VSCode', () async {
+      final heartbeatMs = randomHeartbeatMs();
+      final errorAfterMs = randomOperationDelayMs();
+      final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
+      final maxWaitMs = errorAfterMs + (heartbeatMs * 3);
+
+      print('');
+      print('Test parameters:');
+      print('  Heartbeat interval: ${heartbeatMs}ms');
+      print('  Heartbeat timeout: ${timeoutMs}ms');
+      print('  Error after: ${errorAfterMs}ms');
+      print('  Max wait: ${maxWaitMs}ms');
+      print('  Chain: CLI -> Bridge -> VSBridge -> VSCode callback');
+      print('');
+
+      final runner = IsolateScenarioRunner(
+        ledgerPath: tempDir.path,
+        onLog: (msg) => print(msg),
+      );
+
+      // VSCode (the callback) errors during processing
+      final result = await runner.runChainScenario(
+        failingParticipant: 'VSCode',
+        failureType: SimulatedFailure.error,
+        failAfterMs: errorAfterMs,
+        errorMessage: 'VSCode callback processing failed',
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: errorAfterMs + maxWaitMs,
+        maxWaitMs: maxWaitMs,
+        includeVSCodeCallback: true,
+      );
+
+      print('');
+      print('VSCode error detection completed in ${result.elapsed.inMilliseconds}ms');
+      print('Events:');
+      for (final event in result.events) {
+        print('  $event');
+      }
+      print('');
+      print('Detected: ${result.detectedFailure}');
+
+      expect(result.success, isTrue);
+      expect(result.detectedFailure, isNotNull);
+      // VSCode detects its own error
+      expect(result.detectedFailure!.participant, 'VSCode');
+      expect(result.detectedFailure!.message, contains('Error'));
+    }, timeout: Timeout(Duration(seconds: 120)));
   });
 
   group('IsolateParticipantHandle', () {
@@ -310,8 +498,7 @@ void main() {
         onLog: (msg) => print(msg),
       );
 
-      // Start the CLI behavior
-      handle.start();
+      // Behavior auto-starts on spawn
 
       // Wait for completion
       final result = await handle.onCompleted.timeout(Duration(seconds: 30));
@@ -344,12 +531,11 @@ void main() {
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
         workDurationMs: 30000, // Long enough
-        failureConfig: FailureConfig.crash(afterMs: crashAfterMs),
+        scenarioConfig: ScenarioConfig.crash(afterMs: crashAfterMs),
         onLog: (msg) => print(msg),
       );
 
-      // Start the CLI behavior
-      handle.start();
+      // Behavior auto-starts on spawn
 
       // Wait for operation to start
       await handle.responses
@@ -386,7 +572,7 @@ void main() {
         onLog: (msg) => print(msg),
       );
 
-      cliHandle.start();
+      // Behavior auto-starts on spawn
 
       // Wait for CLI to create operation
       await cliHandle.responses
@@ -410,7 +596,7 @@ void main() {
         onLog: (msg) => print(msg),
       );
 
-      bridgeHandle.start();
+      // Behavior auto-starts on spawn
 
       // Wait for Bridge to join
       await bridgeHandle.responses
@@ -448,14 +634,14 @@ void main() {
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
         workDurationMs: 30000,
-        failureConfig: FailureConfig.error(
+        scenarioConfig: ScenarioConfig.error(
           afterMs: errorAfterMs,
           message: 'Test error message',
         ),
         onLog: (msg) => print(msg),
       );
 
-      handle.start();
+      // Behavior auto-starts on spawn
 
       // Wait for failure detection
       final failure = await handle.onFailureDetected.timeout(Duration(seconds: 10));
