@@ -13,12 +13,9 @@
 library;
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:isolate';
-import 'dart:math';
 
 import '../ledger_api/ledger_api.dart';
-import '../local_ledger/file_ledger.dart' show HeartbeatResult;
 import 'concurrent_scenario.dart';
 
 // ─────────────────────────────────────────────────────────────
@@ -235,6 +232,9 @@ class _IsolateRunner {
   
   /// Completer that signals an error occurred (for behavior to handle).
   final _errorCompleter = Completer<String>();
+  
+  /// Completer that signals wait should be interrupted (crash/error).
+  final _waitCompleter = Completer<void>();
 
   _IsolateRunner(this.config);
 
@@ -257,17 +257,6 @@ class _IsolateRunner {
 
   void _sendResponse(IsolateResponseType type, {String? message, Map<String, dynamic>? data}) {
     config.sendPort.send(IsolateResponse(type, message: message, data: data));
-  }
-
-  void _failureDetected(DetectedFailureType type, String message) {
-    _sendResponse(
-      IsolateResponseType.failureDetected,
-      data: {
-        'type': type.name,
-        'participant': name,
-        'message': message,
-      },
-    );
   }
 
   Future<void> run(ReceivePort receivePort) async {
@@ -366,15 +355,17 @@ class _IsolateRunner {
     if (_crashed) return;
     _crashed = true;
     _log('💥 CRASH (stopping heartbeat, becoming unresponsive)');
-    _stopHeartbeat();
+    _operation?.stopHeartbeat();
     _sendResponse(IsolateResponseType.crashed, message: 'Simulated crash');
     // Stay alive but unresponsive - don't exit isolate
     // The heartbeat staleness will be detected by other participants
+    // Complete the wait completer to interrupt any wait
+    if (!_waitCompleter.isCompleted) {
+      _waitCompleter.complete();
+    }
   }
 
   /// Simulate an error: signal error for behavior to handle cleanly.
-  /// Does NOT stop heartbeat immediately - the behavior should end the call
-  /// properly, which will then stop the heartbeat.
   void _simulateError(String errorMessage) {
     if (_hasError || _crashed) return;
     _hasError = true;
@@ -386,9 +377,9 @@ class _IsolateRunner {
       _errorCompleter.complete(errorMessage);
     }
     
-    // Also complete the failure completer to interrupt any wait
-    if (!_failureCompleter.isCompleted) {
-      _failureCompleter.complete();
+    // Complete the wait completer to interrupt any wait
+    if (!_waitCompleter.isCompleted) {
+      _waitCompleter.complete();
     }
 
     // Send error response for test coordination
@@ -402,7 +393,6 @@ class _IsolateRunner {
   Future<void> _cleanup() async {
     _failureTimer?.cancel();
     _abortTimer?.cancel();
-    _operation?.stopHeartbeat();
     _ledger.dispose();
   }
 
@@ -429,11 +419,28 @@ class _IsolateRunner {
     _log('startOperation()');
     _operation = await _ledger.createOperation(
       description: 'CLI initiated operation',
+      callback: OperationCallback(
+        onHeartbeatSuccess: (op, result) {
+          _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
+        },
+        onHeartbeatError: (op, error) {
+          _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
+          _sendResponse(
+            IsolateResponseType.failureDetected,
+            data: {
+              'type': error.type.name,
+              'participant': name,
+              'message': error.message,
+            },
+          );
+          // Complete the wait to interrupt current work
+          if (!_waitCompleter.isCompleted) {
+            _waitCompleter.complete();
+          }
+        },
+      ),
     );
     _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
-    
-    // Stop the auto-started heartbeat - we use our own with failure detection
-    _operation!.stopHeartbeat();
 
     final operationId = _operation!.operationId;
     _log('  → operationId: "$operationId"');
@@ -452,32 +459,26 @@ class _IsolateRunner {
     // Schedule configured events (failures, aborts) AFTER call starts
     _scheduleConfiguredEvents();
 
-    // Start heartbeat with failure detection
-    _startHeartbeatWithDetection(expectedMinStack: 1);
-
-    // Wait for work duration or failure/error
-    final workComplete = await _waitWithFailureDetection(
+    // Wait for work duration or crash/error
+    final workComplete = await _waitForDurationOrInterrupt(
       Duration(milliseconds: config.workDurationMs),
     );
 
     if (_hasError) {
-      // Error occurred - end call with fail result (heartbeat stops after call ends)
+      // Error occurred - end call with fail result
       await call.fail(Exception(_errorMessage ?? 'Unknown error'), StackTrace.current);
-      _stopHeartbeat();
       _log('call failed with error');
-      _reportFailure(DetectedFailureType.heartbeatError, 'Error: ${_errorMessage ?? 'Unknown error'}');
+      _sendResponse(IsolateResponseType.error, message: _errorMessage);
     } else if (_crashed) {
       // Crash - heartbeat already stopped by _simulateCrash
       // Don't end call - let it be detected as stale
     } else if (workComplete) {
-      // Normal completion
-      _stopHeartbeat();
+      // Normal completion - initiator uses complete()
       await call.end();
       await _operation!.complete();
       _log('operation completed');
       _sendResponse(IsolateResponseType.completed, data: {'operationId': operationId});
     }
-    // If not complete and not crashed/error, failure was already reported
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -495,11 +496,30 @@ class _IsolateRunner {
     }
 
     _log('joinOperation($operationId)');
-    _operation = await _ledger.joinOperation(operationId: operationId);
+    _operation = await _ledger.joinOperation(
+      operationId: operationId,
+      callback: OperationCallback(
+        onHeartbeatSuccess: (op, result) {
+          _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
+        },
+        onHeartbeatError: (op, error) {
+          _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
+          _sendResponse(
+            IsolateResponseType.failureDetected,
+            data: {
+              'type': error.type.name,
+              'participant': name,
+              'message': error.message,
+            },
+          );
+          // Complete the wait to interrupt current work
+          if (!_waitCompleter.isCompleted) {
+            _waitCompleter.complete();
+          }
+        },
+      ),
+    );
     _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
-    
-    // Stop the auto-started heartbeat - we use our own with failure detection
-    _operation!.stopHeartbeat();
     
     _event('operationJoined', {'operationId': operationId});
 
@@ -516,35 +536,31 @@ class _IsolateRunner {
     // Schedule configured events (failures, aborts) AFTER call starts
     _scheduleConfiguredEvents();
 
-    // Start heartbeat with failure detection
-    _startHeartbeatWithDetection(expectedMinStack: 2);
-
     // Simulate work duration
     _log('processing for ${config.workDurationMs}ms...');
-    final workComplete = await _waitWithFailureDetection(
+    final workComplete = await _waitForDurationOrInterrupt(
       Duration(milliseconds: config.workDurationMs),
     );
 
     if (_hasError) {
-      // Error occurred - end call with fail result (heartbeat stops after call ends)
+      // Error occurred - end call with fail result, then leave
       await call.fail(Exception(_errorMessage ?? 'Unknown error'), StackTrace.current);
-      _stopHeartbeat();
+      _operation!.leave();
       _log('call failed with error');
-      _reportFailure(DetectedFailureType.heartbeatError, 'Error: ${_errorMessage ?? 'Unknown error'}');
+      _sendResponse(IsolateResponseType.error, message: _errorMessage);
     } else if (_crashed) {
       // Crash - heartbeat already stopped by _simulateCrash
       // Don't end call - let it be detected as stale
     } else if (workComplete) {
-      // Normal completion
-      _stopHeartbeat();
+      // Normal completion - participant uses leave()
       await call.end('Bridge work completed');
+      _operation!.leave();
       _log('work completed');
       _sendResponse(IsolateResponseType.completed, data: {
         'result': 'success',
         'operationId': operationId,
       });
     }
-    // If not complete and not crashed/error, failure was already reported
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -579,139 +595,56 @@ class _IsolateRunner {
     }
 
     _log('joinOperation($operationId) [monitor mode]');
-    _operation = await _ledger.joinOperation(operationId: operationId);
+    _operation = await _ledger.joinOperation(
+      operationId: operationId,
+      callback: OperationCallback(
+        onHeartbeatSuccess: (op, result) {
+          _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
+        },
+        onHeartbeatError: (op, error) {
+          _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
+          _sendResponse(
+            IsolateResponseType.failureDetected,
+            data: {
+              'type': error.type.name,
+              'participant': name,
+              'message': error.message,
+            },
+          );
+          // Complete the wait to interrupt
+          if (!_waitCompleter.isCompleted) {
+            _waitCompleter.complete();
+          }
+        },
+      ),
+    );
     _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
-    
-    // Stop the auto-started heartbeat - we use our own with failure detection
-    _operation!.stopHeartbeat();
     
     _event('operationJoined', {'operationId': operationId});
 
     // Schedule configured events (failures, aborts)
     _scheduleConfiguredEvents();
 
-    // Start heartbeat with failure detection
-    _startHeartbeatWithDetection(expectedMinStack: 1);
-
-    // Wait indefinitely until shutdown or failure
-    await _waitWithFailureDetection(const Duration(hours: 1));
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // Heartbeat with Failure Detection
-  // ─────────────────────────────────────────────────────────────
-
-  Timer? _heartbeatTimer;
-  final _random = Random();
-  int _expectedMinStack = 1;
-  bool _failureReported = false;
-  final _failureCompleter = Completer<void>();
-
-  void _startHeartbeatWithDetection({required int expectedMinStack}) {
-    _expectedMinStack = expectedMinStack;
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(
-      Duration(milliseconds: config.heartbeatIntervalMs),
-      (_) => _performHeartbeat(),
-    );
-    // Initial heartbeat immediately
-    _performHeartbeat();
-  }
-
-  void _stopHeartbeat() {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-  }
-
-  String? get _operationFilePath {
-    if (_operation == null) return null;
-    return '${config.basePath}/${_operation!.operationId}.operation.json';
-  }
-
-  Future<void> _performHeartbeat() async {
-    if (_crashed || _hasError || _operation == null || _failureReported) return;
-
-    try {
-      // Retry loop for lock contention
-      HeartbeatResult? maybeResult;
-      while (maybeResult == null) {
-        if (_crashed || _hasError || _operation == null || _failureReported) return;
-
-        maybeResult = await _operation!.heartbeat();
-        if (maybeResult == null) {
-          // Check if file still exists
-          final filePath = _operationFilePath;
-          if (filePath != null && !File(filePath).existsSync()) {
-            _log('♥ DETECTED: Operation file gone!');
-            _reportFailure(
-              DetectedFailureType.heartbeatError,
-              'Operation file no longer exists',
-            );
-            return;
-          }
-          // Lock contention - wait 50ms +/- 10ms jitter and retry
-          final jitterMs = 50 + _random.nextInt(21) - 10;
-          await Future.delayed(Duration(milliseconds: jitterMs));
-        }
-      }
-      final result = maybeResult;
-
-      // Check for abort
-      if (result.abortFlag) {
-        _log('♥ DETECTED: Abort flag set!');
-        _reportFailure(DetectedFailureType.abortRequested, 'Abort flag set');
-        return;
-      }
-
-      // Check for stale heartbeats
-      if (result.hasStaleChildren) {
-        final staleList = result.staleParticipants.join(', ');
-        final staleAges = result.staleParticipants
-            .map((p) => '$p: ${result.participantHeartbeatAges[p]}ms')
-            .join(', ');
-        _log('♥ DETECTED: Stale participant(s): [$staleList] - crash detected! Ages: $staleAges');
-        _reportFailure(
-          DetectedFailureType.staleHeartbeat,
-          'Stale participants: $staleList (ages: $staleAges)',
-        );
-        return;
-      }
-
-      // Check stack depth
-      if (result.stackDepth < _expectedMinStack) {
-        _log('♥ DETECTED: Stack reduced! Expected $_expectedMinStack, found ${result.stackDepth}');
-        _reportFailure(
-          DetectedFailureType.childDisappeared,
-          'Expected stack depth $_expectedMinStack, found ${result.stackDepth}',
-        );
-        return;
-      }
-
-      // Success
-      _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
-    } catch (e) {
-      _log('♥ ERROR: $e');
-      _reportFailure(DetectedFailureType.heartbeatError, e.toString());
+    // Wait indefinitely until shutdown or crash/error
+    await _waitForDurationOrInterrupt(const Duration(hours: 1));
+    
+    // If not crashed, leave the operation
+    if (!_crashed) {
+      _operation!.leave();
     }
   }
 
-  void _reportFailure(DetectedFailureType type, String message) {
-    if (_failureReported) return;
-    _failureReported = true;
-    _stopHeartbeat();
-    _failureDetected(type, message);
-    if (!_failureCompleter.isCompleted) {
-      _failureCompleter.complete();
-    }
-  }
+  // ─────────────────────────────────────────────────────────────
+  // Wait Utilities
+  // ─────────────────────────────────────────────────────────────
 
-  /// Wait for duration or until failure detected.
-  /// Returns true if duration completed, false if failure detected.
-  Future<bool> _waitWithFailureDetection(Duration duration) async {
+  /// Wait for duration or until crash/error interrupts.
+  /// Returns true if duration completed, false if interrupted.
+  Future<bool> _waitForDurationOrInterrupt(Duration duration) async {
     final timeout = Future.delayed(duration);
     final result = await Future.any([
       timeout.then((_) => true),
-      _failureCompleter.future.then((_) => false),
+      _waitCompleter.future.then((_) => false),
     ]);
     return result;
   }

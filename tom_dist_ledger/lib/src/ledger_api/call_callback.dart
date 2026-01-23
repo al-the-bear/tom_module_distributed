@@ -7,6 +7,50 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../local_ledger/file_ledger.dart' show HeartbeatResult;
+import 'ledger_api.dart' show HeartbeatError, Operation;
+
+/// Callback structure for operation-level events.
+///
+/// Provides hooks for heartbeat success/error notifications during operation
+/// lifecycle. Use this with [Ledger.createOperation] and [Ledger.joinOperation].
+///
+/// **Example:**
+/// ```dart
+/// final op = await ledger.createOperation(
+///   callback: OperationCallback(
+///     onHeartbeatSuccess: (op, result) => print('Heartbeat OK'),
+///     onHeartbeatError: (op, error) => print('Failure: ${error.message}'),
+///   ),
+/// );
+/// ```
+class OperationCallback {
+  /// Called on each successful heartbeat.
+  ///
+  /// Use this for monitoring heartbeat health and stack state.
+  final void Function(Operation operation, HeartbeatResult result)? onHeartbeatSuccess;
+
+  /// Called when a heartbeat detects a failure.
+  ///
+  /// The [HeartbeatError] contains information about what failed
+  /// (stale participant, missing file, etc.). Use this to trigger
+  /// recovery or cleanup actions.
+  final void Function(Operation operation, HeartbeatError error)? onHeartbeatError;
+
+  /// Creates an operation callback with optional handlers.
+  const OperationCallback({
+    this.onHeartbeatSuccess,
+    this.onHeartbeatError,
+  });
+
+  /// Creates a callback that only handles errors.
+  factory OperationCallback.onError(
+    void Function(Operation operation, HeartbeatError error) onError,
+  ) {
+    return OperationCallback(onHeartbeatError: onError);
+  }
+}
+
 /// Callback structure for spawned call operations.
 ///
 /// Provides hooks for cleanup, completion, crash handling, and operation failure.

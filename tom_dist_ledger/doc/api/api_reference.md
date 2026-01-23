@@ -69,15 +69,15 @@ Create a new operation (initiator).
 
 ```dart
 Future<Operation> createOperation({
-  String? participantId,
   String? description,
+  OperationCallback? callback,
 })
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `participantId` | `String?` | ledger default | Override participant ID |
 | `description` | `String?` | `null` | Optional description |
+| `callback` | `OperationCallback?` | `null` | Heartbeat success/error callbacks |
 
 **Returns:** `Operation` - The new operation with heartbeat auto-started.
 
@@ -91,20 +91,20 @@ Join an existing operation (participant).
 ```dart
 Future<Operation> joinOperation({
   required String operationId,
-  String? participantId,
+  OperationCallback? callback,
 })
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `operationId` | `String` | required | The operation to join |
-| `participantId` | `String?` | ledger default | Override participant ID |
+| `callback` | `OperationCallback?` | `null` | Heartbeat success/error callbacks |
 
 **Returns:** `Operation` - Handle to the joined operation with heartbeat auto-started.
 
 **Note:** Heartbeat is automatically started on first join. If the same operation
 is joined multiple times, the join count is incremented and the same Operation
-object is returned. Each join should be matched with a `leaveOperation()` call.
+object is returned. Each join should be matched with a `leave()` call.
 
 #### getOperation
 
@@ -508,7 +508,7 @@ Future<HeartbeatResult?> heartbeat()
 
 ### Operation Lifecycle Methods
 
-#### leaveOperation
+#### leave
 
 Leave the operation (decrements the join count).
 
@@ -517,8 +517,12 @@ multiple calls. Each join increments the join count, and each leave
 decrements it. When the join count reaches 0, the heartbeat is automatically
 stopped and the operation is unregistered from this participant's ledger.
 
+Throws `StateError` if:
+- Join count is already 0
+- There are still active spawned calls (must be ended or cancelled first)
+
 ```dart
-void leaveOperation()
+void leave()
 ```
 
 **Note:** This is for participants who joined an operation. Initiators
@@ -529,7 +533,7 @@ should call `complete()` instead.
 // First call joins the operation
 final op = await ledger.joinOperation(operationId: opId);
 // ... do work for first call ...
-op.leaveOperation(); // join count: 1 -> 0, heartbeat stops
+op.leave(); // join count: 1 -> 0, heartbeat stops
 ```
 
 For multiple joins:
@@ -537,8 +541,8 @@ For multiple joins:
 final op1 = await ledger.joinOperation(operationId: opId);
 final op2 = await ledger.joinOperation(operationId: opId); // Same op
 // join count is now 2
-op1.leaveOperation(); // join count: 2 -> 1, heartbeat continues
-op2.leaveOperation(); // join count: 1 -> 0, heartbeat stops
+op1.leave(); // join count: 2 -> 1, heartbeat continues
+op2.leave(); // join count: 1 -> 0, heartbeat stops
 ```
 
 #### complete
@@ -833,6 +837,41 @@ static Future<List<T>> Function() pollFiles<T>({
 ---
 
 ## Data Classes
+
+### OperationCallback Class
+
+Callback structure for operation-level events (heartbeat monitoring).
+
+```dart
+class OperationCallback {
+  final void Function(Operation operation, HeartbeatResult result)? onHeartbeatSuccess;
+  final void Function(Operation operation, HeartbeatError error)? onHeartbeatError;
+
+  const OperationCallback({
+    this.onHeartbeatSuccess,
+    this.onHeartbeatError,
+  });
+  
+  factory OperationCallback.onError(
+    void Function(Operation operation, HeartbeatError error) onError,
+  );
+}
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `onHeartbeatSuccess` | `void Function(Operation, HeartbeatResult)?` | Called on each successful heartbeat |
+| `onHeartbeatError` | `void Function(Operation, HeartbeatError)?` | Called when heartbeat detects a failure |
+
+**Example:**
+```dart
+final op = await ledger.createOperation(
+  callback: OperationCallback(
+    onHeartbeatSuccess: (op, result) => print('♥ OK: ${result.stackDepth} frames'),
+    onHeartbeatError: (op, error) => print('Failure: ${error.message}'),
+  ),
+);
+```
 
 ### CallCallback Class
 

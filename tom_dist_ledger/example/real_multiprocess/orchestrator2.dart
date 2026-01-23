@@ -36,14 +36,9 @@ void main() async {
   );
 
   try {
-    // Start the operation
+    // Start the operation (heartbeat auto-started)
     final operation = await ledger.createOperation(
       description: 'Simplified multi-process demo',
-    );
-
-    // Reconfigure heartbeat with custom interval (replaces auto-started heartbeat)
-    operation.startHeartbeat(
-      interval: const Duration(seconds: 2),
     );
 
     print('✅ Started operation: ${operation.operationId}');
@@ -277,7 +272,6 @@ void main() async {
 
     final elapsed = operation.elapsedDuration;
     await operation.log('All workers completed in ${elapsed.inSeconds}s', level: LogLevel.info);
-    operation.stopHeartbeat();
     await operation.complete();
     print('✅ Operation completed successfully!');
     print('   Total elapsed: ${elapsed.inMilliseconds}ms\n');

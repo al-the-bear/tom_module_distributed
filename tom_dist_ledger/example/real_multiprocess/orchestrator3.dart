@@ -70,18 +70,7 @@ void main() async {
     print('Launching Distributed Workers');
     print('═══════════════════════════════════════════════════════════════════\n');
 
-    // Start heartbeat monitoring
-    operation.startHeartbeat(
-      interval: Duration(milliseconds: 500),
-      onSuccess: (op, result) {
-        final depth = result.stackDepth;
-        if (depth > maxStackDepth) maxStackDepth = depth;
-        for (final participant in result.stackParticipants) {
-          observedParticipants.add(participant);
-        }
-        print('♥ Heartbeat: stack depth = $depth, participants: ${result.stackParticipants}');
-      },
-    );
+    // Heartbeat auto-started by createOperation
 
     // Launch 3 workers that will join the operation
     final workers = <String>['worker1', 'worker2', 'worker3'];
@@ -148,9 +137,6 @@ void main() async {
       }
       print('');
     }
-
-    // Stop heartbeat
-    operation.stopHeartbeat();
 
     // Pop orchestrator's stack frame
     await operation.popStackFrame(callId: 'orchestrator-main');

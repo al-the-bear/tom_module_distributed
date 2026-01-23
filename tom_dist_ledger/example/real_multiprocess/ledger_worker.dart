@@ -90,13 +90,7 @@ void main(List<String> args) async {
     stderr.writeln('[$participantId] Stack has ${data?.stack.length ?? 0} frames');
     stderr.writeln('[$participantId] My frame: ${myFrame?.isNotEmpty == true ? 'present' : 'MISSING'}');
 
-    // Start heartbeat
-    operation.startHeartbeat(
-      interval: Duration(milliseconds: 500),
-      onSuccess: (op, result) {
-        stderr.writeln('[$participantId] ♥ heartbeat (stack: ${result.stackDepth})');
-      },
-    );
+    // Heartbeat auto-started by joinOperation
 
     // Do simulated work
     stderr.writeln('[$participantId] Working for ${workDuration}ms...');
@@ -113,12 +107,12 @@ void main(List<String> args) async {
     await operation.log('Work completed', level: LogLevel.info);
     stderr.writeln('[$participantId] Work complete!');
 
-    // Stop heartbeat
-    operation.stopHeartbeat();
-
     // Pop our stack frame
     stderr.writeln('[$participantId] Popping stack frame...');
     await operation.popStackFrame(callId: '$participantId-work');
+
+    // Leave the operation (stops heartbeat when join count reaches 0)
+    operation.leave();
 
     // Verify we're no longer in the stack
     final dataAfter = operation.cachedData;

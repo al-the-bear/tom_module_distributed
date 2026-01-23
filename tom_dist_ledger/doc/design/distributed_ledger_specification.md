@@ -130,12 +130,12 @@ final operation = await ledger.joinOperation(
   participantId: 'worker-1',  // Optional override
 );
 // ... do work ...
-operation.leaveOperation();  // Stops heartbeat when join count reaches 0
+operation.leave();  // Stops heartbeat when join count reaches 0
 ```
 
 **Join Count:** A participant may join the same operation multiple times
 when handling multiple calls. Each `joinOperation` increments the join count,
-and each `leaveOperation` decrements it. Heartbeat stops when count reaches 0.
+and each `leave` decrements it. Heartbeat stops when count reaches 0.
 
 ### Call<T> Pattern
 
