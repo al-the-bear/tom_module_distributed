@@ -239,6 +239,17 @@ class _IsolateRunner {
   _IsolateRunner(this.config);
 
   String get name => config.name;
+  
+  /// Map HeartbeatErrorType to DetectedFailureType for consistent reporting.
+  DetectedFailureType _mapHeartbeatError(HeartbeatErrorType type) {
+    return switch (type) {
+      HeartbeatErrorType.heartbeatStale => DetectedFailureType.staleHeartbeat,
+      HeartbeatErrorType.abortFlagSet => DetectedFailureType.abortRequested,
+      HeartbeatErrorType.ledgerNotFound => DetectedFailureType.heartbeatError,
+      HeartbeatErrorType.ioError => DetectedFailureType.heartbeatError,
+      HeartbeatErrorType.lockFailed => DetectedFailureType.heartbeatError,
+    };
+  }
 
   void _log(String message) {
     config.sendPort.send(IsolateResponse(
@@ -425,10 +436,11 @@ class _IsolateRunner {
         },
         onHeartbeatError: (op, error) {
           _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
+          final failureType = _mapHeartbeatError(error.type);
           _sendResponse(
             IsolateResponseType.failureDetected,
             data: {
-              'type': error.type.name,
+              'type': failureType.name,
               'participant': name,
               'message': error.message,
             },
@@ -504,10 +516,11 @@ class _IsolateRunner {
         },
         onHeartbeatError: (op, error) {
           _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
+          final failureType = _mapHeartbeatError(error.type);
           _sendResponse(
             IsolateResponseType.failureDetected,
             data: {
-              'type': error.type.name,
+              'type': failureType.name,
               'participant': name,
               'message': error.message,
             },
@@ -543,7 +556,9 @@ class _IsolateRunner {
     );
 
     if (_hasError) {
-      // Error occurred - end call with fail result, then leave
+      // Error occurred - set abort flag so other participants detect failure,
+      // then end call with fail result, then leave
+      await _operation!.setAbortFlag(true);
       await call.fail(Exception(_errorMessage ?? 'Unknown error'), StackTrace.current);
       _operation!.leave();
       _log('call failed with error');
@@ -603,10 +618,11 @@ class _IsolateRunner {
         },
         onHeartbeatError: (op, error) {
           _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
+          final failureType = _mapHeartbeatError(error.type);
           _sendResponse(
             IsolateResponseType.failureDetected,
             data: {
-              'type': error.type.name,
+              'type': failureType.name,
               'participant': name,
               'message': error.message,
             },
@@ -789,6 +805,16 @@ class IsolateParticipantHandle {
         case IsolateResponseType.abortSet:
           if (!handle._abortSet.isCompleted) {
             handle._abortSet.complete(response.message ?? 'abort set');
+          }
+
+        case IsolateResponseType.error:
+          // Error from this participant - report as failure detection
+          if (!handle._failureDetected.isCompleted) {
+            handle._failureDetected.complete(FailureDetection(
+              type: DetectedFailureType.heartbeatError,
+              participant: handle.name,
+              message: 'Error: ${response.message ?? 'unknown error'}',
+            ));
           }
 
         default:

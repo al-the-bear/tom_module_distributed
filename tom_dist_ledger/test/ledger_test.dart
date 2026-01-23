@@ -1054,7 +1054,7 @@ void main() {
       expect(receivedError!.type, equals(HeartbeatErrorType.ledgerNotFound));
     });
 
-    test('onHeartbeatSuccess detects stale children', () async {
+    test('onHeartbeatError detects stale children', () async {
       final operation = await ledger.createOperation();
       final operationId = operation.operationId;
 
@@ -1077,14 +1077,14 @@ void main() {
       });
       await opFile.writeAsString(json.encode(content));
 
-      HeartbeatResult? resultWithStale;
+      HeartbeatError? staleError;
 
       operation.startHeartbeat(
         interval: const Duration(milliseconds: 50),
         jitterMs: 10,
-        onSuccess: (op, result) {
-          if (result.hasStaleChildren) {
-            resultWithStale = result;
+        onError: (op, error) {
+          if (error.type == HeartbeatErrorType.heartbeatStale) {
+            staleError = error;
           }
         },
       );
@@ -1094,10 +1094,10 @@ void main() {
 
       operation.stopHeartbeat();
 
-      // Stale heartbeat should be detected in success callback result
-      expect(resultWithStale, isNotNull);
-      expect(resultWithStale!.hasStaleChildren, isTrue);
-      expect(resultWithStale!.staleParticipants, contains('stale_participant'));
+      // Stale heartbeat should be detected via onHeartbeatError callback
+      expect(staleError, isNotNull);
+      expect(staleError!.type, equals(HeartbeatErrorType.heartbeatStale));
+      expect(staleError!.message, contains('stale_participant'));
 
       await operation.complete();
     });

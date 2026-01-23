@@ -281,8 +281,12 @@ void main() {
 
       expect(result.success, isTrue);
       expect(result.detectedFailure, isNotNull);
-      // Error is reported through failure detection mechanism
-      expect(result.detectedFailure!.message, contains('Error'));
+      // Error is detected either via abort flag (by CLI) or self-reported (by Bridge)
+      // Both are valid - depends on timing
+      expect(
+        result.detectedFailure!.type,
+        anyOf(DetectedFailureType.abortRequested, DetectedFailureType.heartbeatError),
+      );
     }, timeout: Timeout(Duration(seconds: 90)));
 
     test('chain scenario: crash in last participant (VSBridge)', () async {

@@ -1338,6 +1338,16 @@ class Operation {
       if (result.hasStaleChildren) {
         // Detected crash - invoke callbacks for affected calls
         await _handleDetectedCrash(result.staleParticipants);
+        
+        // Signal error - stale heartbeat detected
+        onHeartbeatError?.call(
+          this,
+          HeartbeatError(
+            type: HeartbeatErrorType.heartbeatStale,
+            message: 'Stale heartbeat detected from: ${result.staleParticipants.join(", ")}',
+          ),
+        );
+        return;
       }
 
       // Check for operation in cleanup/failed state
