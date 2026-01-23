@@ -10,6 +10,53 @@ import 'dart:io';
 import '../local_ledger/file_ledger.dart' show HeartbeatResult;
 import 'ledger_api.dart' show HeartbeatError, Operation;
 
+/// Callback structure for ledger-level events.
+///
+/// Provides hooks for backup creation, log lines, and global heartbeat errors.
+/// Use this with [Ledger] constructor.
+///
+/// **Example:**
+/// ```dart
+/// final ledger = Ledger(
+///   basePath: '/tmp/ledger',
+///   participantId: 'cli',
+///   callback: LedgerCallback(
+///     onBackupCreated: (path) => print('Backup: $path'),
+///     onLogLine: (line) => print('Log: $line'),
+///     onGlobalHeartbeatError: (op, error) => print('Error: ${error.message}'),
+///   ),
+/// );
+/// ```
+class LedgerCallback {
+  /// Called when a backup file is created.
+  ///
+  /// The path parameter is the full path to the created backup file.
+  final void Function(String path)? onBackupCreated;
+
+  /// Called when a log line is written.
+  ///
+  /// Useful for redirecting log output or monitoring.
+  final void Function(String line)? onLogLine;
+
+  /// Called when a global heartbeat error is detected.
+  ///
+  /// This is for errors detected during background monitoring
+  /// of all operations, not specific to a single operation.
+  final void Function(Operation operation, HeartbeatError error)? onGlobalHeartbeatError;
+
+  /// Creates a ledger callback with optional handlers.
+  const LedgerCallback({
+    this.onBackupCreated,
+    this.onLogLine,
+    this.onGlobalHeartbeatError,
+  });
+
+  /// Creates a callback that only handles backup creation.
+  factory LedgerCallback.onBackup(void Function(String path) onBackup) {
+    return LedgerCallback(onBackupCreated: onBackup);
+  }
+}
+
 /// Callback structure for operation-level events.
 ///
 /// Provides hooks for heartbeat success/error notifications during operation

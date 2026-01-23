@@ -1688,8 +1688,32 @@ class Ledger {
   /// Defaults to the current process PID if not specified in constructor.
   final int participantPid;
 
-  final void Function(String)? onBackupCreated;
-  final void Function(String)? onLogLine;
+  /// Grouped callbacks for ledger events.
+  final LedgerCallback? callback;
+
+  /// Called when a backup is created.
+  ///
+  /// Prefer using [callback] with [LedgerCallback] instead.
+  @Deprecated('Use callback parameter with LedgerCallback instead')
+  void Function(String)? get onBackupCreated => 
+      _onBackupCreated ?? callback?.onBackupCreated;
+  final void Function(String)? _onBackupCreated;
+
+  /// Called when a log line is written.
+  ///
+  /// Prefer using [callback] with [LedgerCallback] instead.
+  @Deprecated('Use callback parameter with LedgerCallback instead')
+  void Function(String)? get onLogLine => 
+      _onLogLine ?? callback?.onLogLine;
+  final void Function(String)? _onLogLine;
+
+  // Private getters for internal use (avoid deprecation warnings)
+  void Function(String)? get _backupCallback => 
+      _onBackupCreated ?? callback?.onBackupCreated;
+  void Function(String)? get _logCallback => 
+      _onLogLine ?? callback?.onLogLine;
+  HeartbeatErrorCallback? get _globalHeartbeatCallback =>
+      _onGlobalHeartbeatError ?? callback?.onGlobalHeartbeatError;
 
   /// Maximum number of backup operations to retain.
   final int maxBackups;
@@ -1704,7 +1728,12 @@ class Ledger {
   Timer? _globalHeartbeatTimer;
 
   /// Callback for global heartbeat errors.
-  HeartbeatErrorCallback? onGlobalHeartbeatError;
+  ///
+  /// Prefer using [callback] with [LedgerCallback] instead.
+  @Deprecated('Use callback parameter with LedgerCallback instead')
+  HeartbeatErrorCallback? get onGlobalHeartbeatError =>
+      _onGlobalHeartbeatError ?? callback?.onGlobalHeartbeatError;
+  final HeartbeatErrorCallback? _onGlobalHeartbeatError;
 
   /// Lock timeout and retry settings.
   static const _lockTimeout = Duration(seconds: 2);
@@ -1716,17 +1745,46 @@ class Ledger {
   /// Staleness threshold for detecting crashed operations.
   final Duration staleThreshold;
 
+  /// Creates a new Ledger instance.
+  ///
+  /// **Preferred usage with callback:**
+  /// ```dart
+  /// final ledger = Ledger(
+  ///   basePath: '/tmp/ledger',
+  ///   participantId: 'cli',
+  ///   callback: LedgerCallback(
+  ///     onBackupCreated: (path) => print('Backup: $path'),
+  ///     onLogLine: (line) => print('Log: $line'),
+  ///   ),
+  /// );
+  /// ```
+  ///
+  /// **Legacy usage (deprecated):**
+  /// ```dart
+  /// final ledger = Ledger(
+  ///   basePath: '/tmp/ledger',
+  ///   participantId: 'cli',
+  ///   onBackupCreated: (path) => print('Backup: $path'),
+  /// );
+  /// ```
   Ledger({
     required this.basePath,
     required this.participantId,
     int? participantPid,
-    this.onBackupCreated,
-    this.onLogLine,
-    this.onGlobalHeartbeatError,
+    this.callback,
+    @Deprecated('Use callback parameter with LedgerCallback instead')
+    void Function(String)? onBackupCreated,
+    @Deprecated('Use callback parameter with LedgerCallback instead')
+    void Function(String)? onLogLine,
+    @Deprecated('Use callback parameter with LedgerCallback instead')
+    HeartbeatErrorCallback? onGlobalHeartbeatError,
     this.maxBackups = 20,
     this.heartbeatInterval = const Duration(seconds: 5),
     this.staleThreshold = const Duration(seconds: 15),
-  }) : participantPid = participantPid ?? pid {
+  }) : participantPid = participantPid ?? pid,
+       _onBackupCreated = onBackupCreated,
+       _onLogLine = onLogLine,
+       _onGlobalHeartbeatError = onGlobalHeartbeatError {
     _ledgerDir = Directory(basePath);
     _backupDir = Directory('$basePath/backup');
     if (!_ledgerDir.existsSync()) {
@@ -1854,7 +1912,7 @@ class Ledger {
     }
 
     await sourceFile.copy(snapshotPath);
-    onBackupCreated?.call(snapshotPath);
+    _backupCallback?.call(snapshotPath);
     return snapshotPath;
   }
 
@@ -2228,7 +2286,7 @@ class Ledger {
       await sourceDebug.rename(_backupDebugLogPath(operationId));
     }
 
-    onBackupCreated?.call(_backupFolderPath(operationId));
+    _backupCallback?.call(_backupFolderPath(operationId));
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -2239,7 +2297,7 @@ class Ledger {
   Future<void> _appendLog(String operationId, String line) async {
     final logFile = File(_logPath(operationId));
     await logFile.writeAsString('$line\n', mode: FileMode.append, flush: true);
-    onLogLine?.call(line);
+    _logCallback?.call(line);
   }
 
   /// Append a line to the operation's debug log file.
@@ -2280,7 +2338,7 @@ class Ledger {
       final lastChange = operation._lastChangeTimestamp;
 
       if (lastChange == null) {
-        onGlobalHeartbeatError?.call(
+        _globalHeartbeatCallback?.call(
           operation,
           HeartbeatError(
             type: HeartbeatErrorType.ledgerNotFound,
@@ -2292,7 +2350,7 @@ class Ledger {
 
       final age = now.difference(lastChange);
       if (age > staleThreshold) {
-        onGlobalHeartbeatError?.call(
+        _globalHeartbeatCallback?.call(
           operation,
           HeartbeatError(
             type: HeartbeatErrorType.heartbeatStale,
