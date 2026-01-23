@@ -63,7 +63,7 @@ void main() {
       expect(result.events.length, greaterThanOrEqualTo(4)); // start, join, complete x2
     }, timeout: Timeout(Duration(seconds: 90)));
 
-    test('detects Bridge crash through stale heartbeat', () async {
+    test('detects Bridge crash through stale heartbeat (config-driven)', () async {
       final heartbeatMs = randomHeartbeatMs();
       final crashAfterMs = randomOperationDelayMs();
       final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
@@ -82,6 +82,7 @@ void main() {
         onLog: (msg) => print(msg),
       );
 
+      // Crash is now configured, not commanded
       final result = await runner.runCrashDetectionScenario(
         crashingParticipant: 'Bridge',
         crashAfterMs: crashAfterMs,
@@ -106,7 +107,7 @@ void main() {
       expect(result.detectedFailure!.participant, 'CLI');
     }, timeout: Timeout(Duration(seconds: 90)));
 
-    test('detects CLI crash through stale heartbeat', () async {
+    test('detects CLI crash through stale heartbeat (config-driven)', () async {
       final heartbeatMs = randomHeartbeatMs();
       final crashAfterMs = randomOperationDelayMs();
       final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
@@ -239,6 +240,50 @@ void main() {
       expect(detectionMs, greaterThanOrEqualTo(minExpected));
       expect(detectionMs, lessThanOrEqualTo(maxExpected));
     }, timeout: Timeout(Duration(seconds: 90)));
+
+    test('detects error during processing (config-driven)', () async {
+      final heartbeatMs = randomHeartbeatMs();
+      final errorAfterMs = randomOperationDelayMs();
+      final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
+      final maxWaitMs = errorAfterMs + (heartbeatMs * 3);
+
+      print('');
+      print('Test parameters:');
+      print('  Heartbeat interval: ${heartbeatMs}ms');
+      print('  Heartbeat timeout: ${timeoutMs}ms');
+      print('  Error after: ${errorAfterMs}ms');
+      print('  Max wait: ${maxWaitMs}ms');
+      print('');
+
+      final runner = IsolateScenarioRunner(
+        ledgerPath: tempDir.path,
+        onLog: (msg) => print(msg),
+      );
+
+      // Error scenario - processing fails cleanly
+      final result = await runner.runErrorScenario(
+        erroringParticipant: 'Bridge',
+        errorAfterMs: errorAfterMs,
+        errorMessage: 'Simulated processing failure',
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        maxWaitMs: maxWaitMs,
+      );
+
+      print('');
+      print('Error detection completed in ${result.elapsed.inMilliseconds}ms');
+      print('Events:');
+      for (final event in result.events) {
+        print('  $event');
+      }
+      print('');
+      print('Detected: ${result.detectedFailure}');
+
+      expect(result.success, isTrue);
+      expect(result.detectedFailure, isNotNull);
+      // Error is reported through failure detection mechanism
+      expect(result.detectedFailure!.message, contains('Error'));
+    }, timeout: Timeout(Duration(seconds: 90)));
   });
 
   group('IsolateParticipantHandle', () {
@@ -279,14 +324,16 @@ void main() {
       await handle.shutdown();
     }, timeout: Timeout(Duration(seconds: 60)));
 
-    test('crash() kills isolate immediately (sudden silence)', () async {
-      final heartbeatMs = randomHeartbeatMs();
+    test('config-driven crash stops heartbeat (no Isolate.kill)', () async {
+      final heartbeatMs = 500; // Shorter for faster test
       final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
+      final crashAfterMs = 1000;
 
       print('');
       print('Test parameters:');
       print('  Heartbeat interval: ${heartbeatMs}ms');
       print('  Heartbeat timeout: ${timeoutMs}ms');
+      print('  Crash after: ${crashAfterMs}ms');
       print('');
 
       final handle = await IsolateParticipantHandle.spawn(
@@ -296,7 +343,8 @@ void main() {
         isolateType: IsolateType.cli,
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
-        workDurationMs: 30000, // Long enough to crash during
+        workDurationMs: 30000, // Long enough
+        failureConfig: FailureConfig.crash(afterMs: crashAfterMs),
         onLog: (msg) => print(msg),
       );
 
@@ -308,12 +356,13 @@ void main() {
           .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationStarted')
           .timeout(Duration(seconds: 10));
 
-      // Crash - isolate dies immediately, no message, no cleanup
-      handle.crash();
+      // Wait for crash notification (comes from config timer)
+      final crashMsg = await handle.onCrashed.timeout(Duration(seconds: 10));
+      expect(crashMsg, contains('crash'));
       expect(handle.isCrashed, isTrue);
 
-      // Verify isolate is dead by waiting briefly
-      await Future.delayed(Duration(milliseconds: 100));
+      // Cleanup
+      handle.forceKill();
     }, timeout: Timeout(Duration(seconds: 30)));
 
     test('IsolateType determines behavior', () async {
@@ -380,6 +429,42 @@ void main() {
       // Cleanup
       await bridgeHandle.shutdown();
       await cliHandle.shutdown();
+    }, timeout: Timeout(Duration(seconds: 30)));
+
+    test('FailureConfig.error causes clean failure', () async {
+      final heartbeatMs = 500;
+      final timeoutMs = 1000;
+      final errorAfterMs = 800;
+
+      print('');
+      print('Test: FailureConfig.error causes clean failure');
+      print('');
+
+      final handle = await IsolateParticipantHandle.spawn(
+        name: 'ErrorTest',
+        pid: 7777,
+        basePath: tempDir.path,
+        isolateType: IsolateType.cli,
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: 30000,
+        failureConfig: FailureConfig.error(
+          afterMs: errorAfterMs,
+          message: 'Test error message',
+        ),
+        onLog: (msg) => print(msg),
+      );
+
+      handle.start();
+
+      // Wait for failure detection
+      final failure = await handle.onFailureDetected.timeout(Duration(seconds: 10));
+
+      expect(failure.message, contains('Error'));
+      print('Failure detected: ${failure.message}');
+
+      // Cleanup
+      handle.forceKill();
     }, timeout: Timeout(Duration(seconds: 30)));
   });
 }
