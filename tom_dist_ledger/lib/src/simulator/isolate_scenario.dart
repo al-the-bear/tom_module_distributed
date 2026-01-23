@@ -4,11 +4,12 @@
 /// Dart Isolate. This more accurately simulates real-world distributed systems
 /// where CLI, Bridge, and VS Code are separate processes.
 ///
-/// Key differences from [ConcurrentScenarioRunner]:
-/// - Each participant runs in its own [Isolate] with true parallelism
-/// - Communication happens via [SendPort]/[ReceivePort]
+/// Key architecture:
+/// - Each participant runs in its own [Isolate] with its own [Ledger] instance
+/// - Isolates run normal code (like in examples) not step-by-step commands
+/// - Communication happens via [SendPort]/[ReceivePort] for start/result/events
 /// - Ledger files are the shared state (file system)
-/// - Crashes and hangs are real (isolate stops responding)
+/// - Crashes are simulated with [Isolate.kill()]
 library;
 
 import 'dart:async';
@@ -21,236 +22,416 @@ import '../local_ledger/file_ledger.dart' show HeartbeatResult;
 import 'concurrent_scenario.dart';
 
 // ─────────────────────────────────────────────────────────────
+// Isolate Types
+// ─────────────────────────────────────────────────────────────
+
+/// The type of participant behavior to run in an isolate.
+enum IsolateType {
+  /// CLI-like behavior: Creates operation, waits for work, completes.
+  cli,
+
+  /// Bridge-like behavior: Joins operation, does work, returns result.
+  bridge,
+
+  /// VS Code-like behavior: Joins operation, monitors, responds to events.
+  vscode,
+
+  /// Custom behavior defined by the test.
+  custom,
+}
+
+// ─────────────────────────────────────────────────────────────
 // Message Protocol
 // ─────────────────────────────────────────────────────────────
 
-/// Commands sent from main isolate to participant isolates.
-enum ParticipantCommand {
-  /// Start a new operation (initiator only).
-  startOperation,
+/// Commands sent from main isolate to participant.
+enum IsolateCommand {
+  /// Start executing the participant's work.
+  start,
 
-  /// Join an existing operation.
-  joinOperation,
-
-  /// Push a stack frame.
-  pushStackFrame,
-
-  /// Pop a stack frame.
-  popStackFrame,
-
-  /// Start heartbeat monitoring.
-  startHeartbeat,
-
-  /// Stop heartbeat monitoring.
-  stopHeartbeat,
-
-  /// Complete the operation.
-  completeOperation,
-
-  /// Simulate a crash (stop heartbeat, hang forever).
+  /// Simulate a crash (Isolate.kill).
   crash,
-
-  /// Clean shutdown.
-  shutdown,
 
   /// Set abort flag in ledger.
   setAbortFlag,
+
+  /// Clean shutdown.
+  shutdown,
 }
 
-/// A message sent to a participant isolate.
-class ParticipantMessage {
-  final ParticipantCommand command;
+/// Message sent to a participant isolate.
+class IsolateMessage {
+  final IsolateCommand command;
   final Map<String, dynamic> params;
 
-  ParticipantMessage(this.command, [this.params = const {}]);
+  IsolateMessage(this.command, [this.params = const {}]);
 }
 
 /// Response types from participant isolates.
-enum ParticipantResponseType {
-  /// Command completed successfully.
-  success,
+enum IsolateResponseType {
+  /// Ready to receive commands.
+  ready,
 
-  /// Command failed with error.
+  /// Work completed successfully.
+  completed,
+
+  /// Work failed with error.
   error,
 
-  /// Operation started, includes operationId.
-  operationStarted,
-
-  /// Heartbeat performed, includes result.
-  heartbeat,
-
-  /// Failure detected through heartbeat.
+  /// Failure detected through heartbeat/monitoring.
   failureDetected,
 
   /// Log message for display.
   log,
+
+  /// Event notification (operation started, joined, etc).
+  event,
 }
 
 /// A response from a participant isolate.
-class ParticipantResponse {
-  final ParticipantResponseType type;
+class IsolateResponse {
+  final IsolateResponseType type;
   final String? message;
   final Map<String, dynamic>? data;
 
-  ParticipantResponse(this.type, {this.message, this.data});
+  IsolateResponse(this.type, {this.message, this.data});
+}
+
+// ─────────────────────────────────────────────────────────────
+// Isolate Configuration
+// ─────────────────────────────────────────────────────────────
+
+/// Configuration passed to participant isolate on spawn.
+class IsolateParticipantConfig {
+  /// Participant name (e.g., 'CLI', 'Bridge').
+  final String name;
+
+  /// Process ID for this participant.
+  final int pid;
+
+  /// Path to ledger directory.
+  final String basePath;
+
+  /// Type of behavior to run.
+  final IsolateType isolateType;
+
+  /// Heartbeat interval in milliseconds.
+  final int heartbeatIntervalMs;
+
+  /// Heartbeat timeout/staleness threshold in milliseconds.
+  final int heartbeatTimeoutMs;
+
+  /// How long to simulate work (milliseconds).
+  final int workDurationMs;
+
+  /// Operation ID to join (for non-initiators).
+  final String? operationId;
+
+  /// Port to send responses back to parent.
+  final SendPort sendPort;
+
+  /// Custom parameters for the isolate.
+  final Map<String, dynamic> customParams;
+
+  IsolateParticipantConfig({
+    required this.name,
+    required this.pid,
+    required this.basePath,
+    required this.isolateType,
+    required this.heartbeatIntervalMs,
+    required this.heartbeatTimeoutMs,
+    required this.sendPort,
+    this.workDurationMs = 1000,
+    this.operationId,
+    this.customParams = const {},
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
 // Isolate Entry Point
 // ─────────────────────────────────────────────────────────────
 
-/// Configuration passed to participant isolate on spawn.
-class IsolateParticipantConfig {
-  final String name;
-  final int pid;
-  final String basePath;
-  final int heartbeatIntervalMs;
-  final int heartbeatTimeoutMs;
-  final SendPort sendPort;
-
-  IsolateParticipantConfig({
-    required this.name,
-    required this.pid,
-    required this.basePath,
-    required this.heartbeatIntervalMs,
-    required this.heartbeatTimeoutMs,
-    required this.sendPort,
-  });
-}
-
 /// Entry point for participant isolate.
-///
-/// This function runs in a separate isolate and manages a single participant.
 Future<void> _participantIsolateEntry(IsolateParticipantConfig config) async {
   final receivePort = ReceivePort();
   config.sendPort.send(receivePort.sendPort);
 
-  final runner = _IsolateParticipantRunner(config);
+  final runner = _IsolateRunner(config);
   await runner.run(receivePort);
 }
 
 /// Internal runner that executes in the participant isolate.
-class _IsolateParticipantRunner {
+class _IsolateRunner {
   final IsolateParticipantConfig config;
   late final Ledger _ledger;
   Operation? _operation;
-  Timer? _heartbeatTimer;
-  bool _isCrashed = false;
-  int _expectedStackDepth = 1;
+  bool _crashed = false;
 
-  _IsolateParticipantRunner(this.config);
+  _IsolateRunner(this.config);
+
+  String get name => config.name;
 
   void _log(String message) {
-    config.sendPort.send(ParticipantResponse(
-      ParticipantResponseType.log,
-      message: '[${config.name}] $message',
+    config.sendPort.send(IsolateResponse(
+      IsolateResponseType.log,
+      message: '[$name] $message',
     ));
   }
 
-  void _sendResponse(ParticipantResponseType type,
-      {String? message, Map<String, dynamic>? data}) {
-    config.sendPort.send(ParticipantResponse(type, message: message, data: data));
+  void _event(String event, [Map<String, dynamic>? data]) {
+    config.sendPort.send(IsolateResponse(
+      IsolateResponseType.event,
+      message: event,
+      data: data,
+    ));
+  }
+
+  void _sendResponse(IsolateResponseType type, {String? message, Map<String, dynamic>? data}) {
+    config.sendPort.send(IsolateResponse(type, message: message, data: data));
+  }
+
+  void _failureDetected(DetectedFailureType type, String message) {
+    _sendResponse(
+      IsolateResponseType.failureDetected,
+      data: {
+        'type': type.name,
+        'participant': name,
+        'message': message,
+      },
+    );
   }
 
   Future<void> run(ReceivePort receivePort) async {
+    // Create ledger instance
     _ledger = Ledger(
       basePath: config.basePath,
-      participantId: config.name.toLowerCase(),
+      participantId: name.toLowerCase(),
       participantPid: config.pid,
+      heartbeatInterval: Duration(milliseconds: config.heartbeatIntervalMs),
+      staleThreshold: Duration(milliseconds: config.heartbeatTimeoutMs),
       onBackupCreated: (path) {
         final relativePath = path.replaceFirst('${config.basePath}/', '');
         _log('backup → $relativePath');
       },
     );
 
+    // Signal ready
+    _sendResponse(IsolateResponseType.ready);
+
+    // Wait for commands
     await for (final message in receivePort) {
-      if (message is! ParticipantMessage) continue;
+      if (message is! IsolateMessage) continue;
 
       try {
         await _handleCommand(message);
       } catch (e, st) {
+        _log('ERROR: $e\n$st');
         _sendResponse(
-          ParticipantResponseType.error,
-          message: 'Error handling ${message.command}: $e\n$st',
+          IsolateResponseType.error,
+          message: 'Error handling ${message.command}: $e',
+          data: {'stackTrace': st.toString()},
         );
       }
     }
   }
 
-  Future<void> _handleCommand(ParticipantMessage message) async {
+  Future<void> _handleCommand(IsolateMessage message) async {
     switch (message.command) {
-      case ParticipantCommand.startOperation:
-        _log('startOperation()');
-        _operation = await _ledger.createOperation(
-          description: message.params['description'] as String?,
-        );
-        _operation?.stalenessThresholdMs = config.heartbeatTimeoutMs;
-        _log('  → operationId: "${_operation!.operationId}"');
-        _sendResponse(
-          ParticipantResponseType.operationStarted,
-          data: {'operationId': _operation!.operationId},
-        );
+      case IsolateCommand.start:
+        // Run behavior non-blocking so we can still receive commands
+        unawaited(_executeParticipantBehavior());
 
-      case ParticipantCommand.joinOperation:
-        final operationId = message.params['operationId'] as String;
-        _log('joinOperation($operationId)');
-        _operation = await _ledger.joinOperation(operationId: operationId);
-        _operation?.stalenessThresholdMs = config.heartbeatTimeoutMs;
-        _sendResponse(ParticipantResponseType.success);
-
-      case ParticipantCommand.pushStackFrame:
-        final callId = message.params['callId'] as String;
-        _log('pushStackFrame($callId)');
-        await _operation?.pushStackFrame(callId: callId);
-        _sendResponse(ParticipantResponseType.success);
-
-      case ParticipantCommand.popStackFrame:
-        final callId = message.params['callId'] as String;
-        _log('popStackFrame($callId)');
-        await _operation?.popStackFrame(callId: callId);
-        _sendResponse(ParticipantResponseType.success);
-
-      case ParticipantCommand.startHeartbeat:
-        _expectedStackDepth = message.params['expectedStackDepth'] as int? ?? 1;
-        _log('startHeartbeat(interval: ${config.heartbeatIntervalMs}ms, timeout: ${config.heartbeatTimeoutMs}ms)');
-        _startHeartbeat();
-        _sendResponse(ParticipantResponseType.success);
-
-      case ParticipantCommand.stopHeartbeat:
-        _log('stopHeartbeat()');
-        _stopHeartbeat();
-        _sendResponse(ParticipantResponseType.success);
-
-      case ParticipantCommand.completeOperation:
-        _log('completeOperation()');
-        await _operation?.complete();
-        _sendResponse(ParticipantResponseType.success);
-
-      case ParticipantCommand.crash:
-        _log('💥 CRASH (stopping heartbeat, hanging indefinitely...)');
-        _isCrashed = true;
-        _stopHeartbeat();
-        // Don't send response - we're simulating a crash
-        // The isolate stays alive but stops responding
-        await Completer<void>().future; // Hang forever
-
-      case ParticipantCommand.shutdown:
-        _log('shutdown()');
-        _stopHeartbeat();
-        _ledger.dispose();
-        _sendResponse(ParticipantResponseType.success);
-        // Exit the isolate
+      case IsolateCommand.crash:
+        _log('💥 CRASH');
+        _crashed = true;
+        // Kill immediately - no cleanup
         Isolate.exit();
 
-      case ParticipantCommand.setAbortFlag:
+      case IsolateCommand.setAbortFlag:
         final value = message.params['value'] as bool? ?? true;
         _log('setAbortFlag($value)');
-        await _operation?.setAbortFlag(value);
-        _sendResponse(ParticipantResponseType.success);
+        if (_operation != null) {
+          await _operation!.setAbortFlag(value);
+        }
+        _sendResponse(IsolateResponseType.completed);
+
+      case IsolateCommand.shutdown:
+        _log('shutdown()');
+        await _cleanup();
+        _sendResponse(IsolateResponseType.completed);
+        Isolate.exit();
     }
   }
 
-  void _startHeartbeat() {
+  Future<void> _cleanup() async {
+    _operation?.stopHeartbeat();
+    _ledger.dispose();
+  }
+
+  /// Execute behavior based on isolate type.
+  Future<void> _executeParticipantBehavior() async {
+    switch (config.isolateType) {
+      case IsolateType.cli:
+        await _runCliParticipant();
+      case IsolateType.bridge:
+        await _runBridgeParticipant();
+      case IsolateType.vscode:
+        await _runVscodeParticipant();
+      case IsolateType.custom:
+        await _runCustomParticipant();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // CLI Participant Behavior
+  // ─────────────────────────────────────────────────────────────
+
+  /// CLI behavior: Create operation, wait for children, complete.
+  Future<void> _runCliParticipant() async {
+    _log('startOperation()');
+    _operation = await _ledger.createOperation(
+      description: 'CLI initiated operation',
+    );
+    _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
+
+    final operationId = _operation!.operationId;
+    _log('  → operationId: "$operationId"');
+    _event('operationStarted', {'operationId': operationId});
+
+    // Start a call
+    final call = await _operation!.startCall<void>(
+      description: 'cli-main',
+      callback: CallCallback(
+        onCleanup: () async {
+          _log('cleanup: cli-main');
+        },
+      ),
+    );
+
+    // Start heartbeat with failure detection
+    _startHeartbeatWithDetection(expectedMinStack: 1);
+
+    // Wait for work duration or failure
+    final workComplete = await _waitWithFailureDetection(
+      Duration(milliseconds: config.workDurationMs),
+    );
+
+    if (workComplete) {
+      // End call and complete
+      _stopHeartbeat();
+      await call.end();
+      await _operation!.complete();
+      _log('operation completed');
+      _sendResponse(IsolateResponseType.completed, data: {'operationId': operationId});
+    }
+    // If not complete, failure was already reported
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Bridge Participant Behavior
+  // ─────────────────────────────────────────────────────────────
+
+  /// Bridge behavior: Join operation, do work, return result.
+  Future<void> _runBridgeParticipant() async {
+    final operationId = config.operationId;
+    if (operationId == null) {
+      throw StateError('Bridge requires operationId to join');
+    }
+
+    _log('joinOperation($operationId)');
+    _operation = await _ledger.joinOperation(operationId: operationId);
+    _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
+    _event('operationJoined', {'operationId': operationId});
+
+    // Start a call
+    final call = await _operation!.startCall<String>(
+      description: 'bridge-process',
+      callback: CallCallback<String>(
+        onCleanup: () async {
+          _log('cleanup: bridge-process');
+        },
+      ),
+    );
+
+    // Start heartbeat with failure detection
+    _startHeartbeatWithDetection(expectedMinStack: 2);
+
+    // Simulate work
+    _log('processing for ${config.workDurationMs}ms...');
+    final workComplete = await _waitWithFailureDetection(
+      Duration(milliseconds: config.workDurationMs),
+    );
+
+    if (workComplete) {
+      // End call with result
+      _stopHeartbeat();
+      await call.end('Bridge work completed');
+      _log('work completed');
+      _sendResponse(IsolateResponseType.completed, data: {
+        'result': 'success',
+        'operationId': operationId,
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // VS Code Participant Behavior
+  // ─────────────────────────────────────────────────────────────
+
+  /// VS Code behavior: Join, monitor, respond to events.
+  Future<void> _runVscodeParticipant() async {
+    final operationId = config.operationId;
+    if (operationId == null) {
+      throw StateError('VSCode requires operationId to join');
+    }
+
+    _log('joinOperation($operationId)');
+    _operation = await _ledger.joinOperation(operationId: operationId);
+    _operation!.stalenessThresholdMs = config.heartbeatTimeoutMs;
+    _event('operationJoined', {'operationId': operationId});
+
+    // Start monitoring heartbeat
+    _startHeartbeatWithDetection(expectedMinStack: 1);
+
+    // Wait indefinitely until shutdown or failure
+    await _waitWithFailureDetection(const Duration(hours: 1));
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Custom Participant Behavior
+  // ─────────────────────────────────────────────────────────────
+
+  /// Custom behavior: Defined by test via customParams.
+  Future<void> _runCustomParticipant() async {
+    final behaviorName = config.customParams['behavior'] as String?;
+    _log('running custom behavior: $behaviorName');
+
+    // Custom behaviors can be added here
+    switch (behaviorName) {
+      case 'initiator':
+        await _runCliParticipant();
+      case 'worker':
+        await _runBridgeParticipant();
+      case 'monitor':
+        await _runVscodeParticipant();
+      default:
+        _log('unknown custom behavior: $behaviorName');
+        _sendResponse(IsolateResponseType.error, message: 'Unknown behavior: $behaviorName');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Heartbeat with Failure Detection
+  // ─────────────────────────────────────────────────────────────
+
+  Timer? _heartbeatTimer;
+  final _random = Random();
+  int _expectedMinStack = 1;
+  bool _failureReported = false;
+  final _failureCompleter = Completer<void>();
+
+  void _startHeartbeatWithDetection({required int expectedMinStack}) {
+    _expectedMinStack = expectedMinStack;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(
       Duration(milliseconds: config.heartbeatIntervalMs),
@@ -265,71 +446,43 @@ class _IsolateParticipantRunner {
     _heartbeatTimer = null;
   }
 
-  final _random = Random();
-
-  /// Get the operation file path.
   String? get _operationFilePath {
     if (_operation == null) return null;
     return '${config.basePath}/${_operation!.operationId}.operation.json';
   }
 
   Future<void> _performHeartbeat() async {
-    if (_isCrashed || _operation == null) return;
+    if (_crashed || _operation == null || _failureReported) return;
 
     try {
       // Retry loop for lock contention
       HeartbeatResult? maybeResult;
       while (maybeResult == null) {
-        if (_isCrashed || _operation == null) return;
-        
+        if (_crashed || _operation == null || _failureReported) return;
+
         maybeResult = await _operation!.heartbeat();
         if (maybeResult == null) {
-          // Check if file still exists - if not, operation is gone
+          // Check if file still exists
           final filePath = _operationFilePath;
           if (filePath != null && !File(filePath).existsSync()) {
-            // File is gone - stop heartbeat and notify
             _log('♥ DETECTED: Operation file gone!');
-            _stopHeartbeat();
-            _sendResponse(
-              ParticipantResponseType.failureDetected,
-              data: {
-                'type': DetectedFailureType.heartbeatError.name,
-                'participant': config.name,
-                'message': 'Operation file no longer exists',
-              },
+            _reportFailure(
+              DetectedFailureType.heartbeatError,
+              'Operation file no longer exists',
             );
             return;
           }
           // Lock contention - wait 50ms +/- 10ms jitter and retry
-          final jitterMs = 50 + _random.nextInt(21) - 10; // 40-60ms
+          final jitterMs = 50 + _random.nextInt(21) - 10;
           await Future.delayed(Duration(milliseconds: jitterMs));
         }
       }
-      final result = maybeResult; // Now non-null
-
-      // Send heartbeat result
-      _sendResponse(
-        ParticipantResponseType.heartbeat,
-        data: {
-          'stackDepth': result.stackDepth,
-          'heartbeatAgeMs': result.heartbeatAgeMs,
-          'abortFlag': result.abortFlag,
-          'hasStaleChildren': result.hasStaleChildren,
-          'staleParticipants': result.staleParticipants,
-        },
-      );
+      final result = maybeResult;
 
       // Check for abort
       if (result.abortFlag) {
         _log('♥ DETECTED: Abort flag set!');
-        _sendResponse(
-          ParticipantResponseType.failureDetected,
-          data: {
-            'type': DetectedFailureType.abortRequested.name,
-            'participant': config.name,
-            'message': 'Abort flag set',
-          },
-        );
+        _reportFailure(DetectedFailureType.abortRequested, 'Abort flag set');
         return;
       }
 
@@ -340,27 +493,19 @@ class _IsolateParticipantRunner {
             .map((p) => '$p: ${result.participantHeartbeatAges[p]}ms')
             .join(', ');
         _log('♥ DETECTED: Stale participant(s): [$staleList] - crash detected! Ages: $staleAges');
-        _sendResponse(
-          ParticipantResponseType.failureDetected,
-          data: {
-            'type': DetectedFailureType.staleHeartbeat.name,
-            'participant': config.name,
-            'message': 'Stale participants: $staleList (ages: $staleAges)',
-          },
+        _reportFailure(
+          DetectedFailureType.staleHeartbeat,
+          'Stale participants: $staleList (ages: $staleAges)',
         );
         return;
       }
 
-      // Check if expected children are still in the stack
-      if (result.stackDepth < _expectedStackDepth) {
-        _log('♥ DETECTED: Child disappeared from stack! Expected $_expectedStackDepth, found ${result.stackDepth}');
-        _sendResponse(
-          ParticipantResponseType.failureDetected,
-          data: {
-            'type': DetectedFailureType.childDisappeared.name,
-            'participant': config.name,
-            'message': 'Expected stack depth $_expectedStackDepth, found ${result.stackDepth}',
-          },
+      // Check stack depth
+      if (result.stackDepth < _expectedMinStack) {
+        _log('♥ DETECTED: Stack reduced! Expected $_expectedMinStack, found ${result.stackDepth}');
+        _reportFailure(
+          DetectedFailureType.childDisappeared,
+          'Expected stack depth $_expectedMinStack, found ${result.stackDepth}',
         );
         return;
       }
@@ -368,15 +513,30 @@ class _IsolateParticipantRunner {
       // Success
       _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
     } catch (e) {
-      _sendResponse(
-        ParticipantResponseType.failureDetected,
-        data: {
-          'type': DetectedFailureType.heartbeatError.name,
-          'participant': config.name,
-          'message': e.toString(),
-        },
-      );
+      _log('♥ ERROR: $e');
+      _reportFailure(DetectedFailureType.heartbeatError, e.toString());
     }
+  }
+
+  void _reportFailure(DetectedFailureType type, String message) {
+    if (_failureReported) return;
+    _failureReported = true;
+    _stopHeartbeat();
+    _failureDetected(type, message);
+    if (!_failureCompleter.isCompleted) {
+      _failureCompleter.complete();
+    }
+  }
+
+  /// Wait for duration or until failure detected.
+  /// Returns true if duration completed, false if failure detected.
+  Future<bool> _waitWithFailureDetection(Duration duration) async {
+    final timeout = Future.delayed(duration);
+    final result = await Future.any([
+      timeout.then((_) => true),
+      _failureCompleter.future.then((_) => false),
+    ]);
+    return result;
   }
 }
 
@@ -387,14 +547,15 @@ class _IsolateParticipantRunner {
 /// Handle to control a participant running in a separate isolate.
 class IsolateParticipantHandle {
   final String name;
+  final IsolateType isolateType;
   final Isolate isolate;
   final SendPort sendPort;
-  final Stream<ParticipantResponse> responses;
-  final StreamController<ParticipantResponse> _responseController;
+  final Stream<IsolateResponse> responses;
+  final StreamController<IsolateResponse> _responseController;
   final void Function(String)? _onLog;
 
-  String? _currentOperationId;
-  String? get currentOperationId => _currentOperationId;
+  String? _operationId;
+  String? get operationId => _operationId;
 
   bool _isCrashed = false;
   bool get isCrashed => _isCrashed;
@@ -402,11 +563,15 @@ class IsolateParticipantHandle {
   final Completer<FailureDetection> _failureDetected = Completer<FailureDetection>();
   Future<FailureDetection> get onFailureDetected => _failureDetected.future;
 
+  final Completer<Map<String, dynamic>> _completed = Completer<Map<String, dynamic>>();
+  Future<Map<String, dynamic>> get onCompleted => _completed.future;
+
   IsolateParticipantHandle._({
     required this.name,
+    required this.isolateType,
     required this.isolate,
     required this.sendPort,
-    required StreamController<ParticipantResponse> responseController,
+    required StreamController<IsolateResponse> responseController,
     void Function(String)? onLog,
   })  : _responseController = responseController,
         _onLog = onLog,
@@ -417,19 +582,27 @@ class IsolateParticipantHandle {
     required String name,
     required int pid,
     required String basePath,
+    required IsolateType isolateType,
     required int heartbeatIntervalMs,
     required int heartbeatTimeoutMs,
+    int workDurationMs = 1000,
+    String? operationId,
+    Map<String, dynamic> customParams = const {},
     void Function(String)? onLog,
   }) async {
     final receivePort = ReceivePort();
-    final responseController = StreamController<ParticipantResponse>.broadcast();
+    final responseController = StreamController<IsolateResponse>.broadcast();
 
     final config = IsolateParticipantConfig(
       name: name,
       pid: pid,
       basePath: basePath,
+      isolateType: isolateType,
       heartbeatIntervalMs: heartbeatIntervalMs,
       heartbeatTimeoutMs: heartbeatTimeoutMs,
+      workDurationMs: workDurationMs,
+      operationId: operationId,
+      customParams: customParams,
       sendPort: receivePort.sendPort,
     );
 
@@ -439,17 +612,16 @@ class IsolateParticipantHandle {
       debugName: 'Participant-$name',
     );
 
-    // Convert to broadcast stream so we can get first item and continue listening
     final broadcastStream = receivePort.asBroadcastStream();
 
     // First message is the isolate's send port
     final isolateSendPort = await broadcastStream.first as SendPort;
 
-    // Listen for responses from the isolate
+    // Listen for responses
     broadcastStream.listen((message) {
       if (responseController.isClosed) return;
-      if (message is ParticipantResponse) {
-        if (message.type == ParticipantResponseType.log && onLog != null) {
+      if (message is IsolateResponse) {
+        if (message.type == IsolateResponseType.log && onLog != null) {
           onLog(message.message ?? '');
         }
         responseController.add(message);
@@ -458,99 +630,67 @@ class IsolateParticipantHandle {
 
     final handle = IsolateParticipantHandle._(
       name: name,
+      isolateType: isolateType,
       isolate: isolate,
       sendPort: isolateSendPort,
       responseController: responseController,
       onLog: onLog,
     );
 
-    // Listen for failure detections
+    // Wait for ready
+    await responseController.stream
+        .firstWhere((r) => r.type == IsolateResponseType.ready);
+
+    // Listen for events, failures, and completions
     responseController.stream.listen((response) {
-      if (response.type == ParticipantResponseType.failureDetected &&
-          !handle._failureDetected.isCompleted) {
-        final data = response.data!;
-        handle._failureDetected.complete(FailureDetection(
-          type: DetectedFailureType.values.byName(data['type'] as String),
-          participant: data['participant'] as String,
-          message: data['message'] as String,
-        ));
+      switch (response.type) {
+        case IsolateResponseType.event:
+          if (response.message == 'operationStarted') {
+            handle._operationId = response.data?['operationId'] as String?;
+          }
+
+        case IsolateResponseType.failureDetected:
+          if (!handle._failureDetected.isCompleted) {
+            final data = response.data!;
+            handle._failureDetected.complete(FailureDetection(
+              type: DetectedFailureType.values.byName(data['type'] as String),
+              participant: data['participant'] as String,
+              message: data['message'] as String,
+            ));
+          }
+
+        case IsolateResponseType.completed:
+          if (!handle._completed.isCompleted) {
+            handle._completed.complete(response.data ?? {});
+          }
+
+        default:
+          break;
       }
     });
 
     return handle;
   }
 
-  void _send(ParticipantCommand command, [Map<String, dynamic> params = const {}]) {
+  void _send(IsolateCommand command, [Map<String, dynamic> params = const {}]) {
     if (_isCrashed) return;
-    sendPort.send(ParticipantMessage(command, params));
+    sendPort.send(IsolateMessage(command, params));
   }
 
-  /// Wait for a response of the given type.
-  Future<ParticipantResponse> _waitFor(ParticipantResponseType type,
-      {Duration timeout = const Duration(seconds: 10)}) {
-    return responses
-        .where((r) => r.type == type || r.type == ParticipantResponseType.error)
-        .first
-        .timeout(timeout);
-  }
-
-  /// Start a new operation.
-  Future<String> startOperation({String? description}) async {
-    _send(ParticipantCommand.startOperation, {'description': description});
-    final response = await _waitFor(ParticipantResponseType.operationStarted);
-    _currentOperationId = response.data!['operationId'] as String;
-    return _currentOperationId!;
-  }
-
-  /// Join an existing operation.
-  Future<void> joinOperation(String operationId) async {
-    _currentOperationId = operationId;
-    _send(ParticipantCommand.joinOperation, {'operationId': operationId});
-    await _waitFor(ParticipantResponseType.success);
-  }
-
-  /// Push a stack frame.
-  Future<void> pushStackFrame(String callId) async {
-    _send(ParticipantCommand.pushStackFrame, {'callId': callId});
-    await _waitFor(ParticipantResponseType.success);
-  }
-
-  /// Pop a stack frame.
-  Future<void> popStackFrame(String callId) async {
-    _send(ParticipantCommand.popStackFrame, {'callId': callId});
-    await _waitFor(ParticipantResponseType.success);
-  }
-
-  /// Start heartbeat monitoring.
-  void startHeartbeat({int expectedStackDepth = 1}) {
-    _send(ParticipantCommand.startHeartbeat, {'expectedStackDepth': expectedStackDepth});
-  }
-
-  /// Stop heartbeat monitoring.
-  void stopHeartbeat() {
-    _send(ParticipantCommand.stopHeartbeat);
-  }
-
-  /// Complete the operation.
-  Future<void> completeOperation() async {
-    _send(ParticipantCommand.completeOperation);
-    await _waitFor(ParticipantResponseType.success);
+  /// Start the participant's work.
+  void start() {
+    _send(IsolateCommand.start);
   }
 
   /// Set abort flag in ledger.
-  Future<void> setAbortFlag(bool value) async {
-    _send(ParticipantCommand.setAbortFlag, {'value': value});
-    await _waitFor(ParticipantResponseType.success);
+  void setAbortFlag(bool value) {
+    _send(IsolateCommand.setAbortFlag, {'value': value});
   }
 
-  /// Simulate a crash - kill the isolate immediately without warning.
-  /// 
-  /// This is realistic: the process dies suddenly with no cleanup or message.
-  /// Other participants detect this through stale heartbeats.
+  /// Simulate a crash - kill the isolate immediately.
   void crash() {
     _onLog?.call('[$name] 💥 CRASH');
     _isCrashed = true;
-    // Kill immediately - no message, no warning, just silence
     isolate.kill(priority: Isolate.immediate);
   }
 
@@ -560,8 +700,7 @@ class IsolateParticipantHandle {
       isolate.kill(priority: Isolate.immediate);
       return;
     }
-    _send(ParticipantCommand.shutdown);
-    // Give it a moment then kill
+    _send(IsolateCommand.shutdown);
     await Future.delayed(const Duration(milliseconds: 100));
     isolate.kill(priority: Isolate.immediate);
   }
@@ -579,10 +718,6 @@ class IsolateParticipantHandle {
 // ─────────────────────────────────────────────────────────────
 
 /// Runs scenarios with true parallel execution using Dart Isolates.
-///
-/// Each participant runs in its own isolate, providing real parallelism.
-/// This is the closest simulation to actual multi-process distributed
-/// systems like CLI + Bridge + VS Code.
 class IsolateScenarioRunner {
   final String ledgerPath;
   final void Function(String)? onLog;
@@ -600,44 +735,6 @@ class IsolateScenarioRunner {
     onLog?.call(message);
   }
 
-  /// Initialize participants as separate isolates.
-  Future<void> _initialize({
-    required int heartbeatIntervalMs,
-    required int heartbeatTimeoutMs,
-  }) async {
-    _participants.clear();
-    _logOutput.clear();
-
-    // Spawn each participant in its own isolate
-    _participants['CLI'] = await IsolateParticipantHandle.spawn(
-      name: 'CLI',
-      pid: 1001,
-      basePath: ledgerPath,
-      heartbeatIntervalMs: heartbeatIntervalMs,
-      heartbeatTimeoutMs: heartbeatTimeoutMs,
-      onLog: _log,
-    );
-
-    _participants['Bridge'] = await IsolateParticipantHandle.spawn(
-      name: 'Bridge',
-      pid: 2001,
-      basePath: ledgerPath,
-      heartbeatIntervalMs: heartbeatIntervalMs,
-      heartbeatTimeoutMs: heartbeatTimeoutMs,
-      onLog: _log,
-    );
-
-    _participants['VSCode'] = await IsolateParticipantHandle.spawn(
-      name: 'VSCode',
-      pid: 3001,
-      basePath: ledgerPath,
-      heartbeatIntervalMs: heartbeatIntervalMs,
-      heartbeatTimeoutMs: heartbeatTimeoutMs,
-      onLog: _log,
-    );
-  }
-
-  /// Cleanup all isolates.
   Future<void> _cleanup() async {
     for (final p in _participants.values) {
       p.forceKill();
@@ -645,18 +742,17 @@ class IsolateScenarioRunner {
     _participants.clear();
   }
 
-  /// Run a crash detection test with true parallel execution.
+  /// Run a crash detection scenario.
   Future<ConcurrentScenarioResult> runCrashDetectionScenario({
     required String crashingParticipant,
     required int crashAfterMs,
     int heartbeatIntervalMs = 1000,
     int heartbeatTimeoutMs = 3000,
+    int workDurationMs = 5000,
     int maxWaitMs = 15000,
   }) async {
-    await _initialize(
-      heartbeatIntervalMs: heartbeatIntervalMs,
-      heartbeatTimeoutMs: heartbeatTimeoutMs,
-    );
+    _logOutput.clear();
+    _participants.clear();
 
     final stopwatch = Stopwatch()..start();
     final events = <ScenarioEvent>[];
@@ -669,27 +765,56 @@ class IsolateScenarioRunner {
       _log('Heartbeat interval: ${heartbeatIntervalMs}ms, timeout: ${heartbeatTimeoutMs}ms');
       _log('');
 
-      final cli = _participants['CLI']!;
-      final bridge = _participants['Bridge']!;
+      // Spawn CLI (initiator)
+      _participants['CLI'] = await IsolateParticipantHandle.spawn(
+        name: 'CLI',
+        pid: 1001,
+        basePath: ledgerPath,
+        isolateType: IsolateType.cli,
+        heartbeatIntervalMs: heartbeatIntervalMs,
+        heartbeatTimeoutMs: heartbeatTimeoutMs,
+        workDurationMs: workDurationMs + maxWaitMs,
+        onLog: _log,
+      );
 
-      // Phase 1: CLI starts operation
+      final cli = _participants['CLI']!;
+
+      // Start CLI
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts operation'));
-      final operationId = await cli.startOperation();
-      await cli.pushStackFrame('cli-main');
-      cli.startHeartbeat(expectedStackDepth: 1);
+      cli.start();
+
+      // Wait for CLI to create operation
+      await cli.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationStarted')
+          .timeout(const Duration(seconds: 5));
+
+      final operationId = cli.operationId!;
 
       // Small delay before bridge joins
       await Future.delayed(Duration(milliseconds: heartbeatIntervalMs ~/ 2));
 
-      // Phase 2: Bridge joins
-      events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
-      await bridge.joinOperation(operationId);
-      await bridge.pushStackFrame('bridge-process');
-      bridge.startHeartbeat(expectedStackDepth: 2);
+      // Spawn Bridge
+      _participants['Bridge'] = await IsolateParticipantHandle.spawn(
+        name: 'Bridge',
+        pid: 2001,
+        basePath: ledgerPath,
+        isolateType: IsolateType.bridge,
+        heartbeatIntervalMs: heartbeatIntervalMs,
+        heartbeatTimeoutMs: heartbeatTimeoutMs,
+        workDurationMs: workDurationMs + maxWaitMs,
+        operationId: operationId,
+        onLog: _log,
+      );
 
-      // Update CLI's expected stack depth
-      cli.stopHeartbeat();
-      cli.startHeartbeat(expectedStackDepth: 2);
+      final bridge = _participants['Bridge']!;
+
+      events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
+      bridge.start();
+
+      // Wait for Bridge to join
+      await bridge.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationJoined')
+          .timeout(const Duration(seconds: 5));
 
       // Schedule crash
       final crashParticipant = _participants[crashingParticipant]!;
@@ -720,13 +845,6 @@ class IsolateScenarioRunner {
         _log('────────────────────────────────────────');
         _log('${detection.participant} detected ${detection.type}: ${detection.message}');
 
-        // Cleanup non-crashed participants
-        for (final p in _participants.values) {
-          if (!p.isCrashed) {
-            p.stopHeartbeat();
-          }
-        }
-
         stopwatch.stop();
         return ConcurrentScenarioResult(
           success: true,
@@ -751,16 +869,14 @@ class IsolateScenarioRunner {
     }
   }
 
-  /// Run a happy path scenario with true parallel execution.
+  /// Run a happy path scenario.
   Future<ConcurrentScenarioResult> runHappyPath({
     int processingMs = 500,
     int heartbeatIntervalMs = 100,
     int heartbeatTimeoutMs = 2000,
   }) async {
-    await _initialize(
-      heartbeatIntervalMs: heartbeatIntervalMs,
-      heartbeatTimeoutMs: heartbeatTimeoutMs,
-    );
+    _logOutput.clear();
+    _participants.clear();
 
     final stopwatch = Stopwatch()..start();
     final events = <ScenarioEvent>[];
@@ -771,36 +887,58 @@ class IsolateScenarioRunner {
       _log('════════════════════════════════════════════════════════════════════');
       _log('');
 
-      final cli = _participants['CLI']!;
-      final bridge = _participants['Bridge']!;
+      // Spawn CLI
+      _participants['CLI'] = await IsolateParticipantHandle.spawn(
+        name: 'CLI',
+        pid: 1001,
+        basePath: ledgerPath,
+        isolateType: IsolateType.cli,
+        heartbeatIntervalMs: heartbeatIntervalMs,
+        heartbeatTimeoutMs: heartbeatTimeoutMs,
+        workDurationMs: processingMs * 3,
+        onLog: _log,
+      );
 
-      // CLI starts
+      final cli = _participants['CLI']!;
+
+      // Start CLI
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts'));
-      final operationId = await cli.startOperation();
-      await cli.pushStackFrame('cli-main');
-      cli.startHeartbeat(expectedStackDepth: 1);
+      cli.start();
+
+      // Wait for operation
+      await cli.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationStarted')
+          .timeout(const Duration(seconds: 5));
+
+      final operationId = cli.operationId!;
 
       await Future.delayed(Duration(milliseconds: heartbeatIntervalMs));
 
-      // Bridge joins
+      // Spawn Bridge
+      _participants['Bridge'] = await IsolateParticipantHandle.spawn(
+        name: 'Bridge',
+        pid: 2001,
+        basePath: ledgerPath,
+        isolateType: IsolateType.bridge,
+        heartbeatIntervalMs: heartbeatIntervalMs,
+        heartbeatTimeoutMs: heartbeatTimeoutMs,
+        workDurationMs: processingMs,
+        operationId: operationId,
+        onLog: _log,
+      );
+
+      final bridge = _participants['Bridge']!;
+
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins'));
-      await bridge.joinOperation(operationId);
-      await bridge.pushStackFrame('bridge-process');
-      bridge.startHeartbeat(expectedStackDepth: 2);
+      bridge.start();
 
-      // Simulate work
-      await Future.delayed(Duration(milliseconds: processingMs));
-
-      // Bridge completes
+      // Wait for bridge to complete
+      await bridge.onCompleted.timeout(const Duration(seconds: 30));
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge completes'));
-      bridge.stopHeartbeat();
-      await bridge.popStackFrame('bridge-process');
 
-      // CLI completes
+      // Wait for CLI to complete
+      await cli.onCompleted.timeout(const Duration(seconds: 30));
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI completes'));
-      cli.stopHeartbeat();
-      await cli.popStackFrame('cli-main');
-      await cli.completeOperation();
 
       stopwatch.stop();
       _log('');
@@ -817,17 +955,15 @@ class IsolateScenarioRunner {
     }
   }
 
-  /// Run a user abort scenario with true parallel execution.
+  /// Run a user abort scenario.
   Future<ConcurrentScenarioResult> runAbortScenario({
     required int abortAfterMs,
     int heartbeatIntervalMs = 200,
     int heartbeatTimeoutMs = 1000,
     int maxWaitMs = 10000,
   }) async {
-    await _initialize(
-      heartbeatIntervalMs: heartbeatIntervalMs,
-      heartbeatTimeoutMs: heartbeatTimeoutMs,
-    );
+    _logOutput.clear();
+    _participants.clear();
 
     final stopwatch = Stopwatch()..start();
     final events = <ScenarioEvent>[];
@@ -839,33 +975,63 @@ class IsolateScenarioRunner {
       _log('Abort after ${abortAfterMs}ms');
       _log('');
 
-      final cli = _participants['CLI']!;
-      final bridge = _participants['Bridge']!;
+      // Spawn CLI
+      _participants['CLI'] = await IsolateParticipantHandle.spawn(
+        name: 'CLI',
+        pid: 1001,
+        basePath: ledgerPath,
+        isolateType: IsolateType.cli,
+        heartbeatIntervalMs: heartbeatIntervalMs,
+        heartbeatTimeoutMs: heartbeatTimeoutMs,
+        workDurationMs: maxWaitMs * 2,
+        onLog: _log,
+      );
 
-      // CLI starts
+      final cli = _participants['CLI']!;
+
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'CLI starts operation'));
-      final operationId = await cli.startOperation();
-      await cli.pushStackFrame('cli-main');
-      cli.startHeartbeat(expectedStackDepth: 1);
+      cli.start();
+
+      await cli.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationStarted')
+          .timeout(const Duration(seconds: 5));
+
+      final operationId = cli.operationId!;
 
       await Future.delayed(Duration(milliseconds: heartbeatIntervalMs ~/ 2));
 
-      // Bridge joins
+      // Spawn Bridge
+      _participants['Bridge'] = await IsolateParticipantHandle.spawn(
+        name: 'Bridge',
+        pid: 2001,
+        basePath: ledgerPath,
+        isolateType: IsolateType.bridge,
+        heartbeatIntervalMs: heartbeatIntervalMs,
+        heartbeatTimeoutMs: heartbeatTimeoutMs,
+        workDurationMs: maxWaitMs * 2,
+        operationId: operationId,
+        onLog: _log,
+      );
+
+      final bridge = _participants['Bridge']!;
+
       events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'Bridge joins operation'));
-      await bridge.joinOperation(operationId);
-      await bridge.pushStackFrame('bridge-process');
-      bridge.startHeartbeat(expectedStackDepth: 2);
+      bridge.start();
+
+      await bridge.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationJoined')
+          .timeout(const Duration(seconds: 5));
 
       // Schedule abort
-      Timer(Duration(milliseconds: abortAfterMs), () async {
+      Timer(Duration(milliseconds: abortAfterMs), () {
         events.add(ScenarioEvent(stopwatch.elapsedMilliseconds, 'USER ABORT (Ctrl+C)'));
         _log('');
         _log('>>> USER ABORT (Ctrl+C) <<<');
         _log('');
-        await cli.setAbortFlag(true);
+        cli.setAbortFlag(true);
       });
 
-      // Wait for abort detection
+      // Wait for detection
       _log('Waiting for abort detection...');
       final detectors = _participants.values.map((p) => p.onFailureDetected).toList();
 
@@ -883,11 +1049,6 @@ class IsolateScenarioRunner {
         _log('Abort Detected!');
         _log('────────────────────────────────────────');
         _log('${detection.participant} detected ${detection.type}: ${detection.message}');
-
-        // Cleanup
-        for (final p in _participants.values) {
-          p.stopHeartbeat();
-        }
 
         stopwatch.stop();
         return ConcurrentScenarioResult(

@@ -61,7 +61,7 @@ void main() {
       expect(result.success, isTrue);
       expect(result.detectedFailure, isNull);
       expect(result.events.length, greaterThanOrEqualTo(4)); // start, join, complete x2
-    }, timeout: Timeout(Duration(seconds: 60)));
+    }, timeout: Timeout(Duration(seconds: 90)));
 
     test('detects Bridge crash through stale heartbeat', () async {
       final heartbeatMs = randomHeartbeatMs();
@@ -87,6 +87,7 @@ void main() {
         crashAfterMs: crashAfterMs,
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: crashAfterMs + maxWaitMs,
         maxWaitMs: maxWaitMs,
       );
 
@@ -103,7 +104,7 @@ void main() {
       expect(result.detectedFailure, isNotNull);
       expect(result.detectedFailure!.type, DetectedFailureType.staleHeartbeat);
       expect(result.detectedFailure!.participant, 'CLI');
-    }, timeout: Timeout(Duration(seconds: 60)));
+    }, timeout: Timeout(Duration(seconds: 90)));
 
     test('detects CLI crash through stale heartbeat', () async {
       final heartbeatMs = randomHeartbeatMs();
@@ -129,6 +130,7 @@ void main() {
         crashAfterMs: crashAfterMs,
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: crashAfterMs + maxWaitMs,
         maxWaitMs: maxWaitMs,
       );
 
@@ -145,7 +147,7 @@ void main() {
       expect(result.detectedFailure, isNotNull);
       expect(result.detectedFailure!.type, DetectedFailureType.staleHeartbeat);
       expect(result.detectedFailure!.participant, 'Bridge');
-    }, timeout: Timeout(Duration(seconds: 60)));
+    }, timeout: Timeout(Duration(seconds: 90)));
 
     test('detects user abort through abort flag', () async {
       final heartbeatMs = randomHeartbeatMs();
@@ -185,7 +187,7 @@ void main() {
       expect(result.success, isTrue);
       expect(result.detectedFailure, isNotNull);
       expect(result.detectedFailure!.type, DetectedFailureType.abortRequested);
-    }, timeout: Timeout(Duration(seconds: 60)));
+    }, timeout: Timeout(Duration(seconds: 90)));
 
     test('crash detection timing is realistic', () async {
       // This test verifies that crash detection happens within expected time bounds
@@ -213,6 +215,7 @@ void main() {
         crashAfterMs: crashAfterMs,
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: crashAfterMs + timeoutMs + (heartbeatMs * 4),
         maxWaitMs: crashAfterMs + timeoutMs + (heartbeatMs * 4),
       );
 
@@ -235,13 +238,13 @@ void main() {
       expect(result.success, isTrue);
       expect(detectionMs, greaterThanOrEqualTo(minExpected));
       expect(detectionMs, lessThanOrEqualTo(maxExpected));
-    }, timeout: Timeout(Duration(seconds: 60)));
+    }, timeout: Timeout(Duration(seconds: 90)));
   });
 
   group('IsolateParticipantHandle', () {
-    test('can spawn and shutdown cleanly', () async {
+    test('can spawn CLI isolate and complete operation', () async {
       final heartbeatMs = randomHeartbeatMs();
-      final processingMs = randomOperationDelayMs();
+      final processingMs = 1000; // Short processing for this test
       final timeoutMs = heartbeatTimeoutMs(heartbeatMs);
 
       print('');
@@ -252,37 +255,27 @@ void main() {
       print('');
 
       final handle = await IsolateParticipantHandle.spawn(
-        name: 'TestParticipant',
+        name: 'TestCLI',
         pid: 9999,
         basePath: tempDir.path,
+        isolateType: IsolateType.cli,
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: processingMs,
         onLog: (msg) => print(msg),
       );
 
-      // Start an operation
-      final operationId = await handle.startOperation(description: 'test');
-      expect(operationId, isNotEmpty);
+      // Start the CLI behavior
+      handle.start();
 
-      // Push a frame
-      await handle.pushStackFrame('test-call');
+      // Wait for completion
+      final result = await handle.onCompleted.timeout(Duration(seconds: 30));
 
-      // Start heartbeat
-      handle.startHeartbeat(expectedStackDepth: 1);
+      expect(result, isNotNull);
+      expect(result['operationId'], isNotNull);
+      expect(handle.operationId, isNotEmpty);
 
-      // Let it run for a bit (at least 2-3 heartbeats)
-      await Future.delayed(Duration(milliseconds: heartbeatMs * 3));
-
-      // Stop heartbeat
-      handle.stopHeartbeat();
-
-      // Pop frame
-      await handle.popStackFrame('test-call');
-
-      // Complete
-      await handle.completeOperation();
-
-      // Shutdown
+      // Cleanup
       await handle.shutdown();
     }, timeout: Timeout(Duration(seconds: 60)));
 
@@ -300,22 +293,93 @@ void main() {
         name: 'CrashTest',
         pid: 8888,
         basePath: tempDir.path,
+        isolateType: IsolateType.cli,
         heartbeatIntervalMs: heartbeatMs,
         heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: 30000, // Long enough to crash during
         onLog: (msg) => print(msg),
       );
 
-      // Start operation
-      await handle.startOperation();
-      await handle.pushStackFrame('test-call');
-      handle.startHeartbeat(expectedStackDepth: 1);
+      // Start the CLI behavior
+      handle.start();
+
+      // Wait for operation to start
+      await handle.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationStarted')
+          .timeout(Duration(seconds: 10));
 
       // Crash - isolate dies immediately, no message, no cleanup
       handle.crash();
       expect(handle.isCrashed, isTrue);
 
-      // Isolate is already dead, no need to force kill
+      // Verify isolate is dead by waiting briefly
       await Future.delayed(Duration(milliseconds: 100));
+    }, timeout: Timeout(Duration(seconds: 30)));
+
+    test('IsolateType determines behavior', () async {
+      final heartbeatMs = 500; // Shorter for this test
+      final timeoutMs = 1000;
+      final processingMs = 500;
+
+      print('');
+      print('Test: IsolateType determines behavior');
+      print('');
+
+      // Test CLI isolate type - creates operation
+      final cliHandle = await IsolateParticipantHandle.spawn(
+        name: 'CLI',
+        pid: 1001,
+        basePath: tempDir.path,
+        isolateType: IsolateType.cli,
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: processingMs * 3,
+        onLog: (msg) => print(msg),
+      );
+
+      cliHandle.start();
+
+      // Wait for CLI to create operation
+      await cliHandle.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationStarted')
+          .timeout(Duration(seconds: 5));
+
+      final operationId = cliHandle.operationId!;
+      expect(operationId, isNotEmpty);
+      print('CLI created operation: $operationId');
+
+      // Test Bridge isolate type - joins operation
+      final bridgeHandle = await IsolateParticipantHandle.spawn(
+        name: 'Bridge',
+        pid: 2001,
+        basePath: tempDir.path,
+        isolateType: IsolateType.bridge,
+        heartbeatIntervalMs: heartbeatMs,
+        heartbeatTimeoutMs: timeoutMs,
+        workDurationMs: processingMs,
+        operationId: operationId,
+        onLog: (msg) => print(msg),
+      );
+
+      bridgeHandle.start();
+
+      // Wait for Bridge to join
+      await bridgeHandle.responses
+          .firstWhere((r) => r.type == IsolateResponseType.event && r.message == 'operationJoined')
+          .timeout(Duration(seconds: 5));
+      print('Bridge joined operation');
+
+      // Wait for Bridge to complete
+      await bridgeHandle.onCompleted.timeout(Duration(seconds: 10));
+      print('Bridge completed');
+
+      // Wait for CLI to complete
+      await cliHandle.onCompleted.timeout(Duration(seconds: 10));
+      print('CLI completed');
+
+      // Cleanup
+      await bridgeHandle.shutdown();
+      await cliHandle.shutdown();
     }, timeout: Timeout(Duration(seconds: 30)));
   });
 }
