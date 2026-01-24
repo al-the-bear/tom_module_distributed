@@ -33,6 +33,7 @@ export 'src/services/registry_service.dart';
 export 'src/services/process_control.dart';
 export 'src/services/aliveness_server.dart';
 export 'src/services/aliveness_checker.dart';
+export 'src/services/aliveness_server_helper.dart';
 export 'src/services/log_manager.dart';
 
 // Client APIs

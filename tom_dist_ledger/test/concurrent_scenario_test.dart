@@ -1,8 +1,7 @@
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:tom_dist_ledger/src/simulator/concurrent_scenario.dart';
-import 'package:tom_dist_ledger/src/simulator/async_simulation.dart';
+import 'package:tom_dist_ledger/test_simulator.dart';
 
 /// Tests for the concurrent scenario runner that demonstrates
 /// actual async failure detection through heartbeat monitoring.
@@ -186,8 +185,8 @@ void main() {
         await participant.startOperation(
           depth: 1,
         );
-        await participant.pushStackFrame(callId: 'test-call', depth: 1);
-        participant.startHeartbeat(depth: 1, expectedStackDepth: 1);
+        await participant.createCallFrame(callId: 'test-call', depth: 1);
+        participant.startHeartbeat(depth: 1, expectedCallFrameCount: 1);
         
         // Start crash in background (will never return)
         var crashStarted = false;

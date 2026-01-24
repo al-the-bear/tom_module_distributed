@@ -28,8 +28,8 @@ enum OperationState {
   completed,
 }
 
-/// A stack frame in the operation.
-class StackFrame {
+/// A call frame in the operation representing an active participant.
+class CallFrame {
   final String participantId;
   final String callId;
   final int pid;
@@ -52,7 +52,7 @@ class StackFrame {
   /// If false, the crash is contained to this call only.
   final bool failOnCrash;
 
-  StackFrame({
+  CallFrame({
     required this.participantId,
     required this.callId,
     required this.pid,
@@ -78,7 +78,7 @@ class StackFrame {
         'failOnCrash': failOnCrash,
       };
 
-  factory StackFrame.fromJson(Map<String, dynamic> json) => StackFrame(
+  factory CallFrame.fromJson(Map<String, dynamic> json) => CallFrame(
         participantId: json['participantId'] as String,
         callId: json['callId'] as String,
         pid: json['pid'] as int,
@@ -150,7 +150,7 @@ class LedgerData {
   bool aborted;
   
   DateTime lastHeartbeat;
-  final List<StackFrame> stack;
+  final List<CallFrame> callFrames;
   final List<TempResource> tempResources;
   
   /// Operation state during cleanup.
@@ -168,14 +168,14 @@ class LedgerData {
     DateTime? startTime,
     this.aborted = false,
     DateTime? lastHeartbeat,
-    List<StackFrame>? stack,
+    List<CallFrame>? callFrames,
     List<TempResource>? tempResources,
     OperationState? operationState,
     this.detectionTimestamp,
     this.removalTimestamp,
   })  : startTime = startTime ?? DateTime.now(),
         lastHeartbeat = lastHeartbeat ?? DateTime.now(),
-        stack = stack ?? [],
+        callFrames = callFrames ?? [],
         tempResources = tempResources ?? [],
         operationState = operationState ?? OperationState.running;
 
@@ -186,7 +186,7 @@ class LedgerData {
         'operationState': operationState.name,
         'aborted': aborted,
         'lastHeartbeat': lastHeartbeat.toIso8601String(),
-        'stack': stack.map((f) => f.toJson()).toList(),
+        'callFrames': callFrames.map((f) => f.toJson()).toList(),
         'tempResources': tempResources.map((r) => r.toJson()).toList(),
         'detectionTimestamp': detectionTimestamp?.toIso8601String(),
         'removalTimestamp': removalTimestamp?.toIso8601String(),
@@ -202,8 +202,9 @@ class LedgerData {
         lastHeartbeat: json['lastHeartbeat'] != null
             ? DateTime.parse(json['lastHeartbeat'] as String)
             : null,
-        stack: (json['stack'] as List<dynamic>?)
-                ?.map((e) => StackFrame.fromJson(e as Map<String, dynamic>))
+        // Support both old 'stack' and new 'callFrames' key for backward compatibility
+        callFrames: ((json['callFrames'] ?? json['stack']) as List<dynamic>?)
+                ?.map((e) => CallFrame.fromJson(e as Map<String, dynamic>))
                 .toList() ??
             [],
         tempResources: (json['tempResources'] as List<dynamic>?)
@@ -221,7 +222,7 @@ class LedgerData {
             : null,
       );
 
-  bool get isEmpty => stack.isEmpty && tempResources.isEmpty;
+  bool get isEmpty => callFrames.isEmpty && tempResources.isEmpty;
 }
 
 /// Result of heartbeat checks.
@@ -235,8 +236,8 @@ class HeartbeatResult {
   /// Whether the heartbeat was successfully updated.
   final bool heartbeatUpdated;
 
-  /// Number of stack frames.
-  final int stackDepth;
+  /// Number of active call frames.
+  final int callFrameCount;
 
   /// Number of temp resources.
   final int tempResourceCount;
@@ -247,8 +248,8 @@ class HeartbeatResult {
   /// Whether the heartbeat is stale (>10s) - global check.
   final bool isStale;
 
-  /// List of stack frame participant IDs.
-  final List<String> stackParticipants;
+  /// List of call frame participant IDs.
+  final List<String> participants;
   
   /// Per-participant heartbeat information.
   /// Key: participantId, Value: heartbeat age in ms.
@@ -274,11 +275,11 @@ class HeartbeatResult {
     required this.abortFlag,
     required this.ledgerExists,
     required this.heartbeatUpdated,
-    required this.stackDepth,
+    required this.callFrameCount,
     required this.tempResourceCount,
     required this.heartbeatAgeMs,
     required this.isStale,
-    required this.stackParticipants,
+    required this.participants,
     this.participantHeartbeatAges = const {},
     this.staleParticipants = const [],
     this.dataBefore,
@@ -290,11 +291,11 @@ class HeartbeatResult {
         abortFlag: true,
         ledgerExists: false,
         heartbeatUpdated: false,
-        stackDepth: 0,
+        callFrameCount: 0,
         tempResourceCount: 0,
         heartbeatAgeMs: 0,
         isStale: true,
-        stackParticipants: [],
+        participants: [],
         participantHeartbeatAges: {},
         staleParticipants: [],
       );

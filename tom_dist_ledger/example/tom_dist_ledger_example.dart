@@ -19,7 +19,7 @@ void main() async {
   final ledger = Ledger(
     basePath: tempDir.path,
     participantId: 'example',
-    onBackupCreated: (path) => print('Backup: $path'),
+    callback: LedgerCallback(onBackupCreated: (path) => print('Backup: $path')),
   );
 
   try {
@@ -29,14 +29,14 @@ void main() async {
     print('Started operation: ${operation.operationId}');
 
     // Track a call
-    await operation.pushStackFrame(callId: 'example-call-1');
+    await operation.createCallFrame(callId: 'example-call-1');
     print('Started call execution');
 
     // Simulate work
     await Future.delayed(const Duration(milliseconds: 100));
 
     // End the call
-    await operation.popStackFrame(callId: 'example-call-1');
+    await operation.deleteCallFrame(callId: 'example-call-1');
     print('Ended call execution');
 
     // Complete the operation

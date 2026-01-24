@@ -7,7 +7,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import '../local_ledger/file_ledger.dart' show HeartbeatResult;
+import '../ledger_local/file_ledger.dart' show HeartbeatResult;
 import 'ledger_api.dart' show HeartbeatError, Operation;
 
 /// Callback structure for ledger-level events.
@@ -59,8 +59,15 @@ class LedgerCallback {
 
 /// Callback structure for operation-level events.
 ///
-/// Provides hooks for heartbeat success/error notifications during operation
-/// lifecycle. Use this with [Ledger.createOperation] and [Ledger.joinOperation].
+/// Provides hooks for heartbeat success/error notifications, abort signals,
+/// and operation failure during operation lifecycle. Use this with
+/// [Ledger.createOperation] and [Ledger.joinOperation].
+///
+/// **Callback vs Future pattern:** This class provides callbacks as an
+/// alternative to the [Operation.onAbort] and [Operation.onFailure] futures.
+/// Both approaches are valid:
+/// - Use callbacks for a more reactive, event-driven style
+/// - Use futures for racing with other work or async/await patterns
 ///
 /// **Example:**
 /// ```dart
@@ -68,13 +75,15 @@ class LedgerCallback {
 ///   callback: OperationCallback(
 ///     onHeartbeatSuccess: (op, result) => print('Heartbeat OK'),
 ///     onHeartbeatError: (op, error) => print('Failure: ${error.message}'),
+///     onAbort: (op) => print('Operation aborted!'),
+///     onFailure: (op, info) => print('Operation failed: ${info.reason}'),
 ///   ),
 /// );
 /// ```
 class OperationCallback {
   /// Called on each successful heartbeat.
   ///
-  /// Use this for monitoring heartbeat health and stack state.
+  /// Use this for monitoring heartbeat health and call frame state.
   final void Function(Operation operation, HeartbeatResult result)? onHeartbeatSuccess;
 
   /// Called when a heartbeat detects a failure.
@@ -84,10 +93,28 @@ class OperationCallback {
   /// recovery or cleanup actions.
   final void Function(Operation operation, HeartbeatError error)? onHeartbeatError;
 
+  /// Called when the operation is aborted.
+  ///
+  /// This is triggered when [Operation.triggerAbort] is called or when
+  /// the heartbeat detects that the abort flag has been set.
+  ///
+  /// Alternative: Use [Operation.onAbort] future for async/await patterns.
+  final void Function(Operation operation)? onAbort;
+
+  /// Called when the operation fails.
+  ///
+  /// This is triggered when a crash is detected (stale heartbeats) or
+  /// when the operation enters cleanup/failed state.
+  ///
+  /// Alternative: Use [Operation.onFailure] future for async/await patterns.
+  final void Function(Operation operation, OperationFailedInfo info)? onFailure;
+
   /// Creates an operation callback with optional handlers.
   const OperationCallback({
     this.onHeartbeatSuccess,
     this.onHeartbeatError,
+    this.onAbort,
+    this.onFailure,
   });
 
   /// Creates a callback that only handles errors.
@@ -95,6 +122,13 @@ class OperationCallback {
     void Function(Operation operation, HeartbeatError error) onError,
   ) {
     return OperationCallback(onHeartbeatError: onError);
+  }
+
+  /// Creates a callback that only handles operation failure.
+  factory OperationCallback.onFailure(
+    void Function(Operation operation, OperationFailedInfo info) onFailure,
+  ) {
+    return OperationCallback(onFailure: onFailure);
   }
 }
 
@@ -243,7 +277,7 @@ class Call<T> {
 
   /// End the call successfully with an optional result.
   ///
-  /// This pops the stack frame, logs the completion, and triggers
+  /// This removes the call frame, logs the completion, and triggers
   /// the onCompletion callback if provided.
   ///
   /// Throws [StateError] if the call has already been completed.
@@ -257,7 +291,7 @@ class Call<T> {
 
   /// Fail the call with an error.
   ///
-  /// This pops the stack frame, logs the failure, triggers cleanup,
+  /// This removes the call frame, logs the failure, triggers cleanup,
   /// and may trigger operation failure if [failOnCrash] was true.
   ///
   /// Throws [StateError] if the call has already been completed.

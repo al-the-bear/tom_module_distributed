@@ -358,10 +358,26 @@ volumes:
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `VSCODE_WORKSPACE_FOLDER` | If set, uses this as the base for the default directory |
-| `HOME` | User home directory for default path resolution |
+| Variable | Platform | Description |
+|----------|----------|-------------|
+| `VSCODE_WORKSPACE_FOLDER` | All | If set, uses this as the base for the default directory |
+| `HOME` | Linux, macOS | User home directory for default path resolution |
+| `USERPROFILE` | Windows | User home directory for default path resolution (used if HOME not set) |
+
+## First-Time Startup
+
+When ProcessMonitor starts for the first time:
+
+1. **Creates directory structure**: `~/.tom/process_monitor/` and log subdirectories
+2. **Creates registry file**: `processes_default.json` with default settings
+3. **Creates lock file**: `processes_default.lock` for exclusive access
+4. **Starts servers**: Aliveness server (5681) and Remote API server (5679)
+
+The default registry is initialized with:
+- Remote access enabled
+- Default trusted hosts: `['localhost', '127.0.0.1', '::1', '0.0.0.0']`
+- Empty whitelist and blacklist (remote registrations blocked until whitelist configured)
+- Partner discovery disabled
 
 ## See Also
 

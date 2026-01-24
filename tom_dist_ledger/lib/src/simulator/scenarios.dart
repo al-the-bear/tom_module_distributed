@@ -123,9 +123,9 @@ class Scenarios {
   /// Scenario 4: CLI crashes while Copilot is processing.
   static final cliCrashDuringCopilot = SimulationScenario(
     name: 'cli_crash_during_copilot',
-    description: 'CLI dies while waiting for Copilot response (deep stack)',
+    description: 'CLI dies while waiting for Copilot response (deep call chain)',
     expectedOutcome:
-        'All participants detect stale initiator, unwind stack in order',
+        'All participants detect stale initiator, unwind call chain in order',
     config: _testConfig,
     callTree: const [
       ScenarioCall(
@@ -278,7 +278,7 @@ class Scenarios {
     name: 'copilot_timeout',
     description: 'Copilot Chat never responds within the timeout period',
     expectedOutcome:
-        'VSCode catches timeout, propagates error up stack, operation fails',
+        'VSCode catches timeout, propagates error up call chain, operation fails',
     config: const SimulationConfig(
       callDelayMs: 2000,
       externalCallResponseMs: 20000, // Will time out
@@ -390,12 +390,12 @@ class Scenarios {
     ],
   );
 
-  /// Scenario 11: User aborts during Copilot call (deep stack).
+  /// Scenario 11: User aborts during Copilot call (deep call chain).
   static final userAbortDuringCopilot = SimulationScenario(
     name: 'user_abort_during_copilot',
     description: 'User presses Ctrl+C during long Copilot processing',
     expectedOutcome:
-        'Abort propagates down stack, Copilot call cancelled, orderly cleanup',
+        'Abort propagates down call chain, Copilot call cancelled, orderly cleanup',
     config: _testConfig,
     callTree: const [
       ScenarioCall(
@@ -439,7 +439,7 @@ class Scenarios {
   static final directCallNoSupervisor = SimulationScenario(
     name: 'direct_call_no_supervisor',
     description: 'CLI makes direct call to VSCode without Bridge in between',
-    expectedOutcome: 'Simplified stack, direct abort propagation works',
+    expectedOutcome: 'Simplified call chain, direct abort propagation works',
     config: _testConfig,
     callTree: const [
       ScenarioCall(
@@ -495,11 +495,11 @@ class Scenarios {
     ],
   );
 
-  /// Scenario 14: Deeply nested call stack (5 levels).
+  /// Scenario 14: Deeply nested call chain (5 levels).
   static final deeplyNestedStack = SimulationScenario(
-    name: 'deeply_nested_stack',
-    description: 'Call stack with 5 levels of nesting',
-    expectedOutcome: 'Deep stack tracks correctly, abort unwinds all levels',
+    name: 'deeply_nested_chain',
+    description: 'Call chain with 5 levels of nesting',
+    expectedOutcome: 'Deep call chain tracks correctly, abort unwinds all levels',
     config: _testConfig,
     callTree: const [
       ScenarioCall(

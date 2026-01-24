@@ -157,7 +157,9 @@ void main() async {
   final ledger = Ledger(
     basePath: tempDir.path,
     participantId: 'orchestrator',
-    onBackupCreated: (path) => print('📦 Backup created: $path'),
+    callback: LedgerCallback(
+      onBackupCreated: (path) => print('📦 Backup created: $path'),
+    ),
   );
 
   // Track cleanup callbacks

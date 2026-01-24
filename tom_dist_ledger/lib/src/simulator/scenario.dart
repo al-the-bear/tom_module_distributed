@@ -242,7 +242,7 @@ class ScenarioRunner {
     _isCrashed = false;
     _crashException = null;
 
-    void Function(String) _onBackupCreated(String participantName) {
+    void Function(String) onBackupCreatedFor(String participantName) {
       return (path) {
         final relativePath = path.replaceFirst('$ledgerPath/', '');
         _printer.log(
@@ -260,28 +260,28 @@ class ScenarioRunner {
       basePath: ledgerPath,
       printer: _printer,
       isInitiator: true,
-      onBackupCreated: _onBackupCreated('CLI'),
+      onBackupCreated: onBackupCreatedFor('CLI'),
     );
     _participants[FailingParticipant.bridge] = _SimulatedParticipant(
       name: 'Bridge',
       pid: 2001,
       basePath: ledgerPath,
       printer: _printer,
-      onBackupCreated: _onBackupCreated('Bridge'),
+      onBackupCreated: onBackupCreatedFor('Bridge'),
     );
     _participants[FailingParticipant.vscode] = _SimulatedParticipant(
       name: 'VSCode',
       pid: 3001,
       basePath: ledgerPath,
       printer: _printer,
-      onBackupCreated: _onBackupCreated('VSCode'),
+      onBackupCreated: onBackupCreatedFor('VSCode'),
     );
     _participants[FailingParticipant.copilot] = _SimulatedParticipant(
       name: 'Copilot',
       pid: 4001,
       basePath: ledgerPath,
       printer: _printer,
-      onBackupCreated: _onBackupCreated('Copilot'),
+      onBackupCreated: onBackupCreatedFor('Copilot'),
     );
   }
 
@@ -445,7 +445,7 @@ class ScenarioRunner {
     }
 
     // Start call execution
-    await participant.pushStackFrame(callId: call.callId, depth: depth);
+    await participant.createCallFrame(callId: call.callId, depth: depth);
     participant.startHeartbeat(depth: depth);
 
     // Simulate processing
@@ -478,7 +478,7 @@ class ScenarioRunner {
 
     // End call execution
     participant.stopHeartbeat(depth: depth);
-    await participant.popStackFrame(callId: call.callId, depth: depth);
+    await participant.deleteCallFrame(callId: call.callId, depth: depth);
 
     // Complete operation if initiator and at top level
     if (participant.isInitiator && depth == 1) {
@@ -569,7 +569,9 @@ class _SimulatedParticipant {
           basePath: basePath,
           participantId: name.toLowerCase(),
           participantPid: pid,
-          onBackupCreated: onBackupCreated,
+          callback: onBackupCreated != null
+              ? LedgerCallback(onBackupCreated: onBackupCreated)
+              : null,
         );
 
   bool get hasOperation => _operation != null;
@@ -594,20 +596,20 @@ class _SimulatedParticipant {
     );
   }
 
-  Future<void> pushStackFrame({
+  Future<void> createCallFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'pushStackFrame($callId)');
-    await _operation?.pushStackFrame(callId: callId);
+    printer.log(depth: depth, participant: name, message: 'createCallFrame($callId)');
+    await _operation?.createCallFrame(callId: callId);
   }
 
-  Future<void> popStackFrame({
+  Future<void> deleteCallFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'popStackFrame($callId)');
-    await _operation?.popStackFrame(callId: callId);
+    printer.log(depth: depth, participant: name, message: 'deleteCallFrame($callId)');
+    await _operation?.deleteCallFrame(callId: callId);
   }
 
   Future<void> completeOperation({required int depth}) async {

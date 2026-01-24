@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import '../local_ledger/file_ledger.dart';
+import '../ledger_local/file_ledger.dart';
 import 'call_callback.dart';
 
 // Re-export callback types
@@ -46,9 +46,22 @@ typedef HeartbeatSuccessCallback = void Function(
   HeartbeatResult result,
 );
 
+/// Internal callback for heartbeat errors (uses _LedgerOperation).
+typedef _InternalHeartbeatErrorCallback = void Function(
+  _LedgerOperation operation,
+  HeartbeatError error,
+);
+
+/// Internal callback for successful heartbeat (uses _LedgerOperation).
+typedef _InternalHeartbeatSuccessCallback = void Function(
+  _LedgerOperation operation,
+  HeartbeatResult result,
+);
+
 /// Tracks a call in progress with its callback.
 class _ActiveCall {
   final String callId;
+  final int sessionId;
   final CallCallback callback;
   final DateTime startedAt;
   final String? description;
@@ -58,6 +71,7 @@ class _ActiveCall {
 
   _ActiveCall({
     required this.callId,
+    required this.sessionId,
     required this.callback,
     required this.startedAt,
     this.description,
@@ -67,14 +81,407 @@ class _ActiveCall {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// OPERATION CLASS
+// OPERATION CLASS (PUBLIC API)
 // ═══════════════════════════════════════════════════════════════
 
-/// Represents a running operation.
+/// Represents a running operation for a specific join session.
 ///
-/// Each participant gets their own Operation object to interact with
-/// the shared operation file and log.
+/// Each call to [Ledger.joinOperation] or [Ledger.createOperation] returns
+/// a new [Operation] with its own session. This allows tracking which
+/// calls belong to which join, and ensures [leave] only checks calls
+/// created through this handle.
+///
+/// **Key properties:**
+/// - Each handle has a unique [sessionId] within the operation
+/// - Calls created through this handle are tracked to this session
+/// - [getPendingSpawnedCalls] returns only spawned calls from this session
+/// - [hasPendingCalls] checks if there are any pending calls
+/// - [leave] can optionally cancel pending calls from this session
+///
+/// **Example:**
+/// ```dart
+/// final handle1 = await ledger.joinOperation(operationId: opId);
+/// final handle2 = await ledger.joinOperation(operationId: opId);
+///
+/// // Each handle tracks its own calls
+/// final call1 = handle1.spawnCall(work: () async => doWork1());
+/// final call2 = handle2.spawnCall(work: () async => doWork2());
+///
+/// // handle1 only sees call1
+/// print(handle1.getPendingSpawnedCalls()); // [call1]
+/// print(handle1.hasPendingCalls()); // true
+///
+/// // Leave with cancel
+/// handle1.leave(cancelPendingCalls: true);
+/// handle2.leave(cancelPendingCalls: true);
+/// ```
 class Operation {
+  /// The underlying ledger operation (internal).
+  final _LedgerOperation _operation;
+
+  /// This operation's unique session ID within the ledger operation.
+  final int sessionId;
+
+  Operation._(this._operation, this.sessionId);
+
+  // ─────────────────────────────────────────────────────────────
+  // Delegated properties from Operation
+  // ─────────────────────────────────────────────────────────────
+
+  /// The operation ID.
+  String get operationId => _operation.operationId;
+
+  /// The participant ID.
+  String get participantId => _operation.participantId;
+
+  /// The process ID.
+  int get pid => _operation.pid;
+
+  /// Whether this is the initiator.
+  bool get isInitiator => _operation.isInitiator;
+
+  /// When this operation was started.
+  DateTime get startTime => _operation.startTime;
+
+  /// Cached operation data.
+  LedgerData? get cachedData => _operation.cachedData;
+
+  /// Last change timestamp.
+  DateTime? get lastChangeTimestamp => _operation.lastChangeTimestamp;
+
+  /// Whether this participant is aborted.
+  bool get isAborted => _operation.isAborted;
+
+  /// Future that completes when abort is signaled.
+  Future<void> get onAbort => _operation.onAbort;
+
+  /// Future that completes when operation fails.
+  Future<OperationFailedInfo> get onFailure => _operation.onFailure;
+
+  /// Elapsed time formatted as "SSS.mmm".
+  String get elapsedFormatted => _operation.elapsedFormatted;
+
+  /// Elapsed duration since operation start.
+  Duration get elapsedDuration => _operation.elapsedDuration;
+
+  /// Start time as ISO 8601 string.
+  String get startTimeIso => _operation.startTimeIso;
+
+  /// Start time as milliseconds since epoch.
+  int get startTimeMs => _operation.startTimeMs;
+
+  /// Staleness threshold in milliseconds.
+  int get stalenessThresholdMs => _operation.stalenessThresholdMs;
+  set stalenessThresholdMs(int value) => _operation.stalenessThresholdMs = value;
+
+  // ─────────────────────────────────────────────────────────────
+  // Call management (delegated with session tracking)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Start a call tracked to this session.
+  ///
+  /// See [Operation.startCall] for details.
+  Future<Call<T>> startCall<T>({
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  }) {
+    return _operation._startCallWithSession<T>(
+      sessionId: sessionId,
+      callback: callback,
+      description: description,
+      failOnCrash: failOnCrash,
+    );
+  }
+
+  /// Spawn a call tracked to this session.
+  ///
+  /// See [Operation.spawnCall] for details.
+  SpawnedCall<T> spawnCall<T>({
+    Future<T> Function()? work,
+    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  }) {
+    return _operation._spawnCallWithSession<T>(
+      sessionId: sessionId,
+      work: work,
+      workWithCall: workWithCall,
+      callback: callback,
+      description: description,
+      failOnCrash: failOnCrash,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Session-specific call tracking
+  // ─────────────────────────────────────────────────────────────
+
+  /// Check if this session has any pending calls.
+  ///
+  /// Returns true if there are any calls (regular or spawned) that were
+  /// started through this handle and have not yet completed.
+  bool hasPendingCalls() {
+    return _operation._hasPendingCallsForSession(sessionId);
+  }
+
+  /// Get pending spawned calls for this session.
+  ///
+  /// Returns a list of [SpawnedCall] objects that were started through
+  /// this handle and have not yet completed.
+  /// 
+  /// For checking if there are any pending calls (including regular calls),
+  /// use [hasPendingCalls].
+  List<SpawnedCall> getPendingSpawnedCalls() {
+    return _operation._getPendingSpawnedCallsForSession(sessionId);
+  }
+
+  /// Get pending regular calls for this session.
+  ///
+  /// Returns a list of [Call] objects that were started through
+  /// this handle via [startCall] and have not yet completed.
+  /// 
+  /// For spawned calls, use [getPendingSpawnedCalls].
+  List<Call<dynamic>> getPendingCalls() {
+    return _operation._getPendingCallsForSession(sessionId);
+  }
+
+  /// Get the number of pending calls for this session.
+  ///
+  /// Returns the count of all calls (regular and spawned) that were
+  /// started through this handle and have not yet completed.
+  int get pendingCallCount {
+    return _operation._getPendingCallCountForSession(sessionId);
+  }
+
+  /// Leave this session of the operation.
+  ///
+  /// **Parameters:**
+  /// - [cancelPendingCalls] - If true, cancels all pending calls from this
+  ///   session before leaving. If false (default), throws [StateError] if
+  ///   there are pending calls.
+  ///
+  /// **Throws:**
+  /// - [StateError] if there are pending calls and [cancelPendingCalls] is false
+  ///
+  /// When the last session leaves, the heartbeat is stopped and the
+  /// operation is unregistered.
+  void leave({bool cancelPendingCalls = false}) {
+    _operation._leaveSession(sessionId, cancelPendingCalls: cancelPendingCalls);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Delegated methods from Operation
+  // ─────────────────────────────────────────────────────────────
+
+  /// Write an entry to the operation log.
+  Future<void> log(String message, {LogLevel level = LogLevel.info}) =>
+      _operation.log(message, level: level);
+
+  /// Complete the operation (for initiator only).
+  Future<void> complete() => _operation.complete();
+
+  /// Set the abort flag on the operation.
+  Future<void> setAbortFlag(bool value) => _operation.setAbortFlag(value);
+
+  /// Check if the operation is aborted.
+  Future<bool> checkAbort() => _operation.checkAbort();
+
+  /// Trigger local abort for this participant.
+  void triggerAbort() => _operation.triggerAbort();
+
+  /// Wait for work while monitoring for operation failure.
+  Future<T> waitForCompletion<T>(
+    Future<T> Function() work, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<T> Function(Object error, StackTrace stackTrace)? onError,
+  }) =>
+      _operation.waitForCompletion(work,
+          onOperationFailed: onOperationFailed, onError: onError);
+
+  /// Start the heartbeat.
+  void startHeartbeat({
+    Duration interval = const Duration(milliseconds: 4500),
+    int jitterMs = 500,
+    HeartbeatErrorCallback? onError,
+    HeartbeatSuccessCallback? onSuccess,
+  }) {
+    // Wrap public callbacks to internal callbacks that pass this Operation
+    _InternalHeartbeatErrorCallback? internalOnError;
+    _InternalHeartbeatSuccessCallback? internalOnSuccess;
+    
+    if (onError != null) {
+      internalOnError = (_, error) => onError(this, error);
+    }
+    if (onSuccess != null) {
+      internalOnSuccess = (_, result) => onSuccess(this, result);
+    }
+    
+    _operation.startHeartbeat(
+        interval: interval,
+        jitterMs: jitterMs,
+        onError: internalOnError,
+        onSuccess: internalOnSuccess);
+  }
+
+  /// Stop the heartbeat.
+  void stopHeartbeat() => _operation.stopHeartbeat();
+
+  /// Sync operation state with callbacks.
+  Future<SyncResult> sync(
+    List<SpawnedCall> calls, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<void> Function()? onCompletion,
+  }) =>
+      _operation.sync(calls,
+          onOperationFailed: onOperationFailed, onCompletion: onCompletion);
+
+  /// Execute a worker that writes result to a file.
+  SpawnedCall<T> execFileResultWorker<T>({
+    required String executable,
+    required List<String> arguments,
+    required String resultFilePath,
+    String? workingDirectory,
+    String? description,
+    T Function(String content)? deserializer,
+    bool deleteResultFile = true,
+    Duration pollInterval = const Duration(milliseconds: 100),
+    Duration? timeout,
+    void Function(String line)? onStdout,
+    void Function(String line)? onStderr,
+    void Function(int exitCode)? onExit,
+    bool failOnCrash = true,
+    CallCallback<T>? callback,
+  }) =>
+      _operation.execFileResultWorker(
+          executable: executable,
+          arguments: arguments,
+          resultFilePath: resultFilePath,
+          workingDirectory: workingDirectory,
+          description: description,
+          deserializer: deserializer,
+          deleteResultFile: deleteResultFile,
+          pollInterval: pollInterval,
+          timeout: timeout,
+          onStdout: onStdout,
+          onStderr: onStderr,
+          onExit: onExit,
+          failOnCrash: failOnCrash,
+          callback: callback);
+
+  /// Execute a worker that outputs to stdout.
+  SpawnedCall<T> execStdioWorker<T>({
+    required String executable,
+    required List<String> arguments,
+    String? workingDirectory,
+    String? description,
+    T Function(String content)? deserializer,
+    void Function(String line)? onStderr,
+    void Function(int exitCode)? onExit,
+    Duration? timeout,
+    bool failOnCrash = true,
+    CallCallback<T>? callback,
+  }) =>
+      _operation.execStdioWorker(
+          executable: executable,
+          arguments: arguments,
+          workingDirectory: workingDirectory,
+          description: description,
+          deserializer: deserializer,
+          onStderr: onStderr,
+          onExit: onExit,
+          timeout: timeout,
+          failOnCrash: failOnCrash,
+          callback: callback);
+
+  // ─────────────────────────────────────────────────────────────
+  // Additional delegated methods (for backward compatibility)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Wait for a spawned call to complete.
+  Future<SyncResult> awaitCall<T>(
+    SpawnedCall<T> call, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<void> Function()? onCompletion,
+  }) =>
+      _operation.awaitCall(call,
+          onOperationFailed: onOperationFailed, onCompletion: onCompletion);
+
+  /// Write debug log entry.
+  Future<void> debugLog(String message) => _operation.debugLog(message);
+
+  /// Get operation state.
+  Future<OperationState?> getOperationState() =>
+      _operation.getOperationState();
+
+  /// Set operation state.
+  Future<void> setOperationState(OperationState state) =>
+      _operation.setOperationState(state);
+
+  /// Perform heartbeat.
+  Future<HeartbeatResult?> heartbeat() => _operation.heartbeat();
+
+  /// Log a formatted message with timestamp and participant.
+  Future<void> logMessage({
+    required int depth,
+    required String message,
+  }) =>
+      _operation.logMessage(depth: depth, message: message);
+
+  /// Create a call frame (low-level API).
+  Future<void> createCallFrame({required String callId}) =>
+      _operation.createCallFrame(callId: callId);
+
+  /// Delete a call frame (low-level API).
+  Future<void> deleteCallFrame({required String callId}) =>
+      _operation.deleteCallFrame(callId: callId);
+
+  /// Register temporary resource.
+  Future<void> registerTempResource({required String path}) =>
+      _operation.registerTempResource(path: path);
+
+  /// Unregister temporary resource.
+  Future<void> unregisterTempResource({required String path}) =>
+      _operation.unregisterTempResource(path: path);
+
+  /// Retrieve and lock operation (low-level API).
+  Future<LedgerData?> retrieveAndLockOperation() =>
+      _operation.retrieveAndLockOperation();
+
+  /// Unlock operation (low-level API).
+  Future<void> unlockOperation() => _operation.unlockOperation();
+
+  /// Write and unlock operation (low-level API).
+  Future<void> writeAndUnlockOperation(LedgerData data) =>
+      _operation.writeAndUnlockOperation(data);
+
+  /// Execute a server request (simple spawned call wrapper).
+  SpawnedCall<T> execServerRequest<T>({
+    required Future<T> Function() work,
+    String? description,
+    Duration? timeout,
+    bool failOnCrash = true,
+    CallCallback<T>? callback,
+  }) =>
+      _operation.execServerRequest(
+          work: work,
+          description: description,
+          timeout: timeout,
+          failOnCrash: failOnCrash,
+          callback: callback);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// _LEDGEROPERATION CLASS (INTERNAL)
+// ═══════════════════════════════════════════════════════════════
+
+/// Internal class representing a running operation.
+///
+/// Each participant gets their own _LedgerOperation object to interact with
+/// the shared operation file and log. This class is internal; users interact
+/// with [Operation] which wraps this with session-aware call tracking.
+class _LedgerOperation {
   final Ledger _ledger;
   final String operationId;
   final String participantId;
@@ -105,9 +512,9 @@ class Operation {
   /// If a participant's heartbeat is older than this, it's considered stale.
   int stalenessThresholdMs = 10000;
 
-  /// Callbacks for heartbeat events.
-  HeartbeatErrorCallback? onHeartbeatError;
-  HeartbeatSuccessCallback? onHeartbeatSuccess;
+  /// Internal callbacks for heartbeat events (uses _LedgerOperation).
+  _InternalHeartbeatErrorCallback? _onHeartbeatError;
+  _InternalHeartbeatSuccessCallback? _onHeartbeatSuccess;
 
   /// Completer that signals abort.
   final Completer<void> _abortCompleter = Completer<void>();
@@ -122,10 +529,16 @@ class Operation {
   /// Counter for generating unique call IDs.
   int _callCounter = 0;
 
+  /// Counter for generating unique session IDs.
+  int _sessionCounter = 0;
+
+  /// Active session IDs (each joinOperation creates a new session).
+  final Set<int> _activeSessions = {};
+
   /// Random for generating unique call IDs.
   final _random = Random();
 
-  Operation._({
+  _LedgerOperation._({
     required Ledger ledger,
     required this.operationId,
     required this.participantId,
@@ -192,6 +605,201 @@ class Operation {
     final randomPart =
         _random.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0');
     return 'call_${participantId}_${_callCounter}_$randomPart';
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Session management (for OperationHandle)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Create a new session and return its ID.
+  int _createSession() {
+    _sessionCounter++;
+    _activeSessions.add(_sessionCounter);
+    _joinCount++;
+    return _sessionCounter;
+  }
+
+  /// Start a call tracked to a specific session.
+  Future<Call<T>> _startCallWithSession<T>({
+    required int sessionId,
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  }) async {
+    final callId = _generateCallId();
+    final now = DateTime.now();
+
+    // Track locally with session ID
+    _activeCalls[callId] = _ActiveCall(
+      callId: callId,
+      sessionId: sessionId,
+      callback: callback ?? CallCallback<T>(),
+      startedAt: now,
+      description: description,
+      isSpawned: false,
+      failOnCrash: failOnCrash,
+    );
+
+    // Add call frame
+    final updated = await _ledger._modifyOperation(
+      operationId: operationId,
+      elapsedFormatted: elapsedFormatted,
+      updater: (data) {
+        data.callFrames.add(CallFrame(
+          participantId: participantId,
+          callId: callId,
+          pid: pid,
+          startTime: now,
+          lastHeartbeat: now,
+          description: description,
+          failOnCrash: failOnCrash,
+        ));
+        data.lastHeartbeat = now;
+        return data;
+      },
+    );
+    if (updated != null) _updateCache(updated);
+
+    await log('CALL_STARTED callId=$callId participant=$participantId');
+
+    final call = Call<T>.internal(
+      operation: this,
+      callId: callId,
+      startedAt: now,
+    );
+    _calls[callId] = call;
+    return call;
+  }
+
+  /// Spawn a call tracked to a specific session.
+  SpawnedCall<T> _spawnCallWithSession<T>({
+    required int sessionId,
+    Future<T> Function()? work,
+    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  }) {
+    // Either work or workWithCall must be provided
+    if (work == null && workWithCall == null) {
+      throw ArgumentError('Either work or workWithCall must be provided');
+    }
+    
+    final callId = _generateCallId();
+    final now = DateTime.now();
+
+    // Create SpawnedCall instance
+    final spawnedCall = SpawnedCall<T>(
+      callId: callId,
+      description: description,
+    );
+    _spawnedCalls[callId] = spawnedCall;
+
+    // Create internal callback for cleanup
+    final internalCallback = CallCallback<dynamic>(
+      onCleanup: callback?.onCleanup,
+    );
+
+    // Track locally with session ID
+    _activeCalls[callId] = _ActiveCall(
+      callId: callId,
+      sessionId: sessionId,
+      callback: internalCallback,
+      startedAt: now,
+      description: description,
+      isSpawned: true,
+      failOnCrash: failOnCrash,
+    );
+
+    // Create the actual work function
+    final actualWork = work ?? (() => workWithCall!(spawnedCall));
+
+    // Execute asynchronously
+    _runSpawnedCall<T>(
+      callId: callId,
+      work: actualWork,
+      spawnedCall: spawnedCall,
+      callback: callback,
+      failOnCrash: failOnCrash,
+    );
+
+    return spawnedCall;
+  }
+
+  /// Check if a session has any pending calls.
+  bool _hasPendingCallsForSession(int sessionId) {
+    return _activeCalls.entries
+        .any((e) => e.value.sessionId == sessionId);
+  }
+
+  /// Get count of pending calls for a specific session.
+  int _getPendingCallCountForSession(int sessionId) {
+    return _activeCalls.entries
+        .where((e) => e.value.sessionId == sessionId)
+        .length;
+  }
+
+  /// Get pending spawned calls for a specific session.
+  List<SpawnedCall> _getPendingSpawnedCallsForSession(int sessionId) {
+    final pendingCallIds = _activeCalls.entries
+        .where((e) => e.value.sessionId == sessionId && e.value.isSpawned)
+        .map((e) => e.key)
+        .toList();
+    
+    return pendingCallIds
+        .map((id) => _spawnedCalls[id])
+        .whereType<SpawnedCall>()
+        .where((c) => !c.isCompleted)
+        .toList();
+  }
+
+  /// Get pending regular calls for a specific session.
+  List<Call<dynamic>> _getPendingCallsForSession(int sessionId) {
+    final pendingCallIds = _activeCalls.entries
+        .where((e) => e.value.sessionId == sessionId && !e.value.isSpawned)
+        .map((e) => e.key)
+        .toList();
+    
+    return pendingCallIds
+        .map((id) => _calls[id])
+        .whereType<Call<dynamic>>()
+        .where((c) => !c.isCompleted)
+        .toList();
+  }
+
+  /// Leave a specific session.
+  void _leaveSession(int sessionId, {bool cancelPendingCalls = false}) {
+    if (!_activeSessions.contains(sessionId)) {
+      throw StateError('Session $sessionId is not active');
+    }
+
+    // Get pending spawned calls for this session
+    final pendingCalls = _getPendingSpawnedCallsForSession(sessionId);
+    
+    if (pendingCalls.isNotEmpty) {
+      if (cancelPendingCalls) {
+        // Cancel all pending calls
+        for (final call in pendingCalls) {
+          call.cancel();
+        }
+      } else {
+        final callIds = pendingCalls.map((c) => c.callId).join(', ');
+        throw StateError(
+          'Cannot leave operation - ${pendingCalls.length} spawned call(s) '
+          'still active: [$callIds]. End or cancel all calls before leaving, '
+          'or use leave(cancelPendingCalls: true).',
+        );
+      }
+    }
+
+    // Remove session
+    _activeSessions.remove(sessionId);
+    _joinCount--;
+    
+    if (_joinCount == 0) {
+      stopHeartbeat();
+      _ledger._unregisterOperation(operationId);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -274,9 +882,10 @@ class Operation {
     final callId = _generateCallId();
     final now = DateTime.now();
 
-    // Track locally
+    // Track locally (sessionId: 0 for direct Operation calls, not via handle)
     _activeCalls[callId] = _ActiveCall(
       callId: callId,
+      sessionId: 0,
       callback: callback ?? CallCallback<T>(),
       startedAt: now,
       description: description,
@@ -284,12 +893,12 @@ class Operation {
       failOnCrash: failOnCrash,
     );
 
-    // Push stack frame
+    // Add call frame
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.stack.add(StackFrame(
+        data.callFrames.add(CallFrame(
           participantId: participantId,
           callId: callId,
           pid: pid,
@@ -315,15 +924,6 @@ class Operation {
     );
   }
 
-  /// End a call successfully.
-  ///
-  /// Prefer using [Call.end] on the returned Call object instead.
-  /// This method is kept for backward compatibility.
-  @Deprecated('Use Call.end() instead')
-  Future<void> endCall({required String callId}) async {
-    await endCallInternal$(callId: callId, result: null);
-  }
-
   /// Internal method to end a call, called by Call.end().
   /// 
   /// **Note:** This method is for internal use by the ledger API.
@@ -336,17 +936,18 @@ class Operation {
     if (activeCall == null) {
       throw StateError('No active call with ID: $callId');
     }
+    _calls.remove(callId);
 
     final now = DateTime.now();
 
-    // Pop stack frame
+    // Remove call frame
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+        final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
         if (index >= 0) {
-          data.stack.removeAt(index);
+          data.callFrames.removeAt(index);
         }
         data.lastHeartbeat = now;
         return data;
@@ -371,22 +972,6 @@ class Operation {
     }
   }
 
-  /// Fail a call due to an error.
-  ///
-  /// Prefer using [Call.fail] on the returned Call object instead.
-  /// This method is kept for backward compatibility.
-  ///
-  /// This removes the stack frame, logs the failure, and calls cleanup.
-  /// If [failOnCrash] was true for this call, it may trigger operation failure.
-  @Deprecated('Use Call.fail() instead')
-  Future<void> failCall({
-    required String callId,
-    required Object error,
-    StackTrace? stackTrace,
-  }) async {
-    await failCallInternal$(callId: callId, error: error, stackTrace: stackTrace);
-  }
-
   /// Internal method to fail a call, called by Call.fail().
   /// 
   /// **Note:** This method is for internal use by the ledger API.
@@ -400,17 +985,18 @@ class Operation {
     if (activeCall == null) {
       throw StateError('No active call with ID: $callId');
     }
+    _calls.remove(callId);
 
     final now = DateTime.now();
 
-    // Pop stack frame
+    // Remove call frame
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+        final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
         if (index >= 0) {
-          data.stack.removeAt(index);
+          data.callFrames.removeAt(index);
         }
         data.lastHeartbeat = now;
         return data;
@@ -487,8 +1073,11 @@ class Operation {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Spawned Call API
+  // Call Tracking
   // ─────────────────────────────────────────────────────────────
+
+  /// Tracking for regular calls.
+  final Map<String, Call<dynamic>> _calls = {};
 
   /// Tracking for spawned calls.
   final Map<String, SpawnedCall> _spawnedCalls = {};
@@ -549,9 +1138,10 @@ class Operation {
       onCleanup: callback?.onCleanup,
     );
 
-    // Track locally
+    // Track locally (sessionId: 0 for direct Operation calls, not via handle)
     _activeCalls[callId] = _ActiveCall(
       callId: callId,
+      sessionId: 0,
       callback: internalCallback,
       startedAt: now,
       description: description,
@@ -584,12 +1174,12 @@ class Operation {
   }) async {
     final now = DateTime.now();
 
-    // Push stack frame
+    // Add call frame
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.stack.add(StackFrame(
+        data.callFrames.add(CallFrame(
           participantId: participantId,
           callId: callId,
           pid: pid,
@@ -618,13 +1208,13 @@ class Operation {
       // Success - store result
       spawnedCall.complete(result);
 
-      // Remove stack frame
+      // Remove call frame
       await _ledger._modifyOperation(
         operationId: operationId,
         elapsedFormatted: elapsedFormatted,
         updater: (data) {
-          final index = data.stack.lastIndexWhere((f) => f.callId == callId);
-          if (index >= 0) data.stack.removeAt(index);
+          final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
+          if (index >= 0) data.callFrames.removeAt(index);
           data.lastHeartbeat = DateTime.now();
           return data;
         },
@@ -659,13 +1249,13 @@ class Operation {
         spawnedCall.fail(e, st);
       }
 
-      // Remove stack frame
+      // Remove call frame
       await _ledger._modifyOperation(
         operationId: operationId,
         elapsedFormatted: elapsedFormatted,
         updater: (data) {
-          final index = data.stack.lastIndexWhere((f) => f.callId == callId);
-          if (index >= 0) data.stack.removeAt(index);
+          final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
+          if (index >= 0) data.callFrames.removeAt(index);
           data.lastHeartbeat = DateTime.now();
           return data;
         },
@@ -1116,26 +1706,29 @@ class Operation {
 
   // ─────────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────
-  // Low-level stack frame operations
+  // Low-level call frame operations
   // ─────────────────────────────────────────────────────────────
 
-  /// Push a stack frame for a call (low-level operation).
+  /// Create a call frame (low-level operation).
   ///
-  /// This is a lower-level method that directly manipulates the stack.
+  /// This is a lower-level method that directly manipulates the call frames.
   /// For most use cases, prefer [startCall] which provides structured
   /// call tracking with callbacks.
   ///
   /// Use this method when:
-  /// - You need direct control over stack frame management
-  /// - Testing stack behavior without callback overhead
+  /// - You need direct control over call frame management
+  /// - Testing call frame behavior without callback overhead
   /// - Implementing custom call patterns
-  Future<void> pushStackFrame({required String callId}) async {
+  ///
+  /// Note: Call frames are stored in a list and identified by callId,
+  /// not by position. Frames can be removed in any order.
+  Future<void> createCallFrame({required String callId}) async {
     final now = DateTime.now();
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.stack.add(StackFrame(
+        data.callFrames.add(CallFrame(
           participantId: participantId,
           callId: callId,
           pid: pid,
@@ -1149,24 +1742,27 @@ class Operation {
     if (updated != null) _updateCache(updated);
   }
 
-  /// Pop a stack frame for a call (low-level operation).
+  /// Delete a call frame (low-level operation).
   ///
-  /// This is a lower-level method that directly manipulates the stack.
+  /// This is a lower-level method that directly manipulates the call frames.
   /// For most use cases, prefer [Call.end] which provides structured
   /// call tracking.
   ///
   /// Use this method when:
-  /// - You need direct control over stack frame management
-  /// - Testing stack behavior without callback overhead
+  /// - You need direct control over call frame management
+  /// - Testing call frame behavior without callback overhead
   /// - Implementing custom call patterns
-  Future<void> popStackFrame({required String callId}) async {
+  ///
+  /// Note: This method finds the frame by callId and removes it, regardless
+  /// of position. Frames can be removed in any order.
+  Future<void> deleteCallFrame({required String callId}) async {
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        final index = data.stack.lastIndexWhere((f) => f.callId == callId);
+        final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
         if (index >= 0) {
-          data.stack.removeAt(index);
+          data.callFrames.removeAt(index);
         }
         data.lastHeartbeat = DateTime.now();
         return data;
@@ -1274,14 +1870,14 @@ class Operation {
   void startHeartbeat({
     Duration interval = const Duration(milliseconds: 4500),
     int jitterMs = 500,
-    HeartbeatErrorCallback? onError,
-    HeartbeatSuccessCallback? onSuccess,
+    _InternalHeartbeatErrorCallback? onError,
+    _InternalHeartbeatSuccessCallback? onSuccess,
   }) {
     // Cancel any existing heartbeat timer
     stopHeartbeat();
     
-    onHeartbeatError = onError;
-    onHeartbeatSuccess = onSuccess;
+    _onHeartbeatError = onError;
+    _onHeartbeatSuccess = onSuccess;
     _scheduleNextHeartbeat(interval: interval, jitterMs: jitterMs);
   }
 
@@ -1308,7 +1904,7 @@ class Operation {
       final result = await _performHeartbeatWithChecks();
 
       if (result == null) {
-        onHeartbeatError?.call(
+        _onHeartbeatError?.call(
           this,
           const HeartbeatError(
             type: HeartbeatErrorType.ledgerNotFound,
@@ -1324,7 +1920,7 @@ class Operation {
         if (!_abortCompleter.isCompleted) {
           _abortCompleter.complete();
         }
-        onHeartbeatError?.call(
+        _onHeartbeatError?.call(
           this,
           const HeartbeatError(
             type: HeartbeatErrorType.abortFlagSet,
@@ -1340,7 +1936,7 @@ class Operation {
         await _handleDetectedCrash(result.staleParticipants);
         
         // Signal error - stale heartbeat detected
-        onHeartbeatError?.call(
+        _onHeartbeatError?.call(
           this,
           HeartbeatError(
             type: HeartbeatErrorType.heartbeatStale,
@@ -1363,9 +1959,9 @@ class Operation {
       }
 
       // Success callback
-      onHeartbeatSuccess?.call(this, result);
+      _onHeartbeatSuccess?.call(this, result);
     } catch (e) {
-      onHeartbeatError?.call(
+      _onHeartbeatError?.call(
         this,
         HeartbeatError(
           type: HeartbeatErrorType.ioError,
@@ -1428,7 +2024,7 @@ class Operation {
       final participantAges = <String, int>{};
       final staleParticipants = <String>[];
 
-      for (final frame in data.stack) {
+      for (final frame in data.callFrames) {
         final age = frame.heartbeatAgeMs;
         participantAges[frame.participantId] = age;
         if (age > stalenessThresholdMs) {
@@ -1442,8 +2038,8 @@ class Operation {
       // Update global heartbeat (backward compatibility)
       data.lastHeartbeat = DateTime.now();
 
-      // Update THIS participant's heartbeat in their stack frame
-      for (final frame in data.stack) {
+      // Update THIS participant's heartbeat in their call frame
+      for (final frame in data.callFrames) {
         if (frame.participantId == participantId) {
           frame.lastHeartbeat = DateTime.now();
         }
@@ -1460,12 +2056,12 @@ class Operation {
         abortFlag: data.aborted,
         ledgerExists: true,
         heartbeatUpdated: true,
-        stackDepth: data.stack.length,
+        callFrameCount: data.callFrames.length,
         tempResourceCount: data.tempResources.length,
         heartbeatAgeMs: heartbeatAge,
         isStale:
             hasStaleOther, // Now true only if OTHER participants are stale
-        stackParticipants: data.stack.map((f) => f.participantId).toList(),
+        participants: data.callFrames.map((f) => f.participantId).toList(),
         participantHeartbeatAges: participantAges,
         staleParticipants:
             staleParticipants.where((p) => p != participantId).toList(),
@@ -1691,29 +2287,11 @@ class Ledger {
   /// Grouped callbacks for ledger events.
   final LedgerCallback? callback;
 
-  /// Called when a backup is created.
-  ///
-  /// Prefer using [callback] with [LedgerCallback] instead.
-  @Deprecated('Use callback parameter with LedgerCallback instead')
-  void Function(String)? get onBackupCreated => 
-      _onBackupCreated ?? callback?.onBackupCreated;
-  final void Function(String)? _onBackupCreated;
-
-  /// Called when a log line is written.
-  ///
-  /// Prefer using [callback] with [LedgerCallback] instead.
-  @Deprecated('Use callback parameter with LedgerCallback instead')
-  void Function(String)? get onLogLine => 
-      _onLogLine ?? callback?.onLogLine;
-  final void Function(String)? _onLogLine;
-
-  // Private getters for internal use (avoid deprecation warnings)
-  void Function(String)? get _backupCallback => 
-      _onBackupCreated ?? callback?.onBackupCreated;
-  void Function(String)? get _logCallback => 
-      _onLogLine ?? callback?.onLogLine;
+  // Private getters for internal use
+  void Function(String)? get _backupCallback => callback?.onBackupCreated;
+  void Function(String)? get _logCallback => callback?.onLogLine;
   HeartbeatErrorCallback? get _globalHeartbeatCallback =>
-      _onGlobalHeartbeatError ?? callback?.onGlobalHeartbeatError;
+      callback?.onGlobalHeartbeatError;
 
   /// Maximum number of backup operations to retain.
   final int maxBackups;
@@ -1721,19 +2299,11 @@ class Ledger {
   late final Directory _ledgerDir;
   late final Directory _backupDir;
 
-  /// Registry of all active operations in this ledger.
-  final Map<String, Operation> _operations = {};
+  /// Registry of all active internal operations in this ledger.
+  final Map<String, _LedgerOperation> _operations = {};
 
   /// Global heartbeat timer.
   Timer? _globalHeartbeatTimer;
-
-  /// Callback for global heartbeat errors.
-  ///
-  /// Prefer using [callback] with [LedgerCallback] instead.
-  @Deprecated('Use callback parameter with LedgerCallback instead')
-  HeartbeatErrorCallback? get onGlobalHeartbeatError =>
-      _onGlobalHeartbeatError ?? callback?.onGlobalHeartbeatError;
-  final HeartbeatErrorCallback? _onGlobalHeartbeatError;
 
   /// Lock timeout and retry settings.
   static const _lockTimeout = Duration(seconds: 2);
@@ -1747,7 +2317,7 @@ class Ledger {
 
   /// Creates a new Ledger instance.
   ///
-  /// **Preferred usage with callback:**
+  /// **Example usage with callback:**
   /// ```dart
   /// final ledger = Ledger(
   ///   basePath: '/tmp/ledger',
@@ -1758,33 +2328,15 @@ class Ledger {
   ///   ),
   /// );
   /// ```
-  ///
-  /// **Legacy usage (deprecated):**
-  /// ```dart
-  /// final ledger = Ledger(
-  ///   basePath: '/tmp/ledger',
-  ///   participantId: 'cli',
-  ///   onBackupCreated: (path) => print('Backup: $path'),
-  /// );
-  /// ```
   Ledger({
     required this.basePath,
     required this.participantId,
     int? participantPid,
     this.callback,
-    @Deprecated('Use callback parameter with LedgerCallback instead')
-    void Function(String)? onBackupCreated,
-    @Deprecated('Use callback parameter with LedgerCallback instead')
-    void Function(String)? onLogLine,
-    @Deprecated('Use callback parameter with LedgerCallback instead')
-    HeartbeatErrorCallback? onGlobalHeartbeatError,
     this.maxBackups = 20,
     this.heartbeatInterval = const Duration(seconds: 5),
     this.staleThreshold = const Duration(seconds: 15),
-  }) : participantPid = participantPid ?? pid,
-       _onBackupCreated = onBackupCreated,
-       _onLogLine = onLogLine,
-       _onGlobalHeartbeatError = onGlobalHeartbeatError {
+  }) : participantPid = participantPid ?? pid {
     _ledgerDir = Directory(basePath);
     _backupDir = Directory('$basePath/backup');
     if (!_ledgerDir.existsSync()) {
@@ -1796,12 +2348,6 @@ class Ledger {
     // Auto-start global heartbeat
     _startGlobalHeartbeat();
   }
-
-  /// Get all active operations.
-  Map<String, Operation> get operations => Map.unmodifiable(_operations);
-
-  /// Get an operation by ID.
-  Operation? getOperation(String operationId) => _operations[operationId];
 
   // ─────────────────────────────────────────────────────────────
   // Path helpers
@@ -1860,6 +2406,12 @@ class Ledger {
   // Locking
   // ─────────────────────────────────────────────────────────────
 
+  /// Acquires an exclusive lock on the operation file.
+  ///
+  /// The lock file contains participant ID, PID, and timestamp for crash
+  /// detection. If a stale lock is found (older than [_lockTimeout]), the
+  /// method checks if the lock owner has crashed by examining the operation
+  /// file. If the participant has crashed, the stale lock is removed.
   Future<bool> _acquireLock(String operationId) async {
     final lockFile = File(_lockPath(operationId));
     final startTime = DateTime.now();
@@ -1867,16 +2419,23 @@ class Ledger {
     while (true) {
       try {
         if (lockFile.existsSync()) {
-          final stat = lockFile.statSync();
-          final age = DateTime.now().difference(stat.modified);
-          if (age > _lockTimeout) {
-            lockFile.deleteSync();
+          final staleLockRemoved = await _handleStaleLock(operationId, lockFile);
+          if (!staleLockRemoved) {
+            // Lock exists and is not stale (or stale but owner not crashed)
+            // Wait and retry
+            if (DateTime.now().difference(startTime) >
+                const Duration(seconds: 1)) {
+              return false;
+            }
+            await Future.delayed(_lockRetryInterval);
+            continue;
           }
         }
 
         await lockFile.create(exclusive: true);
         await lockFile.writeAsString(
-          '{"pid": $pid, "timestamp": "${DateTime.now().toIso8601String()}"}',
+          '{"participantId": "$participantId", "pid": $pid, '
+          '"timestamp": "${DateTime.now().toIso8601String()}"}',
         );
         return true;
       } catch (e) {
@@ -1887,6 +2446,81 @@ class Ledger {
         await Future.delayed(_lockRetryInterval);
       }
     }
+  }
+
+  /// Handles a potentially stale lock file.
+  ///
+  /// Returns `true` if the lock was removed (allowing caller to proceed),
+  /// `false` if the lock should be respected.
+  Future<bool> _handleStaleLock(String operationId, File lockFile) async {
+    final stat = lockFile.statSync();
+    final age = DateTime.now().difference(stat.modified);
+
+    if (age <= _lockTimeout) {
+      // Lock is fresh, respect it
+      return false;
+    }
+
+    // Lock is stale - check if owner has crashed
+    try {
+      final lockContent = lockFile.readAsStringSync();
+      final lockData = jsonDecode(lockContent) as Map<String, dynamic>;
+      final lockParticipantId = lockData['participantId'] as String?;
+      final lockPid = lockData['pid'] as int?;
+
+      if (lockParticipantId != null) {
+        // Check if this participant has crashed in the operation file
+        final opFile = File(_operationPath(operationId));
+        if (opFile.existsSync()) {
+          final opContent = opFile.readAsStringSync();
+          final opData = LedgerData.fromJson(jsonDecode(opContent));
+
+          // Find the participant's frame(s) and check their heartbeat
+          final participantFrames = opData.callFrames
+              .where((f) => f.participantId == lockParticipantId)
+              .toList();
+
+          if (participantFrames.isNotEmpty) {
+            // Check if all frames from this participant are stale
+            final now = DateTime.now();
+            final allStale = participantFrames.every((frame) {
+              final frameAge = now.difference(frame.lastHeartbeat);
+              return frameAge > staleThreshold;
+            });
+
+            if (allStale) {
+              // Participant has crashed - safe to remove stale lock
+              callback?.onLogLine?.call(
+                '[Ledger] Removing stale lock from crashed participant '
+                '$lockParticipantId (PID: $lockPid)',
+              );
+              lockFile.deleteSync();
+              return true;
+            }
+          } else {
+            // Participant has no frames - maybe it finished but crashed before
+            // releasing lock. Safe to remove.
+            lockFile.deleteSync();
+            return true;
+          }
+        } else {
+          // Operation file doesn't exist - lock is orphaned, remove it
+          lockFile.deleteSync();
+          return true;
+        }
+      } else {
+        // Old lock format without participantId - use file age only
+        lockFile.deleteSync();
+        return true;
+      }
+    } catch (e) {
+      // Error reading lock file - use file age as fallback
+      lockFile.deleteSync();
+      return true;
+    }
+
+    // Lock owner is not crashed (heartbeat is fresh), respect the lock
+    return false;
   }
 
   Future<void> _releaseLock(String operationId) async {
@@ -2024,8 +2658,8 @@ class Ledger {
       await File(_logPath(operationId)).writeAsString('');
       await File(_debugLogPath(operationId)).writeAsString('');
 
-      // Create operation object
-      final operation = Operation._(
+      // Create internal operation object
+      final ledgerOp = _LedgerOperation._(
         ledger: this,
         operationId: operationId,
         participantId: participantId,
@@ -2033,19 +2667,34 @@ class Ledger {
         isInitiator: true,
         startTime: timestamp,
       );
-      operation._cachedData = ledgerData;
-      operation._lastChangeTimestamp = timestamp;
+      ledgerOp._cachedData = ledgerData;
+      ledgerOp._lastChangeTimestamp = timestamp;
 
       // Register in global registry
-      _operations[operationId] = operation;
+      _operations[operationId] = ledgerOp;
+      
+      // Create session and wrap in Operation
+      final sessionId = ledgerOp._createSession();
+      final operation = Operation._(ledgerOp, sessionId);
       
       // Auto-start heartbeat for initiator with optional callbacks
-      operation._joinCount = 1;
       operation.startHeartbeat(
         interval: heartbeatInterval,
         onSuccess: callback?.onHeartbeatSuccess,
         onError: callback?.onHeartbeatError,
       );
+
+      // Wire up abort and failure callbacks
+      if (callback?.onAbort != null) {
+        unawaited(ledgerOp.onAbort.then((_) {
+          callback!.onAbort!(operation);
+        }));
+      }
+      if (callback?.onFailure != null) {
+        unawaited(operation.onFailure.then((info) {
+          callback!.onFailure!(operation, info);
+        }));
+      }
 
       return operation;
     } finally {
@@ -2056,19 +2705,20 @@ class Ledger {
   /// Join an existing operation.
   ///
   /// Returns an [Operation] object for the participant to interact with.
+  /// Each call returns a new Operation with its own session, even if joining
+  /// the same operation multiple times.
   /// 
+  /// **Session tracking:** Each Operation tracks its own calls. Use
+  /// [Operation.getPendingSpawnedCalls] to see spawned calls from this session,
+  /// [Operation.hasPendingCalls] to check for any pending calls,
+  /// and [Operation.leave] to leave with optional call cancellation.
+  ///
   /// **Automatic heartbeat management:** The heartbeat is automatically
-  /// started on first join and stopped when [Operation.leave] is
-  /// called and the join count reaches 0.
+  /// started on first join and stopped when the last session leaves.
   ///
   /// **Heartbeat callbacks:** Optionally provide an [OperationCallback] with
   /// [OperationCallback.onHeartbeatSuccess] and/or
   /// [OperationCallback.onHeartbeatError] for monitoring and failure detection.
-  ///
-  /// If the same operation is joined multiple times by the same participant
-  /// (e.g., handling multiple calls for the same operation), the join count
-  /// is incremented and the same Operation object is returned. Each join
-  /// should be matched with a corresponding [Operation.leave] call.
   ///
   /// The participant identity is taken from the Ledger constructor:
   /// ```dart
@@ -2080,46 +2730,61 @@ class Ledger {
   ///   ),
   /// );
   /// // ... do work ...
-  /// op.leave(); // Stops heartbeat when join count reaches 0
+  /// op.leave(); // Stops heartbeat when no sessions remain
   /// ```
   Future<Operation> joinOperation({
     required String operationId,
     OperationCallback? callback,
   }) async {
-    // Check if already joined
-    final existingOp = _operations[operationId];
-    if (existingOp != null) {
-      // Already joined - increment join count and return same operation
-      existingOp._joinCount++;
-      return existingOp;
+    // Check if already have an internal _LedgerOperation for this operationId
+    var ledgerOp = _operations[operationId];
+    final isFirstJoin = ledgerOp == null;
+    
+    if (isFirstJoin) {
+      // First join - create new _LedgerOperation
+      final joinTime = DateTime.now();
+      
+      ledgerOp = _LedgerOperation._(
+        ledger: this,
+        operationId: operationId,
+        participantId: participantId,
+        pid: participantPid,
+        isInitiator: false,
+        startTime: joinTime,
+      );
+
+      // Load current state
+      await ledgerOp._refreshCache();
+
+      // Register in global registry
+      _operations[operationId] = ledgerOp;
     }
     
-    final joinTime = DateTime.now();
+    // Create a new session and wrap in Operation
+    final sessionId = ledgerOp._createSession();
+    final operation = Operation._(ledgerOp, sessionId);
+
+    // Start heartbeat on first join with optional callbacks
+    if (isFirstJoin) {
+      operation.startHeartbeat(
+        interval: heartbeatInterval,
+        onSuccess: callback?.onHeartbeatSuccess,
+        onError: callback?.onHeartbeatError,
+      );
+    }
+
+    // Wire up abort and failure callbacks (for each join)
+    if (callback?.onAbort != null) {
+      unawaited(ledgerOp.onAbort.then((_) {
+        callback!.onAbort!(operation);
+      }));
+    }
+    if (callback?.onFailure != null) {
+      unawaited(ledgerOp.onFailure.then((info) {
+        callback!.onFailure!(operation, info);
+      }));
+    }
     
-    // Create operation object
-    final operation = Operation._(
-      ledger: this,
-      operationId: operationId,
-      participantId: participantId,
-      pid: participantPid,
-      isInitiator: false,
-      startTime: joinTime,
-    );
-
-    // Load current state
-    await operation._refreshCache();
-
-    // Register in global registry
-    _operations[operationId] = operation;
-    
-    // First join - set join count and start heartbeat with optional callbacks
-    operation._joinCount = 1;
-    operation.startHeartbeat(
-      interval: heartbeatInterval,
-      onSuccess: callback?.onHeartbeatSuccess,
-      onError: callback?.onHeartbeatError,
-    );
-
     return operation;
   }
 
@@ -2334,15 +2999,19 @@ class Ledger {
     final now = DateTime.now();
 
     for (final entry in _operations.entries) {
-      final operation = entry.value;
-      final lastChange = operation._lastChangeTimestamp;
+      final ledgerOp = entry.value;
+      final lastChange = ledgerOp._lastChangeTimestamp;
+
+      // Create a temporary session-less Operation for the callback
+      // Uses session ID 0 to indicate this is a global monitoring context
+      final operation = Operation._(ledgerOp, 0);
 
       if (lastChange == null) {
         _globalHeartbeatCallback?.call(
           operation,
           HeartbeatError(
             type: HeartbeatErrorType.ledgerNotFound,
-            message: 'Operation ${operation.operationId} has no cached data',
+            message: 'Operation ${ledgerOp.operationId} has no cached data',
           ),
         );
         continue;
@@ -2355,7 +3024,7 @@ class Ledger {
           HeartbeatError(
             type: HeartbeatErrorType.heartbeatStale,
             message:
-                'Operation ${operation.operationId} is stale (${age.inSeconds}s)',
+                'Operation ${ledgerOp.operationId} is stale (${age.inSeconds}s)',
           ),
         );
       }

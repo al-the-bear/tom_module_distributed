@@ -10,12 +10,12 @@ Comprehensive API reference for the `tom_dist_ledger` package.
 2. [Operation Class](#operation-class)
 3. [Call Class](#call-class)
 4. [SpawnedCall Class](#spawnedcall-class)
-5. [SyncResult Class](#syncresult-class)
-6. [OperationHelper Class](#operationhelper-class)
-7. [Data Classes](#data-classes)
-8. [Enums](#enums)
-9. [Type Definitions](#type-definitions)
-10. [Usage Examples](#usage-examples)
+6. [SyncResult Class](#syncresult-class)
+7. [OperationHelper Class](#operationhelper-class)
+8. [Data Classes](#data-classes)
+9. [Enums](#enums)
+10. [Type Definitions](#type-definitions)
+11. [Usage Examples](#usage-examples)
 
 ---
 
@@ -32,11 +32,9 @@ class Ledger
 ```dart
 Ledger({
   required String basePath,
-  String? participantId,
+  required String participantId,
   int? participantPid,
-  void Function(String)? onBackupCreated,
-  void Function(String)? onLogLine,
-  HeartbeatErrorCallback? onGlobalHeartbeatError,
+  LedgerCallback? callback,
   int maxBackups = 20,
   Duration heartbeatInterval = const Duration(seconds: 5),
   Duration staleThreshold = const Duration(seconds: 15),
@@ -46,20 +44,24 @@ Ledger({
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `basePath` | `String` | required | Directory path for ledger files |
-| `participantId` | `String?` | `null` | Default participant ID for operations |
-| `participantPid` | `int?` | current PID | Default process ID for this participant |
-| `onBackupCreated` | `void Function(String)?` | `null` | Callback when backup is created |
-| `onLogLine` | `void Function(String)?` | `null` | Callback for log lines |
-| `onGlobalHeartbeatError` | `HeartbeatErrorCallback?` | `null` | Callback for heartbeat errors |
+| `participantId` | `String` | required | Participant ID for operations |
+| `participantPid` | `int?` | current PID | Process ID for this participant |
+| `callback` | `LedgerCallback?` | `null` | Grouped callbacks (backup, log, heartbeat) |
 | `maxBackups` | `int` | `20` | Maximum backup operations to retain |
 | `heartbeatInterval` | `Duration` | 5 seconds | Interval between heartbeats |
 | `staleThreshold` | `Duration` | 15 seconds | Threshold for detecting stale participants |
 
-### Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `operations` | `Map<String, Operation>` | All active operations (unmodifiable) |
+**Example:**
+```dart
+final ledger = Ledger(
+  basePath: '/tmp/ledger',
+  participantId: 'cli',
+  callback: LedgerCallback(
+    onBackupCreated: (path) => print('Backup: $path'),
+    onLogLine: (line) => print('Log: $line'),
+  ),
+);
+```
 
 ### Methods
 
@@ -79,7 +81,7 @@ Future<Operation> createOperation({
 | `description` | `String?` | `null` | Optional description |
 | `callback` | `OperationCallback?` | `null` | Heartbeat success/error callbacks |
 
-**Returns:** `Operation` - The new operation with heartbeat auto-started.
+**Returns:** `Operation` - A session-specific operation for interacting with the ledger, with heartbeat auto-started.
 
 **Note:** Heartbeat is automatically started when the operation is created.
 Call `Operation.complete()` to stop heartbeat and archive the operation.
@@ -100,19 +102,12 @@ Future<Operation> joinOperation({
 | `operationId` | `String` | required | The operation to join |
 | `callback` | `OperationCallback?` | `null` | Heartbeat success/error callbacks |
 
-**Returns:** `Operation` - Handle to the joined operation with heartbeat auto-started.
+**Returns:** `Operation` - A session-specific operation for the joined operation.
 
-**Note:** Heartbeat is automatically started on first join. If the same operation
-is joined multiple times, the join count is incremented and the same Operation
-object is returned. Each join should be matched with a `leave()` call.
-
-#### getOperation
-
-Get an operation by ID.
-
-```dart
-Operation? getOperation(String operationId)
-```
+**Note:** Each call to `joinOperation` returns a new `Operation` with its own
+session ID for tracking calls. This allows multiple joins to the same operation
+to track their calls independently. Heartbeat is automatically started on first
+join and stopped when the last session calls `leave()`.
 
 #### dispose
 
@@ -126,7 +121,12 @@ Future<void> dispose()
 
 ## Operation Class
 
-Represents a running operation. Each participant gets their own Operation object.
+Represents a running operation for a specific join session.
+
+Each call to `Ledger.createOperation()` or `Ledger.joinOperation()` returns
+a new `Operation` with its own session. This allows tracking which calls
+belong to which join, and ensures `leave()` only checks calls created
+through this operation.
 
 ```dart
 class Operation
@@ -136,6 +136,7 @@ class Operation
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `sessionId` | `int` | Unique session identifier for this operation |
 | `operationId` | `String` | Unique operation identifier |
 | `participantId` | `String` | ID of this participant |
 | `pid` | `int` | Process ID of this participant |
@@ -149,9 +150,113 @@ class Operation
 | `isAborted` | `bool` | Whether this participant is aborted |
 | `onAbort` | `Future<void>` | Completes when abort is signaled |
 | `onFailure` | `Future<OperationFailedInfo>` | Completes when operation fails |
-| `joinCount` | `int` | Number of times this operation has been joined |
+| `stalenessThresholdMs` | `int` | Staleness threshold in milliseconds |
+| `pendingCallCount` | `int` | Number of pending calls for this session |
+
+### Session-Specific Call Tracking
+
+#### hasPendingCalls
+
+Check if this session has any pending calls.
+
+Returns true if there are any calls (regular or spawned) that were
+started through this operation and have not yet completed.
+
+```dart
+bool hasPendingCalls()
+```
+
+**Returns:** `true` if there are pending calls, `false` otherwise.
+
+#### getPendingSpawnedCalls
+
+Get a list of pending spawned calls for this session.
+
+Returns the `SpawnedCall` objects that were started via this operation and
+have not yet completed.
+
+```dart
+List<SpawnedCall> getPendingSpawnedCalls()
+```
+
+**Returns:** List of `SpawnedCall` objects that are still pending for this session.
+
+**Example:**
+```dart
+final operation = await ledger.joinOperation(operationId: opId);
+final call1 = operation.spawnCall(work: () async => doWork1());
+final call2 = operation.spawnCall(work: () async => doWork2());
+
+print(operation.hasPendingCalls()); // true
+print(operation.getPendingSpawnedCalls()); // [call1, call2]
+
+await call1.future;
+print(operation.getPendingSpawnedCalls()); // [call2]
+```
+
+#### getPendingCalls
+
+Get a list of pending regular calls for this session.
+
+Returns the `Call` objects that were started via `startCall()` through this
+operation and have not yet completed.
+
+```dart
+List<Call<dynamic>> getPendingCalls()
+```
+
+**Returns:** List of `Call` objects that are still pending for this session.
+
+**Note:** For spawned calls, use `getPendingSpawnedCalls()` instead.
+
+#### leave
+
+Leave the operation for this session.
+
+Decrements the join count. When the count reaches 0, heartbeat is stopped
+and the operation is unregistered from this participant's ledger.
+
+```dart
+void leave({bool cancelPendingCalls = false})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `cancelPendingCalls` | `bool` | `false` | If true, automatically cancel all pending calls for this session before leaving |
+
+**Throws:** `StateError` if there are pending calls and `cancelPendingCalls` is false.
+
+**Example:**
+```dart
+final operation = await ledger.joinOperation(operationId: opId);
+final call = await operation.startCall<void>();
+
+// Option 1: End calls manually before leaving
+await call.end(null);
+operation.leave();
+
+// Option 2: Auto-cancel pending calls
+operation.leave(cancelPendingCalls: true);
+```
 
 ### Call Management Methods
+
+| Method | Description |
+|--------|-------------|
+| `startCall<T>()` | Start a call tracked to this session |
+| `spawnCall<T>()` | Spawn an async call tracked to this session |
+| `sync()` | Wait for spawned calls to complete |
+| `awaitCall()` | Wait for a single spawned call |
+| `waitForCompletion()` | Execute work while monitoring operation state |
+| `complete()` | Complete the operation (initiator only) |
+| `log()` | Write to operation log |
+| `logMessage()` | Log formatted message with timestamp |
+| `checkAbort()` | Check if operation is aborted |
+| `triggerAbort()` | Trigger local abort |
+| `setAbortFlag()` | Set abort flag in ledger |
+| `startHeartbeat()` | Start/reconfigure heartbeat |
+| `stopHeartbeat()` | Stop heartbeat |
+| `heartbeat()` | Perform single heartbeat |
 
 #### startCall
 
@@ -517,32 +622,21 @@ multiple calls. Each join increments the join count, and each leave
 decrements it. When the join count reaches 0, the heartbeat is automatically
 stopped and the operation is unregistered from this participant's ledger.
 
-Throws `StateError` if:
-- Join count is already 0
-- There are still active spawned calls (must be ended or cancelled first)
-
 ```dart
-void leave()
+void leave({bool cancelPendingCalls = false})
 ```
 
-**Note:** This is for participants who joined an operation. Initiators
-should call `complete()` instead.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `cancelPendingCalls` | `bool` | `false` | If true, cancel all pending calls for the session before leaving |
+
+**Throws:** `StateError` if there are pending calls and `cancelPendingCalls` is false.
 
 **Example:**
 ```dart
-// First call joins the operation
-final op = await ledger.joinOperation(operationId: opId);
-// ... do work for first call ...
-op.leave(); // join count: 1 -> 0, heartbeat stops
-```
-
-For multiple joins:
-```dart
-final op1 = await ledger.joinOperation(operationId: opId);
-final op2 = await ledger.joinOperation(operationId: opId); // Same op
-// join count is now 2
-op1.leave(); // join count: 2 -> 1, heartbeat continues
-op2.leave(); // join count: 1 -> 0, heartbeat stops
+final operation = await ledger.joinOperation(operationId: opId);
+// ... do work ...
+operation.leave(cancelPendingCalls: true);
 ```
 
 #### complete
@@ -838,22 +932,67 @@ static Future<List<T>> Function() pollFiles<T>({
 
 ## Data Classes
 
+### LedgerCallback Class
+
+Callback structure for ledger-level events.
+
+```dart
+class LedgerCallback {
+  final void Function(String path)? onBackupCreated;
+  final void Function(String line)? onLogLine;
+  final HeartbeatErrorCallback? onGlobalHeartbeatError;
+
+  const LedgerCallback({
+    this.onBackupCreated,
+    this.onLogLine,
+    this.onGlobalHeartbeatError,
+  });
+}
+```
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `onBackupCreated` | `void Function(String)?` | Called when a backup file is created |
+| `onLogLine` | `void Function(String)?` | Called for each log line during backup/restore |
+| `onGlobalHeartbeatError` | `HeartbeatErrorCallback?` | Called when any operation's heartbeat detects a failure |
+
+**Example:**
+```dart
+final ledger = Ledger(
+  basePath: '/tmp/ledger',
+  participantId: 'cli',
+  callback: LedgerCallback(
+    onBackupCreated: (path) => print('Backup created: $path'),
+    onLogLine: (line) => print('Ledger: $line'),
+    onGlobalHeartbeatError: (op, error) => print('Heartbeat error: ${error.message}'),
+  ),
+);
+```
+
 ### OperationCallback Class
 
-Callback structure for operation-level events (heartbeat monitoring).
+Callback structure for operation-level events (heartbeat monitoring, abort, failure).
 
 ```dart
 class OperationCallback {
   final void Function(Operation operation, HeartbeatResult result)? onHeartbeatSuccess;
   final void Function(Operation operation, HeartbeatError error)? onHeartbeatError;
+  final void Function(Operation operation)? onAbort;
+  final void Function(Operation operation, OperationFailedInfo info)? onFailure;
 
   const OperationCallback({
     this.onHeartbeatSuccess,
     this.onHeartbeatError,
+    this.onAbort,
+    this.onFailure,
   });
   
   factory OperationCallback.onError(
     void Function(Operation operation, HeartbeatError error) onError,
+  );
+  
+  factory OperationCallback.onFailure(
+    void Function(Operation operation, OperationFailedInfo info) onFailure,
   );
 }
 ```
@@ -862,15 +1001,29 @@ class OperationCallback {
 |----------|------|-------------|
 | `onHeartbeatSuccess` | `void Function(Operation, HeartbeatResult)?` | Called on each successful heartbeat |
 | `onHeartbeatError` | `void Function(Operation, HeartbeatError)?` | Called when heartbeat detects a failure |
+| `onAbort` | `void Function(Operation)?` | Called when operation is aborted |
+| `onFailure` | `void Function(Operation, OperationFailedInfo)?` | Called when operation fails |
+
+**Callback vs Future pattern:** `onAbort` and `onFailure` are alternatives to the `Operation.onAbort` and `Operation.onFailure` futures. Both approaches are valid:
+- Use **callbacks** for a reactive, event-driven style
+- Use **futures** for racing with other work or async/await patterns
 
 **Example:**
 ```dart
 final op = await ledger.createOperation(
   callback: OperationCallback(
-    onHeartbeatSuccess: (op, result) => print('♥ OK: ${result.stackDepth} frames'),
+    onHeartbeatSuccess: (op, result) => print('♥ OK: ${result.callFrameCount} frames'),
     onHeartbeatError: (op, error) => print('Failure: ${error.message}'),
+    onAbort: (op) => print('Operation aborted!'),
+    onFailure: (op, info) => print('Operation failed: ${info.reason}'),
   ),
 );
+
+// Alternative: Use futures for racing
+await Future.any([
+  doWork(),
+  op.onFailure.then((info) => throw OperationFailedException(info)),
+]);
 ```
 
 ### CallCallback Class
@@ -933,16 +1086,16 @@ Operation ledger data structure (serialized to JSON file).
 | `startTime` | `DateTime` | When operation was created |
 | `aborted` | `bool` | Whether abort flag is set |
 | `lastHeartbeat` | `DateTime` | Global last heartbeat timestamp |
-| `stack` | `List<StackFrame>` | Active call stack frames |
+| `callFrames` | `List<CallFrame>` | Active call frames |
 | `tempResources` | `List<TempResource>` | Registered temporary resources |
 | `operationState` | `OperationState` | Current operation state |
 | `detectionTimestamp` | `DateTime?` | When cleanup detection occurred |
 | `removalTimestamp` | `DateTime?` | When frame removal occurred |
-| `isEmpty` | `bool` | True if no stack frames and no temp resources |
+| `isEmpty` | `bool` | True if no call frames and no temp resources |
 
-### StackFrame Class
+### CallFrame Class
 
-A stack frame in the operation.
+A call frame in the operation.
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -966,11 +1119,11 @@ Result of heartbeat checks.
 | `abortFlag` | `bool` | Whether abort flag is set |
 | `ledgerExists` | `bool` | Whether ledger file exists |
 | `heartbeatUpdated` | `bool` | Whether heartbeat was updated |
-| `stackDepth` | `int` | Number of stack frames |
+| `callFrameCount` | `int` | Number of call frames |
 | `tempResourceCount` | `int` | Number of temp resources |
 | `heartbeatAgeMs` | `int` | Global heartbeat age in ms |
 | `isStale` | `bool` | Whether any participant is stale |
-| `stackParticipants` | `List<String>` | Participant IDs in stack |
+| `participants` | `List<String>` | Participant IDs in call frames |
 | `participantHeartbeatAges` | `Map<String, int>` | Per-participant heartbeat ages |
 | `staleParticipants` | `List<String>` | Participants with stale heartbeats |
 | `hasStaleChildren` | `bool` | Whether any child is stale |

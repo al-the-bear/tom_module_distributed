@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../local_ledger/file_ledger.dart';
+import '../ledger_local/file_ledger.dart';
 import '../ledger_api/ledger_api.dart';
 import 'simulation_config.dart';
 
@@ -79,12 +79,12 @@ class AsyncSimulationPrinter {
           '♥ [2/5] Abort flag: ${result.abortFlag ? "TRUE → ABORTING" : "false"}',
     );
 
-    // Check 3: Stack depth
+    // Check 3: Call frame count
     log(
       depth: depth,
       participant: participant,
       message:
-          '♥ [3/5] Stack depth: ${result.stackDepth} (${result.stackParticipants.join(" → ")})',
+          '♥ [3/5] Call frame count: ${result.callFrameCount} (${result.participants.join(" → ")})',
     );
 
     // Check 4: Temp resources
@@ -217,7 +217,7 @@ abstract class AsyncSimParticipant {
   final AsyncSimulationPrinter printer;
   final SimulationConfig config;
 
-  /// The operation object for this participant.
+  /// The operation handle for this participant.
   Operation? _operation;
 
   /// Current call depth (for logging).
@@ -234,10 +234,12 @@ abstract class AsyncSimParticipant {
           basePath: basePath,
           participantId: name.toLowerCase(),
           participantPid: pid,
-          onBackupCreated: onBackupCreated,
+          callback: onBackupCreated != null
+              ? LedgerCallback(onBackupCreated: onBackupCreated)
+              : null,
         );
 
-  /// Get the operation (throws if not set).
+  /// Get the operation handle (throws if not set).
   Operation get operation =>
       _operation ?? (throw StateError('No operation registered'));
 
@@ -311,22 +313,22 @@ abstract class AsyncSimParticipant {
   // Call execution
   // ─────────────────────────────────────────────────────────────
 
-  /// Push a stack frame for a call.
-  Future<void> pushStackFrame({
+  /// Add a call frame for a call.
+  Future<void> createCallFrame({
     required int depth,
     required String callId,
   }) async {
-    log(depth: depth, message: 'pushStackFrame(callId: "$callId", pid: $pid)');
-    await operation.pushStackFrame(callId: callId);
+    log(depth: depth, message: 'createCallFrame(callId: "$callId", pid: $pid)');
+    await operation.createCallFrame(callId: callId);
   }
 
-  /// Pop a stack frame for a call.
-  Future<void> popStackFrame({
+  /// Remove a call frame for a call.
+  Future<void> deleteCallFrame({
     required int depth,
     required String callId,
   }) async {
-    log(depth: depth, message: 'popStackFrame(callId: "$callId")');
-    await operation.popStackFrame(callId: callId);
+    log(depth: depth, message: 'deleteCallFrame(callId: "$callId")');
+    await operation.deleteCallFrame(callId: callId);
   }
 
   // ─────────────────────────────────────────────────────────────

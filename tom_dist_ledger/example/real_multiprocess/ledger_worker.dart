@@ -2,9 +2,9 @@
 ///
 /// This worker demonstrates TRUE multi-process ledger participation:
 /// 1. Joins an existing operation using the shared ledger
-/// 2. Pushes its own stack frame for tracking
+/// 2. Pushes its own call frame for tracking
 /// 3. Does work while maintaining heartbeat
-/// 4. Pops stack frame when done
+/// 4. Pops call frame when done
 ///
 /// This is different from stdout_worker and file_worker which are just
 /// subprocesses - this worker actually participates in the distributed
@@ -65,9 +65,11 @@ void main(List<String> args) async {
   final ledger = Ledger(
     basePath: ledgerPath,
     participantId: participantId,
-    onBackupCreated: (path) {
-      stderr.writeln('[$participantId] 📦 Backup: ${path.split('/').last}');
-    },
+    callback: LedgerCallback(
+      onBackupCreated: (path) {
+        stderr.writeln('[$participantId] 📦 Backup: ${path.split('/').last}');
+      },
+    ),
   );
 
   try {
@@ -80,14 +82,14 @@ void main(List<String> args) async {
     stderr.writeln('[$participantId] ✅ Joined operation');
     await operation.log('Worker joined', level: LogLevel.info);
 
-    // Push our own stack frame
-    stderr.writeln('[$participantId] Pushing stack frame...');
-    await operation.pushStackFrame(callId: '$participantId-work');
+    // Push our own call frame
+    stderr.writeln('[$participantId] Pushing call frame...');
+    await operation.createCallFrame(callId: '$participantId-work');
 
     // Verify we're in the stack
     final data = operation.cachedData;
-    final myFrame = data?.stack.where((f) => f.participantId == participantId);
-    stderr.writeln('[$participantId] Stack has ${data?.stack.length ?? 0} frames');
+    final myFrame = data?.callFrames.where((f) => f.participantId == participantId);
+    stderr.writeln('[$participantId] Stack has ${data?.callFrames.length ?? 0} frames');
     stderr.writeln('[$participantId] My frame: ${myFrame?.isNotEmpty == true ? 'present' : 'MISSING'}');
 
     // Heartbeat auto-started by joinOperation
@@ -107,17 +109,17 @@ void main(List<String> args) async {
     await operation.log('Work completed', level: LogLevel.info);
     stderr.writeln('[$participantId] Work complete!');
 
-    // Pop our stack frame
-    stderr.writeln('[$participantId] Popping stack frame...');
-    await operation.popStackFrame(callId: '$participantId-work');
+    // Pop our call frame
+    stderr.writeln('[$participantId] Popping call frame...');
+    await operation.deleteCallFrame(callId: '$participantId-work');
 
     // Leave the operation (stops heartbeat when join count reaches 0)
     operation.leave();
 
     // Verify we're no longer in the stack
     final dataAfter = operation.cachedData;
-    final myFrameAfter = dataAfter?.stack.where((f) => f.participantId == participantId);
-    stderr.writeln('[$participantId] Stack now has ${dataAfter?.stack.length ?? 0} frames');
+    final myFrameAfter = dataAfter?.callFrames.where((f) => f.participantId == participantId);
+    stderr.writeln('[$participantId] Stack now has ${dataAfter?.callFrames.length ?? 0} frames');
     stderr.writeln('[$participantId] My frame: ${myFrameAfter?.isEmpty == true ? 'removed ✅' : 'STILL PRESENT ❌'}');
 
     // Return success result via stdout (JSON)

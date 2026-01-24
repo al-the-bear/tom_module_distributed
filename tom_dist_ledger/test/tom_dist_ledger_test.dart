@@ -31,13 +31,13 @@ void main() {
     test('can track call execution', () async {
       final operation = await ledger.createOperation();
 
-      await operation.pushStackFrame(callId: 'call-1');
-      // Stack has 1 frame (pushStackFrame adds it)
-      expect(operation.cachedData?.stack.length, equals(1));
+      await operation.createCallFrame(callId: 'call-1');
+      // Stack has 1 frame (createCallFrame adds it)
+      expect(operation.cachedData?.callFrames.length, equals(1));
 
-      await operation.popStackFrame(callId: 'call-1');
+      await operation.deleteCallFrame(callId: 'call-1');
       // Stack should be empty now
-      expect(operation.cachedData?.stack.length, equals(0));
+      expect(operation.cachedData?.callFrames.length, equals(0));
     });
   });
 }

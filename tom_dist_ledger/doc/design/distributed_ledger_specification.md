@@ -55,7 +55,7 @@ The distributed ledger provides crash-resilient coordination for long-running op
 | **Call** | A tracked unit of work within an operation |
 | **SpawnedCall** | An asynchronous call that runs in the background |
 | **Ledger** | The file-based storage for operation state |
-| **Stack Frame** | A record of an active call in the ledger |
+| **Call Frame** | A record of an active call in the ledger |
 | **Heartbeat** | Periodic timestamp update to signal liveness |
 | **Cleanup** | Process of handling crashed participants |
 
@@ -107,8 +107,12 @@ The `Ledger` class is the main entry point:
 ```dart
 final ledger = Ledger(
   basePath: '/path/to/ledger',
-  participantId: 'my-service',        // Optional default participant ID
+  participantId: 'my-service',        // Required participant ID
   participantPid: pid,                 // Optional, defaults to current PID
+  callback: LedgerCallback(            // Optional grouped callbacks
+    onBackupCreated: (path) => print('Backup: $path'),
+    onLogLine: (line) => print('Log: $line'),
+  ),
   maxBackups: 20,                      // How many backups to retain
 );
 ```
@@ -342,7 +346,7 @@ class SyncResult {
   "detectionTimestamp": null,
   "removalTimestamp": null,
   "aborted": false,
-  "stack": [
+  "callFrames": [
     {
       "callId": "call_cli_1_a1b2",
       "participantId": "cli",
@@ -359,7 +363,7 @@ class SyncResult {
 }
 ```
 
-### StackFrame Fields
+### CallFrame Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -394,6 +398,24 @@ enum FrameState {
   cleanedUp,   // Completed cleanup
 }
 ```
+
+### Callback Classes
+
+The API provides three callback classes for different scopes:
+
+| Class | Scope | Key Callbacks |
+|-------|-------|---------------|
+| `LedgerCallback` | Ledger-level | `onBackupCreated`, `onLogLine`, `onGlobalHeartbeatError` |
+| `OperationCallback` | Operation-level | `onHeartbeatSuccess`, `onHeartbeatError`, `onAbort`, `onFailure` |
+| `CallCallback<T>` | Call-level | `onCleanup`, `onCompletion`, `onCallCrashed`, `onOperationFailed` |
+
+**LedgerCallback** - Passed to `Ledger()` constructor for ledger-wide events like backup creation and global heartbeat monitoring.
+
+**OperationCallback** - Passed to `createOperation()` or `joinOperation()` for operation-level events. Includes heartbeat monitoring (`onHeartbeatSuccess`, `onHeartbeatError`) and lifecycle events (`onAbort`, `onFailure`).
+
+**CallCallback<T>** - Passed to `startCall()` for call lifecycle events including cleanup, completion, and crash recovery.
+
+**Callback vs Future pattern:** `OperationCallback.onAbort` and `OperationCallback.onFailure` are alternatives to the `Operation.onAbort` and `Operation.onFailure` futures. Use callbacks for event-driven style, futures for racing with other work.
 
 ---
 
@@ -586,7 +608,7 @@ Coordinator waits for cleanup window, then:
 
 1. Lock operation file
 2. Cleanup remaining frames
-3. Remove all frames from stack
+3. Remove all call frames
 4. Set `operationState = failed`
 5. Record `removalTimestamp`
 
@@ -775,11 +797,11 @@ class HeartbeatResult {
   bool abortFlag;
   bool ledgerExists;
   bool heartbeatUpdated;
-  int stackDepth;
+  int callFrameCount;
   int tempResourceCount;
   int heartbeatAgeMs;
   bool isStale;
-  List<String> stackParticipants;
+  List<String> participants;
   Map<String, int> participantHeartbeatAges;
   List<String> staleParticipants;
   bool hasStaleChildren;

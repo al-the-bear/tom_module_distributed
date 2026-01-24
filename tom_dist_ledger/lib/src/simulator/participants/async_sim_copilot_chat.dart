@@ -28,7 +28,9 @@ class AsyncSimCopilotChat {
   }) : ledger = Ledger(
           basePath: basePath,
           participantId: 'copilot',
-          onBackupCreated: onBackupCreated,
+          callback: onBackupCreated != null
+              ? LedgerCallback(onBackupCreated: onBackupCreated)
+              : null,
         );
 
   /// Get the response file path for an operation.

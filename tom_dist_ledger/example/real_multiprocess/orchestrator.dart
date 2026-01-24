@@ -3,7 +3,7 @@
 /// This example demonstrates TRUE multi-process ledger participation:
 /// - Orchestrator creates an operation
 /// - Workers JOIN the operation using the shared ledger
-/// - Each worker pushes its own stack frame
+/// - Each worker pushes its own call frame
 /// - Workers are visible in the ledger while running
 /// - Validation confirms all workers appeared and disappeared correctly
 ///
@@ -30,14 +30,16 @@ void main() async {
   final ledger = Ledger(
     basePath: tempDir.path,
     participantId: 'orchestrator',
-    onBackupCreated: (path) {
-      backups.add(path);
-      print('📦 Backup created: ${path.split('/').last}');
-    },
+    callback: LedgerCallback(
+      onBackupCreated: (path) {
+        backups.add(path);
+        print('📦 Backup created: ${path.split('/').last}');
+      },
+    ),
   );
 
-  // Track max stack depth observed
-  int maxStackDepth = 0;
+  // Track max call frame count observed
+  int maxCallFrameCount = 0;
   final observedParticipants = <String>{};
 
   try {
@@ -52,9 +54,9 @@ void main() async {
 
     await operation.log('Operation started by orchestrator', level: LogLevel.info);
 
-    // Push orchestrator's stack frame
-    await operation.pushStackFrame(callId: 'orchestrator-main');
-    print('📌 Orchestrator pushed stack frame\n');
+    // Push orchestrator's call frame
+    await operation.createCallFrame(callId: 'orchestrator-main');
+    print('📌 Orchestrator pushed call frame\n');
 
     // Get the path to this example directory
     final scriptDir = Platform.script.toFilePath();
@@ -135,9 +137,9 @@ void main() async {
       print('');
     }
 
-    // Pop orchestrator's stack frame
-    await operation.popStackFrame(callId: 'orchestrator-main');
-    print('📌 Orchestrator popped stack frame\n');
+    // Pop orchestrator's call frame
+    await operation.deleteCallFrame(callId: 'orchestrator-main');
+    print('📌 Orchestrator popped call frame\n');
 
     // Complete the operation
     await operation.log('All workers completed', level: LogLevel.info);
@@ -163,50 +165,42 @@ void main() async {
       validationPassed = false;
     }
 
-    // 2. Check all workers were observed in the stack
+    // 2. Check all workers were observed in the call frames
     print('\n2. Stack participation:');
-    print('   Max stack depth observed: $maxStackDepth');
+    print('   Max call frame count observed: $maxCallFrameCount');
     print('   Participants observed: $observedParticipants');
     
     final missingParticipants = workers.where((w) => !observedParticipants.contains(w)).toList();
     if (missingParticipants.isEmpty) {
-      print('   ✅ All workers appeared in the stack during execution');
+      print('   ✅ All workers appeared in the call frames during execution');
     } else {
       print('   ❌ Missing workers from stack: $missingParticipants');
       validationPassed = false;
     }
 
-    // 3. Check final stack is empty
+    // 3. Check final stack is empty (operation is completed, check backup)
     print('\n3. Final stack state:');
-    final finalData = ledger.getOperation(operation.operationId)?.cachedData;
-    // Operation is completed, so we check the backup
-    if (finalData == null) {
-      // Operation completed - check backup folder
-      final backupFolder = Directory('${tempDir.path}/backup/${operation.operationId}');
-      if (backupFolder.existsSync()) {
-        final backupOpFile = File('${backupFolder.path}/operation.json');
-        if (backupOpFile.existsSync()) {
-          final backupData = LedgerData.fromJson(
-            jsonDecode(backupOpFile.readAsStringSync()) as Map<String, dynamic>,
-          );
-          if (backupData.stack.isEmpty) {
-            print('   ✅ Final stack is empty (verified from backup)');
-          } else {
-            print('   ❌ Stack still has ${backupData.stack.length} frames!');
-            for (final frame in backupData.stack) {
-              print('      - ${frame.participantId}: ${frame.callId}');
-            }
-            validationPassed = false;
+    final backupFolder = Directory('${tempDir.path}/backup/${operation.operationId}');
+    if (backupFolder.existsSync()) {
+      final backupOpFile = File('${backupFolder.path}/operation.json');
+      if (backupOpFile.existsSync()) {
+        final backupData = LedgerData.fromJson(
+          jsonDecode(backupOpFile.readAsStringSync()) as Map<String, dynamic>,
+        );
+        if (backupData.callFrames.isEmpty) {
+          print('   ✅ Final stack is empty (verified from backup)');
+        } else {
+          print('   ❌ Stack still has ${backupData.callFrames.length} frames!');
+          for (final frame in backupData.callFrames) {
+            print('      - ${frame.participantId}: ${frame.callId}');
           }
+          validationPassed = false;
         }
+      } else {
+        print('   ⚠️  Backup operation file not found');
       }
     } else {
-      if (finalData.stack.isEmpty) {
-        print('   ✅ Final stack is empty');
-      } else {
-        print('   ❌ Stack still has ${finalData.stack.length} frames!');
-        validationPassed = false;
-      }
+      print('   ⚠️  Backup folder not found');
     }
 
     // 4. Check backups were created

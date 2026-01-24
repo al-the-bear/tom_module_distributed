@@ -9,7 +9,7 @@ library;
 import 'dart:io';
 
 import 'package:test/test.dart';
-import 'package:tom_dist_ledger/tom_dist_ledger.dart';
+import 'package:tom_dist_ledger/test_simulator.dart';
 
 void main() {
   late Directory tempDir;
@@ -193,7 +193,7 @@ void main() {
         expect(result.exitCode, equals(0));
         // Should have fewer stack levels
         expect(
-          result.log.where((line) => line.contains('pushStackFrame')).length,
+          result.log.where((line) => line.contains('createCallFrame')).length,
           lessThan(5),
           reason: 'Should have simpler call stack without Bridge',
         );

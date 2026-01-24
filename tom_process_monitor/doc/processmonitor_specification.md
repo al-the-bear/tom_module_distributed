@@ -281,7 +281,7 @@ Partner discovery is disabled when `standaloneMode: true` in the global configur
 |-------|------|---------|-------------|
 | `startRemoteAccess` | bool | false | Enable HTTP remote API |
 | `remotePort` | int | 5679 | HTTP server port for remote API |
-| `trustedHosts` | string[] | ["localhost", "127.0.0.1", "::1"] | Hosts that bypass all permission checks |
+| `trustedHosts` | string[] | ["localhost", "127.0.0.1", "::1", "0.0.0.0"] | Hosts that bypass all permission checks. Supports patterns. |
 | `allowRemoteRegister` | bool | true | Allow remote process registration |
 | `allowRemoteDeregister` | bool | true | Allow remote process deregistration |
 | `allowRemoteStart` | bool | true | Allow remote process start |
@@ -289,8 +289,24 @@ Partner discovery is disabled when `standaloneMode: true` in the global configur
 | `allowRemoteDisable` | bool | true | Allow remote enable/disable |
 | `allowRemoteAutostart` | bool | true | Allow remote autostart changes |
 | `allowRemoteMonitorRestart` | bool | false | Allow remote ProcessMonitor restart |
-| `executableWhitelist` | string[] | [] | Glob patterns for allowed executables |
+| `executableWhitelist` | string[] | [] | Glob patterns for allowed executables. **Required for remote registration.** |
 | `executableBlacklist` | string[] | [] | Glob patterns for blocked executables |
+
+#### Trusted Hosts Patterns
+
+The `trustedHosts` field supports:
+- **Exact match**: `192.168.1.100`, `localhost`, `::1`
+- **IP wildcards**: `192.168.1.*` (matches 192.168.1.0-255), `10.0.*.*` (matches 10.0.0.0-10.0.255.255)
+- **Hostname wildcards**: `*.mydomain.com`, `server-*.local`
+
+#### Executable Whitelist Requirement
+
+**Security:** Remote process registration requires the command to match the executable whitelist. An empty whitelist **blocks all remote registrations** from non-trusted hosts.
+
+Whitelist patterns use glob syntax:
+- `/usr/bin/*` - any executable in /usr/bin
+- `/opt/myapp/**` - recursive match in /opt/myapp
+- `**/*.sh` - any shell script
 
 ### Aliveness Server Configuration
 
@@ -1521,6 +1537,29 @@ class RemoteProcessMonitorClient {
   RemoteProcessMonitorClient({String? baseUrl})
       : baseUrl = baseUrl ?? 'http://localhost:5679';
   
+  /// Auto-discover a ProcessMonitor instance.
+  ///
+  /// Discovery order:
+  /// 1. Try localhost:5679
+  /// 2. Try 127.0.0.1:5679
+  /// 3. Try 0.0.0.0:5679
+  /// 4. Scan local subnet (if network interfaces accessible)
+  ///
+  /// Throws [DiscoveryFailedException] if no instance found.
+  static Future<RemoteProcessMonitorClient> discover({
+    int port = 5679,
+    Duration timeout = const Duration(seconds: 5),
+  });
+  
+  /// Scan a subnet for ProcessMonitor instances.
+  /// [subnet] in format "192.168.1" (first 3 octets).
+  /// Returns list of responding URLs.
+  static Future<List<String>> scanSubnet(
+    String subnet, {
+    int port = 5679,
+    Duration timeout = const Duration(milliseconds: 500),
+  });
+  
   // --- Registration ---
   
   /// Register a new remote process.
@@ -2592,6 +2631,68 @@ Future<bool> checkAliveness(String url, Duration timeout) async {
     return false;
   }
 }
+```
+
+### AlivenessServerHelper
+
+For managed processes that need to expose aliveness endpoints:
+
+```dart
+/// Helper class for managed processes to expose aliveness endpoints.
+class AlivenessServerHelper {
+  final int port;
+  final AlivenessCallback callback;
+  
+  AlivenessServerHelper({
+    required this.port,
+    this.callback = const AlivenessCallback(),
+  });
+  
+  /// Start the aliveness server.
+  Future<void> start();
+  
+  /// Stop the aliveness server.
+  Future<void> stop();
+  
+  /// Add a custom route handler.
+  void addRoute(String path, Future<void> Function(HttpRequest) handler);
+}
+
+/// Callback interface for aliveness server events.
+class AlivenessCallback {
+  /// Called when a health check is requested.
+  /// Return true if healthy, false otherwise.
+  final Future<bool> Function()? onHealthCheck;
+  
+  /// Called when status is requested.
+  /// Return custom status data.
+  final Future<Map<String, dynamic>> Function()? onStatusRequest;
+  
+  const AlivenessCallback({
+    this.onHealthCheck,
+    this.onStatusRequest,
+  });
+}
+```
+
+**Endpoints Provided:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /health` | Returns 200 if healthy (via callback), 503 if unhealthy. JSON body with `healthy` and `timestamp`. |
+| `GET /status` | Returns custom status JSON from callback, plus `timestamp` and `pid`. |
+
+**Usage Example:**
+
+```dart
+final aliveness = AlivenessServerHelper(
+  port: 8080,
+  callback: AlivenessCallback(
+    onHealthCheck: () async => database.isConnected,
+    onStatusRequest: () async => {'version': '1.0.0', 'connections': 42},
+  ),
+);
+await aliveness.start();
 ```
 
 ---

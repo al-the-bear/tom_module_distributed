@@ -536,18 +536,48 @@ class RemoteApiServer {
 
     if (clientIp == null) return false;
 
-    return registry.remoteAccess.trustedHosts.contains(clientIp);
+    // Check each trusted host pattern
+    return registry.remoteAccess.trustedHosts.any((pattern) {
+      return _matchesTrustedHostPattern(clientIp!, pattern);
+    });
+  }
+
+  /// Matches a client IP or hostname against a trusted host pattern.
+  ///
+  /// Supports:
+  /// - Exact match: `192.168.1.100`, `localhost`
+  /// - IP wildcards: `192.168.1.*`, `10.0.*.*`
+  /// - Hostname wildcards: `*.mydomain.com`, `server-*.local`
+  bool _matchesTrustedHostPattern(String clientIp, String pattern) {
+    // Exact match
+    if (clientIp == pattern) return true;
+
+    // Check if pattern contains wildcard
+    if (!pattern.contains('*')) return false;
+
+    // Convert pattern to regex
+    // Escape special regex chars except *, then convert * to regex pattern
+    final escaped = pattern
+        .replaceAll('.', r'\.')
+        .replaceAll('*', '[^.]*'); // * matches any chars except dots
+
+    final regex = RegExp('^$escaped\$');
+    return regex.hasMatch(clientIp);
   }
 
   bool _isExecutableAllowed(String command, ProcessRegistry registry) {
     final whitelist = registry.remoteAccess.executableWhitelist;
     final blacklist = registry.remoteAccess.executableBlacklist;
 
-    // If whitelist is non-empty, command must match at least one pattern
-    if (whitelist.isNotEmpty) {
-      final matches = whitelist.any((pattern) => Glob(pattern).matches(command));
-      if (!matches) return false;
+    // Security: whitelist MUST be configured for remote registration to work.
+    // An empty whitelist blocks all remote registrations.
+    if (whitelist.isEmpty) {
+      return false;
     }
+
+    // Command must match at least one whitelist pattern
+    final matches = whitelist.any((pattern) => Glob(pattern).matches(command));
+    if (!matches) return false;
 
     // If blacklist is non-empty, command must not match any pattern
     if (blacklist.isNotEmpty) {

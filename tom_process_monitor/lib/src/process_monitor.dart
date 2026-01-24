@@ -659,6 +659,20 @@ class ProcessMonitor {
   }
 }
 
+/// Resolves the user home directory cross-platform.
+String _resolveHomeDirectory() {
+  // Try HOME first (Linux, macOS)
+  final home = Platform.environment['HOME'];
+  if (home != null) return home;
+
+  // Try USERPROFILE (Windows)
+  final userProfile = Platform.environment['USERPROFILE'];
+  if (userProfile != null) return userProfile;
+
+  // Fallback to current directory
+  return '.';
+}
+
 /// Resolves the default directory based on context.
 String _resolveDefaultDirectory() {
   final vsCodeWorkspace = Platform.environment['VSCODE_WORKSPACE_FOLDER'];
@@ -666,7 +680,7 @@ String _resolveDefaultDirectory() {
     return path.join(vsCodeWorkspace, '.tom', 'process_monitor');
   }
   return path.join(
-    Platform.environment['HOME'] ?? '.',
+    _resolveHomeDirectory(),
     '.tom',
     'process_monitor',
   );

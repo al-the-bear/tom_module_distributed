@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -8,6 +9,15 @@ import '../models/monitor_status.dart';
 import '../models/partner_discovery_config.dart';
 import '../models/process_config.dart';
 import '../models/process_status.dart';
+
+/// Exception thrown when auto-discovery fails to find a ProcessMonitor instance.
+class DiscoveryFailedException implements Exception {
+  final String message;
+  DiscoveryFailedException(this.message);
+
+  @override
+  String toString() => 'DiscoveryFailedException: $message';
+}
 
 /// Remote client API for interacting with ProcessMonitor via HTTP.
 class RemoteProcessMonitorClient {
@@ -20,6 +30,121 @@ class RemoteProcessMonitorClient {
   RemoteProcessMonitorClient({String? baseUrl})
       : baseUrl = baseUrl ?? 'http://localhost:5679',
         _client = http.Client();
+
+  /// Auto-discover a ProcessMonitor instance.
+  ///
+  /// Discovery order:
+  /// 1. Try localhost on default port (5679)
+  /// 2. Try 127.0.0.1 on default port
+  /// 3. Scan local subnet for ProcessMonitor instances
+  ///
+  /// Throws [DiscoveryFailedException] if no instance is found.
+  static Future<RemoteProcessMonitorClient> discover({
+    int port = 5679,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final client = http.Client();
+
+    try {
+      // List of URLs to try
+      final candidateUrls = <String>[
+        'http://localhost:$port',
+        'http://127.0.0.1:$port',
+        'http://0.0.0.0:$port',
+      ];
+
+      // Add local network addresses if we can determine them
+      try {
+        final interfaces = await NetworkInterface.list();
+        for (final interface in interfaces) {
+          for (final addr in interface.addresses) {
+            if (addr.type == InternetAddressType.IPv4) {
+              // Get subnet (assume /24 for simplicity)
+              final parts = addr.address.split('.');
+              if (parts.length == 4) {
+                final subnet = '${parts[0]}.${parts[1]}.${parts[2]}';
+                // Add common gateway addresses
+                candidateUrls.add('http://$subnet.1:$port');
+                // Add own address
+                candidateUrls.add('http://${addr.address}:$port');
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Ignore network interface errors
+      }
+
+      // Try each candidate
+      for (final url in candidateUrls) {
+        if (await _tryConnect(client, url, timeout)) {
+          return RemoteProcessMonitorClient(baseUrl: url);
+        }
+      }
+
+      throw DiscoveryFailedException(
+        'No ProcessMonitor instance found. Tried: ${candidateUrls.join(', ')}',
+      );
+    } finally {
+      // Don't close client here - the returned RemoteProcessMonitorClient
+      // will create its own client
+    }
+  }
+
+  /// Scans a subnet for ProcessMonitor instances.
+  ///
+  /// [subnet] should be in format "192.168.1" (first 3 octets).
+  /// Returns list of URLs where ProcessMonitor is responding.
+  static Future<List<String>> scanSubnet(
+    String subnet, {
+    int port = 5679,
+    Duration timeout = const Duration(milliseconds: 500),
+  }) async {
+    final client = http.Client();
+    final found = <String>[];
+
+    try {
+      // Scan in parallel batches to avoid too many connections
+      final batchSize = 20;
+      for (var start = 1; start < 255; start += batchSize) {
+        final end = (start + batchSize).clamp(1, 255);
+        final futures = <Future<bool>>[];
+        final urls = <String>[];
+
+        for (var i = start; i < end; i++) {
+          final url = 'http://$subnet.$i:$port';
+          urls.add(url);
+          futures.add(_tryConnect(client, url, timeout));
+        }
+
+        final results = await Future.wait(futures);
+        for (var i = 0; i < results.length; i++) {
+          if (results[i]) {
+            found.add(urls[i]);
+          }
+        }
+      }
+    } finally {
+      client.close();
+    }
+
+    return found;
+  }
+
+  static Future<bool> _tryConnect(
+    http.Client client,
+    String url,
+    Duration timeout,
+  ) async {
+    try {
+      final response = await client
+          .get(Uri.parse('$url/monitor/status'))
+          .timeout(timeout);
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Disposes the client.
   void dispose() {

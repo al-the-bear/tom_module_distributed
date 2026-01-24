@@ -310,5 +310,67 @@ void main() {
       await server.stop();
       expect(server.isRunning, isFalse);
     });
+
+    group('executable whitelist requirement', () {
+      test('registration fails with empty whitelist for non-trusted host',
+          () async {
+        // Configure registry with empty whitelist
+        final registry = await registryService.load();
+        registry.remoteAccess = RemoteAccessConfig(
+          startRemoteAccess: true,
+          executableWhitelist: [], // Empty whitelist
+          trustedHosts: [], // No trusted hosts
+        );
+        await registryService.save(registry);
+
+        final config = {
+          'id': 'blocked-process',
+          'name': 'Blocked Process',
+          'command': '/usr/bin/echo',
+          'args': [],
+          'autostart': false,
+        };
+
+        // Registration should fail due to empty whitelist
+        final response = await client.post(
+          Uri.parse('http://localhost:$port/processes'),
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Real-IP': '10.0.0.100', // Non-trusted host
+          },
+          body: jsonEncode(config),
+        );
+
+        // Should be forbidden or similar
+        expect(response.statusCode, equals(HttpStatus.forbidden));
+      });
+
+      test('registration succeeds when command matches whitelist', () async {
+        // Configure registry with whitelist
+        final registry = await registryService.load();
+        registry.remoteAccess = RemoteAccessConfig(
+          startRemoteAccess: true,
+          executableWhitelist: ['/usr/bin/*'],
+          trustedHosts: ['localhost', '127.0.0.1'],
+        );
+        await registryService.save(registry);
+
+        final config = {
+          'id': 'allowed-process',
+          'name': 'Allowed Process',
+          'command': '/usr/bin/echo',
+          'args': [],
+          'autostart': false,
+        };
+
+        final response = await client.post(
+          Uri.parse('http://localhost:$port/processes'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(config),
+        );
+
+        expect(response.statusCode, equals(HttpStatus.ok));
+      });
+    });
   });
 }

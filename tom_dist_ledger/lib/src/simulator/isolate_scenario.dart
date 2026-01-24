@@ -282,10 +282,12 @@ class _IsolateRunner {
       participantPid: config.pid,
       heartbeatInterval: Duration(milliseconds: config.heartbeatIntervalMs),
       staleThreshold: Duration(milliseconds: config.heartbeatTimeoutMs),
-      onBackupCreated: (path) {
-        final relativePath = path.replaceFirst('${config.basePath}/', '');
-        _log('backup → $relativePath');
-      },
+      callback: LedgerCallback(
+        onBackupCreated: (path) {
+          final relativePath = path.replaceFirst('${config.basePath}/', '');
+          _log('backup → $relativePath');
+        },
+      ),
     );
 
     // Auto-start behavior (non-blocking to allow shutdown command)
@@ -432,7 +434,7 @@ class _IsolateRunner {
       description: 'CLI initiated operation',
       callback: OperationCallback(
         onHeartbeatSuccess: (op, result) {
-          _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
+          _log('♥ heartbeat OK (frames: ${result.callFrameCount}, age: ${result.heartbeatAgeMs}ms)');
         },
         onHeartbeatError: (op, error) {
           _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
@@ -512,7 +514,7 @@ class _IsolateRunner {
       operationId: operationId,
       callback: OperationCallback(
         onHeartbeatSuccess: (op, result) {
-          _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
+          _log('♥ heartbeat OK (frames: ${result.callFrameCount}, age: ${result.heartbeatAgeMs}ms)');
         },
         onHeartbeatError: (op, error) {
           _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');
@@ -614,7 +616,7 @@ class _IsolateRunner {
       operationId: operationId,
       callback: OperationCallback(
         onHeartbeatSuccess: (op, result) {
-          _log('♥ heartbeat OK (stack: ${result.stackDepth}, age: ${result.heartbeatAgeMs}ms)');
+          _log('♥ heartbeat OK (frames: ${result.callFrameCount}, age: ${result.heartbeatAgeMs}ms)');
         },
         onHeartbeatError: (op, error) {
           _log('♥ heartbeat ERROR: ${error.type} - ${error.message}');

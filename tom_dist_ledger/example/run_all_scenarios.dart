@@ -9,7 +9,7 @@ library;
 
 import 'dart:io';
 
-import 'package:tom_dist_ledger/tom_dist_ledger.dart';
+import 'package:tom_dist_ledger/test_simulator.dart';
 
 void main() async {
   print('DPL Simulation - Running All Scenarios');
