@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import 'models/monitor_status.dart';
+import 'models/partner_discovery_config.dart';
 import 'models/process_entry.dart';
 import 'models/process_state.dart';
 import 'models/registry.dart';
@@ -38,6 +39,11 @@ class ProcessMonitor {
   DateTime? _startedAt;
   Timer? _monitorTimer;
   bool _restartRequested = false;
+
+  // Partner discovery state
+  String? _partnerStatus;
+  int? _partnerPid;
+  String? _partnerInstanceId;
 
   /// Creates a ProcessMonitor.
   ProcessMonitor({
@@ -93,13 +99,18 @@ class ProcessMonitor {
       await _registryService.save(registry);
     }
 
-    // 4. Detect crashed processes (were running but stale PIDs)
+    // 4. Partner discovery (if not in standalone mode)
+    if (!registry.standaloneMode) {
+      await _discoverPartner(registry);
+    }
+
+    // 5. Detect crashed processes (were running but stale PIDs)
     await _detectCrashedProcesses(registry);
 
-    // 5. Log configuration summary
+    // 6. Log configuration summary
     _logConfigSummary(registry);
 
-    // 6. Start aliveness server
+    // 7. Start aliveness server
     if (registry.alivenessServer.enabled) {
       _alivenessServer = AlivenessServer(
         port: registry.alivenessServer.port,
@@ -109,15 +120,15 @@ class ProcessMonitor {
       _log('Aliveness server started on port ${registry.alivenessServer.port}');
     }
 
-    // 7. Start remote API server if enabled
+    // 8. Start remote API server if enabled
     if (registry.remoteAccess.startRemoteAccess) {
       await _startRemoteServer(registry.remoteAccess.remotePort);
     }
 
-    // 8. Start autostart processes
+    // 9. Start autostart processes
     await _startAutostartProcesses(registry);
 
-    // 9. Begin monitoring loop
+    // 10. Begin monitoring loop
     _startMonitoringLoop(registry.monitorIntervalMs);
 
     _log('ProcessMonitor initialization complete');
@@ -288,11 +299,34 @@ class ProcessMonitor {
         _log('Remote API server stopped');
       }
 
+      // Update partner status periodically (if not standalone)
+      if (!registry.standaloneMode) {
+        await _updatePartnerStatus(registry.partnerDiscovery);
+      }
+
       // Monitor each process
       for (final process in registry.processes.values) {
         await _monitorProcess(process, registry);
       }
     });
+  }
+
+  /// Updates the partner status during monitoring.
+  Future<void> _updatePartnerStatus(PartnerDiscoveryConfig config) async {
+    if (config.partnerStatusUrl == null) return;
+
+    final statusData = await _alivenessChecker.fetchStatus(
+      config.partnerStatusUrl!,
+      timeout: const Duration(seconds: 2),
+    );
+
+    if (statusData != null) {
+      _partnerStatus = statusData['state'] as String? ?? 'running';
+      _partnerPid = statusData['pid'] as int?;
+    } else {
+      _partnerStatus = 'stopped';
+      _partnerPid = null;
+    }
   }
 
   Future<void> _monitorProcess(
@@ -411,6 +445,10 @@ class ProcessMonitor {
       )) {
         process.state = ProcessState.running;
         _log('Process ${process.id} started successfully after ${attempt + 1} checks');
+
+        // Fetch PID from statusUrl if configured
+        await _fetchProcessPid(process);
+
         return;
       }
       await Future<void>.delayed(Duration(milliseconds: check.checkIntervalMs));
@@ -509,10 +547,111 @@ class ProcessMonitor {
           ? DateTime.now().difference(_startedAt!).inSeconds
           : 0,
       state: _running ? 'running' : 'stopping',
-      standaloneMode: false, // Will be updated from registry
+      standaloneMode: registry.standaloneMode,
+      partnerInstanceId: _partnerInstanceId,
+      partnerStatus: _partnerStatus,
+      partnerPid: _partnerPid,
       managedProcessCount: processes.length,
       runningProcessCount: runningCount,
     );
+  }
+
+  /// Discovers and optionally starts the partner instance.
+  Future<void> _discoverPartner(ProcessRegistry registry) async {
+    final config = registry.partnerDiscovery;
+    _partnerInstanceId = config.partnerInstanceId;
+
+    if (!config.discoveryOnStartup) {
+      _log('Partner discovery disabled');
+      return;
+    }
+
+    _log('Discovering partner instance: ${config.partnerInstanceId}');
+
+    // Try to contact partner via aliveness endpoint
+    if (config.partnerStatusUrl != null) {
+      final statusData = await _alivenessChecker.fetchStatus(
+        config.partnerStatusUrl!,
+        timeout: const Duration(seconds: 2),
+      );
+
+      if (statusData != null) {
+        _partnerStatus = statusData['state'] as String? ?? 'running';
+        _partnerPid = statusData['pid'] as int?;
+        _log(
+          'Partner found: ${config.partnerInstanceId} '
+          '(PID: $_partnerPid, status: $_partnerStatus)',
+        );
+        return;
+      }
+    }
+
+    // Partner not found
+    _partnerStatus = 'stopped';
+    _partnerPid = null;
+    _log('Partner not found: ${config.partnerInstanceId}');
+
+    if (config.startPartnerIfMissing) {
+      _log('Starting partner instance...');
+      // Start the watcher/default partner
+      await _startPartnerInstance(config);
+    }
+  }
+
+  /// Starts the partner ProcessMonitor instance.
+  Future<void> _startPartnerInstance(PartnerDiscoveryConfig config) async {
+    final executable = Platform.resolvedExecutable;
+    final partnerInstanceId = config.partnerInstanceId ?? 'watcher';
+
+    // Start partner as detached process
+    final args = [
+      ...Platform.executableArguments,
+      '--instance=$partnerInstanceId',
+    ];
+
+    _log('Starting partner: $executable ${args.join(' ')}');
+
+    try {
+      await Process.start(
+        executable,
+        args,
+        mode: ProcessStartMode.detached,
+      );
+
+      // Wait for partner to start
+      await Future<void>.delayed(const Duration(seconds: 2));
+
+      // Re-check partner status
+      if (config.partnerStatusUrl != null) {
+        final statusData = await _alivenessChecker.fetchStatus(
+          config.partnerStatusUrl!,
+          timeout: const Duration(seconds: 2),
+        );
+
+        if (statusData != null) {
+          _partnerStatus = statusData['state'] as String? ?? 'running';
+          _partnerPid = statusData['pid'] as int?;
+          _log('Partner started successfully (PID: $_partnerPid)');
+        }
+      }
+    } catch (e) {
+      _log('Failed to start partner: $e');
+    }
+  }
+
+  /// Fetches PID from statusUrl after process startup.
+  Future<void> _fetchProcessPid(ProcessEntry process) async {
+    if (process.alivenessCheck?.statusUrl == null) return;
+
+    final fetchedPid = await _alivenessChecker.fetchPid(
+      process.alivenessCheck!.statusUrl!,
+      timeout: Duration(milliseconds: process.alivenessCheck!.timeoutMs),
+    );
+
+    if (fetchedPid != null) {
+      _log('Discovered PID $fetchedPid for ${process.id} via statusUrl');
+      process.pid = fetchedPid;
+    }
   }
 
   void _log(String message) {
