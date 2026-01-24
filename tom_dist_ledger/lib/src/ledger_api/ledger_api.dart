@@ -5,46 +5,12 @@ import 'dart:math';
 
 import '../ledger_local/file_ledger.dart';
 import 'call_callback.dart';
+import 'ledger_base.dart';
 
-// Re-export callback types
+// Re-export types
 export 'call_callback.dart';
-
-/// Heartbeat error types.
-enum HeartbeatErrorType {
-  ledgerNotFound,
-  lockFailed,
-  abortFlagSet,
-  heartbeatStale,
-  ioError,
-}
-
-/// Heartbeat error with details.
-class HeartbeatError {
-  final HeartbeatErrorType type;
-  final String message;
-  final Object? cause;
-
-  const HeartbeatError({
-    required this.type,
-    required this.message,
-    this.cause,
-  });
-
-  @override
-  String toString() => 'HeartbeatError($type): $message';
-}
-
-/// Callback for heartbeat errors.
-typedef HeartbeatErrorCallback = void Function(
-  Operation operation,
-  HeartbeatError error,
-);
-
-/// Callback for successful heartbeat.
-typedef HeartbeatSuccessCallback = void Function(
-  Operation operation,
-  HeartbeatResult result,
-);
+export 'ledger_base.dart';
+export 'ledger_types.dart';
 
 /// Internal callback for heartbeat errors (uses _LedgerOperation).
 typedef _InternalHeartbeatErrorCallback = void Function(
@@ -115,11 +81,12 @@ class _ActiveCall {
 /// handle1.leave(cancelPendingCalls: true);
 /// handle2.leave(cancelPendingCalls: true);
 /// ```
-class Operation {
+class Operation implements OperationBase {
   /// The underlying ledger operation (internal).
   final _LedgerOperation _operation;
 
   /// This operation's unique session ID within the ledger operation.
+  @override
   final int sessionId;
 
   Operation._(this._operation, this.sessionId);
@@ -129,18 +96,22 @@ class Operation {
   // ─────────────────────────────────────────────────────────────
 
   /// The operation ID.
+  @override
   String get operationId => _operation.operationId;
 
   /// The participant ID.
+  @override
   String get participantId => _operation.participantId;
 
   /// The process ID.
   int get pid => _operation.pid;
 
   /// Whether this is the initiator.
+  @override
   bool get isInitiator => _operation.isInitiator;
 
   /// When this operation was started.
+  @override
   DateTime get startTime => _operation.startTime;
 
   /// Cached operation data.
@@ -150,9 +121,11 @@ class Operation {
   DateTime? get lastChangeTimestamp => _operation.lastChangeTimestamp;
 
   /// Whether this participant is aborted.
+  @override
   bool get isAborted => _operation.isAborted;
 
   /// Future that completes when abort is signaled.
+  @override
   Future<void> get onAbort => _operation.onAbort;
 
   /// Future that completes when operation fails.
@@ -267,6 +240,7 @@ class Operation {
   ///
   /// When the last session leaves, the heartbeat is stopped and the
   /// operation is unregistered.
+  @override
   void leave({bool cancelPendingCalls = false}) {
     _operation._leaveSession(sessionId, cancelPendingCalls: cancelPendingCalls);
   }
@@ -276,19 +250,24 @@ class Operation {
   // ─────────────────────────────────────────────────────────────
 
   /// Write an entry to the operation log.
+  @override
   Future<void> log(String message, {LogLevel level = LogLevel.info}) =>
       _operation.log(message, level: level);
 
   /// Complete the operation (for initiator only).
+  @override
   Future<void> complete() => _operation.complete();
 
   /// Set the abort flag on the operation.
+  @override
   Future<void> setAbortFlag(bool value) => _operation.setAbortFlag(value);
 
   /// Check if the operation is aborted.
+  @override
   Future<bool> checkAbort() => _operation.checkAbort();
 
   /// Trigger local abort for this participant.
+  @override
   void triggerAbort() => _operation.triggerAbort();
 
   /// Wait for work while monitoring for operation failure.
@@ -2270,18 +2249,20 @@ class _LedgerOperation {
 ///   participantId: 'bridge',
 /// );
 /// ```
-class Ledger {
+class Ledger extends LedgerBase {
   final String basePath;
 
   /// The participant ID for this ledger instance.
   ///
   /// This identifies who is interacting with the ledger. Each participant
   /// (CLI, Bridge, VS Code, etc.) should have its own unique ID.
+  @override
   final String participantId;
 
   /// The process ID for this participant.
   ///
   /// Defaults to the current process PID if not specified in constructor.
+  @override
   final int participantPid;
 
   /// Grouped callbacks for ledger events.
@@ -2294,6 +2275,7 @@ class Ledger {
       callback?.onGlobalHeartbeatError;
 
   /// Maximum number of backup operations to retain.
+  @override
   final int maxBackups;
 
   late final Directory _ledgerDir;
@@ -2310,9 +2292,11 @@ class Ledger {
   static const _lockRetryInterval = Duration(milliseconds: 50);
 
   /// Heartbeat interval for global monitoring.
+  @override
   final Duration heartbeatInterval;
 
   /// Staleness threshold for detecting crashed operations.
+  @override
   final Duration staleThreshold;
 
   /// Creates a new Ledger instance.
@@ -3031,7 +3015,119 @@ class Ledger {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Internal API for server use with custom participantId
+  // ─────────────────────────────────────────────────────────────
+
+  /// Create a new operation on behalf of a remote client.
+  ///
+  /// **Server use only:** This method allows the server to create operations
+  /// on behalf of remote clients, using the client's participantId.
+  ///
+  /// The [participantId] should be the remote client's identifier.
+  /// The [participantPid] is optional; defaults to -1 for remote clients.
+  Future<Operation> createOperationForClient$({
+    required String participantId,
+    int participantPid = -1,
+    String? description,
+    OperationCallback? callback,
+  }) async {
+    final operationId = _generateOperationId(participantId);
+    return await _startOperationWithId(
+      operationId: operationId,
+      participantId: participantId,
+      participantPid: participantPid,
+      description: description,
+      callback: callback,
+    );
+  }
+
+  /// Join an existing operation on behalf of a remote client.
+  ///
+  /// **Server use only:** This method allows the server to join operations
+  /// on behalf of remote clients, using the client's participantId.
+  ///
+  /// The [participantId] should be the remote client's identifier.
+  /// The [participantPid] is optional; defaults to -1 for remote clients.
+  Future<Operation> joinOperationForClient$({
+    required String operationId,
+    required String participantId,
+    int participantPid = -1,
+    OperationCallback? callback,
+  }) async {
+    // Check if already have an internal _LedgerOperation for this operationId
+    var ledgerOp = _operations[operationId];
+    final isFirstJoin = ledgerOp == null;
+
+    if (isFirstJoin) {
+      // First join - create new _LedgerOperation
+      final joinTime = DateTime.now();
+
+      ledgerOp = _LedgerOperation._(
+        ledger: this,
+        operationId: operationId,
+        participantId: participantId,
+        pid: participantPid,
+        isInitiator: false,
+        startTime: joinTime,
+      );
+
+      // Load current state
+      await ledgerOp._refreshCache();
+
+      // Register in global registry
+      _operations[operationId] = ledgerOp;
+    }
+
+    // Create a new session and wrap in Operation
+    final sessionId = ledgerOp._createSession();
+    final operation = Operation._(ledgerOp, sessionId);
+
+    // Start heartbeat on first join with optional callbacks
+    if (isFirstJoin) {
+      operation.startHeartbeat(
+        interval: heartbeatInterval,
+        onSuccess: callback?.onHeartbeatSuccess,
+        onError: callback?.onHeartbeatError,
+      );
+    }
+
+    // Wire up abort and failure callbacks (for each join)
+    if (callback?.onAbort != null) {
+      unawaited(ledgerOp.onAbort.then((_) {
+        callback!.onAbort!(operation);
+      }));
+    }
+    if (callback?.onFailure != null) {
+      unawaited(ledgerOp.onFailure.then((info) {
+        callback!.onFailure!(operation, info);
+      }));
+    }
+
+    return operation;
+  }
+
+  /// Get an operation by ID (for server use).
+  ///
+  /// **Server use only:** Returns the internal [Operation] for the given
+  /// operation ID, or null if not found.
+  Operation? getOperationForServer$(String operationId) {
+    final ledgerOp = _operations[operationId];
+    if (ledgerOp == null) return null;
+    // Create an Operation with session 0 (server context)
+    return Operation._(ledgerOp, 0);
+  }
+
+  /// Get the internal ledger operation for direct access.
+  ///
+  /// **Server use only:** Returns the internal [_LedgerOperation] for
+  /// low-level operations like deleteCallFrame.
+  _LedgerOperation? getInternalOperation$(String operationId) {
+    return _operations[operationId];
+  }
+
   /// Dispose of the ledger and stop all heartbeats.
+  @override
   void dispose() {
     _stopGlobalHeartbeat();
     for (final operation in _operations.values) {

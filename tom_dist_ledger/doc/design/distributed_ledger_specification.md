@@ -98,6 +98,152 @@ Example: `20260122T14:30:45.123-cli-a1b2c3d4`
 
 ---
 
+## HTTP/REST Architecture
+
+### Remote Access Overview
+
+The distributed ledger supports both local and remote access patterns:
+
+| Access Pattern | Class | Use Case |
+|---------------|-------|----------|
+| **Local** | `Ledger` | Same machine, file-based storage |
+| **Remote** | `RemoteLedgerClient` | Network access via HTTP server |
+
+Both implement the same `LedgerBase` interface, allowing transparent switching between local and remote access.
+
+### Unified API
+
+The remote API is **identical** to the local API, with the only difference being initialization:
+
+| Feature | Local (`Operation`) | Remote (`RemoteOperation`) |
+|---------|---------------------|---------------------------|
+| `startCall<T>()` | Returns `Call<T>` | Returns `Call<T>` |
+| `spawnCall<T>()` | Returns `SpawnedCall<T>` | Returns `SpawnedCall<T>` |
+| `CallCallback<T>` | Full support | Full support (client-side) |
+| Session tracking | Full support | Full support |
+| `sync()` | Full support | Full support |
+
+**Key design decision**: The server only handles file operations (read/write ledger JSON files, register call frames, update heartbeats). All callbacks, work execution, and session tracking happen client-side. This means:
+
+- Callbacks are invoked on the client, not from the server
+- Work functions run in the client process
+- Type safety is preserved end-to-end
+- Server remains stateless
+
+### Class Hierarchy
+
+```
+LedgerBase (abstract)
+├── Ledger           # Local file-based ledger
+└── RemoteLedgerClient  # HTTP client for remote access
+
+OperationBase (abstract)
+├── Operation        # Local operation handle
+└── RemoteOperation  # Remote operation handle (same API as Operation)
+```
+
+### LedgerServer
+
+The `LedgerServer` class provides HTTP access to the ledger:
+
+```dart
+final server = await LedgerServer.start(
+  basePath: '/tmp/ledger',
+  port: 8765,
+  address: InternetAddress.anyIPv4,  // Optional, defaults to loopback
+);
+```
+
+The server is stateless - each request reads/writes files directly. Remote clients send their `participantId` with each request.
+
+### RemoteLedgerClient
+
+Clients connect using `RemoteLedgerClient`:
+
+```dart
+final client = RemoteLedgerClient(
+  serverUrl: 'http://localhost:8765',
+  participantId: 'remote_worker',
+  heartbeatInterval: Duration(seconds: 5),
+  staleThreshold: Duration(seconds: 15),
+);
+```
+
+### HTTP Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Server health check |
+| `/operation/create` | POST | Create new operation |
+| `/operation/join` | POST | Join existing operation |
+| `/operation/leave` | POST | Leave operation session |
+| `/operation/complete` | POST | Complete operation (initiator) |
+| `/operation/heartbeat` | POST | Send heartbeat |
+| `/operation/abort` | POST | Set abort flag |
+| `/operation/state` | POST | Get operation state |
+| `/operation/log` | POST | Write to operation log |
+| `/call/start` | POST | Start a call |
+| `/call/end` | POST | End call successfully |
+| `/call/fail` | POST | Fail call with error |
+
+### Request/Response Format
+
+All endpoints use JSON. Example request:
+
+```json
+POST /operation/create
+{
+  "participantId": "remote_worker",
+  "participantPid": 12345,
+  "description": "Remote processing task"
+}
+```
+
+Example response:
+
+```json
+{
+  "operationId": "20260122T14:30:45.123-remote_worker-a1b2c3d4",
+  "participantId": "remote_worker",
+  "isInitiator": true,
+  "sessionId": 1,
+  "startTime": "2026-01-22T14:30:45.123Z"
+}
+```
+
+### Error Handling
+
+Errors return appropriate HTTP status codes:
+
+| Status | Meaning |
+|--------|---------|
+| 200 | Success |
+| 400 | Bad request (missing parameters) |
+| 404 | Operation not found |
+| 500 | Server error |
+
+Error response format:
+
+```json
+{
+  "error": "Missing operationId"
+}
+```
+
+### RemoteLedgerException
+
+Client-side errors throw `RemoteLedgerException`:
+
+```dart
+try {
+  final op = await client.joinOperation(operationId: 'invalid');
+} on RemoteLedgerException catch (e) {
+  print('Error: ${e.message} (status: ${e.statusCode})');
+}
+```
+
+---
+
 ## API Design
 
 ### Ledger Class

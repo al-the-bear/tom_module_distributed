@@ -8,7 +8,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../ledger_local/file_ledger.dart' show HeartbeatResult;
-import 'ledger_api.dart' show HeartbeatError, Operation;
+import 'ledger_base.dart' show OperationBase;
+import 'ledger_types.dart' show HeartbeatError;
 
 /// Callback structure for ledger-level events.
 ///
@@ -42,7 +43,7 @@ class LedgerCallback {
   ///
   /// This is for errors detected during background monitoring
   /// of all operations, not specific to a single operation.
-  final void Function(Operation operation, HeartbeatError error)? onGlobalHeartbeatError;
+  final void Function(OperationBase operation, HeartbeatError error)? onGlobalHeartbeatError;
 
   /// Creates a ledger callback with optional handlers.
   const LedgerCallback({
@@ -84,14 +85,14 @@ class OperationCallback {
   /// Called on each successful heartbeat.
   ///
   /// Use this for monitoring heartbeat health and call frame state.
-  final void Function(Operation operation, HeartbeatResult result)? onHeartbeatSuccess;
+  final void Function(OperationBase operation, HeartbeatResult result)? onHeartbeatSuccess;
 
   /// Called when a heartbeat detects a failure.
   ///
   /// The [HeartbeatError] contains information about what failed
   /// (stale participant, missing file, etc.). Use this to trigger
   /// recovery or cleanup actions.
-  final void Function(Operation operation, HeartbeatError error)? onHeartbeatError;
+  final void Function(OperationBase operation, HeartbeatError error)? onHeartbeatError;
 
   /// Called when the operation is aborted.
   ///
@@ -99,7 +100,7 @@ class OperationCallback {
   /// the heartbeat detects that the abort flag has been set.
   ///
   /// Alternative: Use [Operation.onAbort] future for async/await patterns.
-  final void Function(Operation operation)? onAbort;
+  final void Function(OperationBase operation)? onAbort;
 
   /// Called when the operation fails.
   ///
@@ -107,7 +108,7 @@ class OperationCallback {
   /// when the operation enters cleanup/failed state.
   ///
   /// Alternative: Use [Operation.onFailure] future for async/await patterns.
-  final void Function(Operation operation, OperationFailedInfo info)? onFailure;
+  final void Function(OperationBase operation, OperationFailedInfo info)? onFailure;
 
   /// Creates an operation callback with optional handlers.
   const OperationCallback({
@@ -119,14 +120,14 @@ class OperationCallback {
 
   /// Creates a callback that only handles errors.
   factory OperationCallback.onError(
-    void Function(Operation operation, HeartbeatError error) onError,
+    void Function(OperationBase operation, HeartbeatError error) onError,
   ) {
     return OperationCallback(onHeartbeatError: onError);
   }
 
   /// Creates a callback that only handles operation failure.
   factory OperationCallback.onFailure(
-    void Function(Operation operation, OperationFailedInfo info) onFailure,
+    void Function(OperationBase operation, OperationFailedInfo info) onFailure,
   ) {
     return OperationCallback(onFailure: onFailure);
   }
@@ -447,7 +448,7 @@ class SpawnedCall<T> {
   ///
   /// Throws [StateError] if the call failed.
   /// This is an alias for `await future; return result;`
-  Future<T> await_() async {
+  Future<T> await() async {
     await _completer.future;
     return result;
   }

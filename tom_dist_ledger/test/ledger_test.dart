@@ -984,7 +984,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       HeartbeatResult? receivedResult;
-      Operation? receivedOperation;
+      OperationBase? receivedOperation;
 
       operation.startHeartbeat(
         interval: const Duration(milliseconds: 50),

@@ -1,0 +1,16 @@
+name: tom_dist_ledger_tool
+description: Distributed Ledger HTTP Server for remote ledger access.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  tom_dist_ledger:
+    path: ../tom_dist_ledger
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
+

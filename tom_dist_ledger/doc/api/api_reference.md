@@ -6,20 +6,91 @@ Comprehensive API reference for the `tom_dist_ledger` package.
 
 ## Table of Contents
 
-1. [Ledger Class](#ledger-class)
-2. [Operation Class](#operation-class)
-3. [Call Class](#call-class)
-4. [SpawnedCall Class](#spawnedcall-class)
-6. [SyncResult Class](#syncresult-class)
-7. [OperationHelper Class](#operationhelper-class)
-8. [Data Classes](#data-classes)
-9. [Enums](#enums)
-10. [Type Definitions](#type-definitions)
-11. [Usage Examples](#usage-examples)
+1. [Abstract Base Classes](#abstract-base-classes)
+   - [LedgerBase](#ledgerbase)
+   - [OperationBase](#operationbase)
+2. [Local Ledger Classes](#local-ledger-classes)
+   - [Ledger Class](#ledger-class)
+   - [Operation Class](#operation-class)
+3. [Remote Ledger Classes](#remote-ledger-classes)
+   - [LedgerServer](#ledgerserver)
+   - [RemoteLedgerClient](#remoteledgerclient)
+   - [RemoteOperation](#remoteoperation)
+   - [RemoteLedgerException](#remoteledgerexception)
+4. [Call Classes](#call-classes)
+   - [Call Class](#call-class)
+   - [SpawnedCall Class](#spawnedcall-class)
+5. [SyncResult Class](#syncresult-class)
+6. [OperationHelper Class](#operationhelper-class)
+7. [Data Classes](#data-classes)
+8. [Enums](#enums)
+9. [Type Definitions](#type-definitions)
+10. [Usage Examples](#usage-examples)
 
 ---
 
-## Ledger Class
+## Abstract Base Classes
+
+### LedgerBase
+
+Abstract base class for ledger implementations. Both `Ledger` (local) and `RemoteLedgerClient` (remote) extend this class.
+
+```dart
+abstract class LedgerBase
+```
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `participantId` | `String` | Unique identifier for this ledger instance |
+| `participantPid` | `int` | Process ID for this participant |
+| `maxBackups` | `int` | Maximum backup operations to retain |
+| `heartbeatInterval` | `Duration` | Interval between heartbeats |
+| `staleThreshold` | `Duration` | Threshold for detecting stale participants |
+
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `dispose()` | Dispose of the ledger and stop all heartbeats |
+
+### OperationBase
+
+Abstract base class for operation handles. Both `Operation` (local) and `RemoteOperation` (remote) implement this interface.
+
+```dart
+abstract class OperationBase
+```
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `operationId` | `String` | The operation ID |
+| `participantId` | `String` | The participant ID |
+| `isInitiator` | `bool` | Whether this is the initiator |
+| `sessionId` | `int` | The session ID for this handle |
+| `startTime` | `DateTime` | When this operation was started |
+| `isAborted` | `bool` | Whether this participant is aborted |
+| `onAbort` | `Future<void>` | Future that completes when abort is signaled |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `leave({bool cancelPendingCalls})` | `FutureOr<void>` | Leave this session |
+| `log(String message, {LogLevel level})` | `Future<void>` | Write to operation log |
+| `complete()` | `Future<void>` | Complete operation (initiator only) |
+| `setAbortFlag(bool value)` | `Future<void>` | Set abort flag |
+| `checkAbort()` | `Future<bool>` | Check if operation is aborted |
+| `triggerAbort()` | `void` | Trigger local abort |
+
+---
+
+## Local Ledger Classes
+
+### Ledger Class
 
 Main entry point for the distributed ledger system.
 
@@ -119,7 +190,7 @@ Future<void> dispose()
 
 ---
 
-## Operation Class
+### Operation Class
 
 Represents a running operation for a specific join session.
 
@@ -672,7 +743,417 @@ Future<void> unregisterTempResource({required String path})
 
 ---
 
-## Call Class
+## Remote Ledger Classes
+
+### LedgerServer
+
+HTTP server that provides remote access to the distributed ledger.
+
+```dart
+class LedgerServer
+```
+
+#### Factory Method
+
+##### start
+
+Start the ledger server.
+
+```dart
+static Future<LedgerServer> start({
+  required String basePath,
+  int port = 8765,
+  InternetAddress? address,
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `basePath` | `String` | required | Directory for ledger files |
+| `port` | `int` | `8765` | Port to listen on |
+| `address` | `InternetAddress?` | loopback | Address to bind to |
+
+**Returns:** `LedgerServer` - Running server instance.
+
+**Example:**
+
+```dart
+final server = await LedgerServer.start(
+  basePath: '/tmp/ledger',
+  port: 8765,
+);
+print('Server listening on http://localhost:${server.port}');
+```
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `port` | `int` | Port the server is listening on |
+| `basePath` | `String` | Base path for ledger files |
+
+#### Methods
+
+##### stop
+
+Stop the server.
+
+```dart
+Future<void> stop()
+```
+
+**Example:**
+
+```dart
+await server.stop();
+```
+
+#### HTTP Endpoints
+
+| Endpoint | Method | Request Body | Description |
+|----------|--------|--------------|-------------|
+| `/health` | GET | - | Health check |
+| `/operation/create` | POST | `{participantId, description?, participantPid?}` | Create operation |
+| `/operation/join` | POST | `{operationId, participantId, participantPid?}` | Join operation |
+| `/operation/leave` | POST | `{operationId, cancelPendingCalls?}` | Leave operation |
+| `/operation/complete` | POST | `{operationId}` | Complete operation |
+| `/operation/heartbeat` | POST | `{operationId}` | Send heartbeat |
+| `/operation/abort` | POST | `{operationId, value}` | Set abort flag |
+| `/operation/state` | POST | `{operationId}` | Get operation state |
+| `/operation/log` | POST | `{operationId, message, level?}` | Write log entry |
+| `/call/start` | POST | `{operationId, sessionId, description?, failOnCrash?}` | Start call |
+| `/call/end` | POST | `{operationId, callId}` | End call successfully |
+| `/call/fail` | POST | `{operationId, callId, error}` | Fail call with error |
+
+---
+
+### RemoteLedgerClient
+
+HTTP client for remote ledger access. Provides the same API as `Ledger` but communicates with a remote `LedgerServer`.
+
+```dart
+class RemoteLedgerClient extends LedgerBase
+```
+
+#### Constructor
+
+```dart
+RemoteLedgerClient({
+  required String serverUrl,
+  required String participantId,
+  int? participantPid,
+  int maxBackups = 20,
+  Duration heartbeatInterval = const Duration(seconds: 5),
+  Duration staleThreshold = const Duration(seconds: 15),
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `serverUrl` | `String` | required | URL of the ledger server |
+| `participantId` | `String` | required | Unique identifier for this client |
+| `participantPid` | `int?` | current PID | Process ID |
+| `maxBackups` | `int` | `20` | Maximum backups to retain |
+| `heartbeatInterval` | `Duration` | 5 seconds | Heartbeat interval |
+| `staleThreshold` | `Duration` | 15 seconds | Staleness threshold |
+
+**Example:**
+
+```dart
+final client = RemoteLedgerClient(
+  serverUrl: 'http://localhost:8765',
+  participantId: 'remote_worker',
+);
+```
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `serverUrl` | `String` | URL of the ledger server |
+| `participantId` | `String` | This client's participant ID |
+| `participantPid` | `int` | This client's process ID |
+| `maxBackups` | `int` | Maximum backups to retain |
+| `heartbeatInterval` | `Duration` | Heartbeat interval |
+| `staleThreshold` | `Duration` | Staleness threshold |
+
+#### Methods
+
+##### createOperation
+
+Create a new operation on the remote server.
+
+```dart
+Future<RemoteOperation> createOperation({
+  String? description,
+  OperationCallback? callback,
+})
+```
+
+**Returns:** `RemoteOperation` - Remote operation handle with heartbeat auto-started.
+
+##### joinOperation
+
+Join an existing operation on the remote server.
+
+```dart
+Future<RemoteOperation> joinOperation({
+  required String operationId,
+  OperationCallback? callback,
+})
+```
+
+**Returns:** `RemoteOperation` - Remote operation handle.
+
+##### dispose
+
+Dispose of the client and stop all heartbeats.
+
+```dart
+void dispose()
+```
+
+---
+
+### RemoteOperation
+
+Remote operation handle with session tracking. Implements `OperationBase` and provides the **same unified API** as `Operation` but communicates with a remote server.
+
+**Unified API**: `RemoteOperation` has the same typed API as `Operation`:
+- `startCall<T>()` returns `Call<T>` (same as local)
+- `spawnCall<T>()` returns `SpawnedCall<T>` (same as local)
+- Full `CallCallback<T>` support (callbacks execute client-side)
+- Full session call tracking
+
+```dart
+class RemoteOperation implements OperationBase
+```
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `operationId` | `String` | The operation ID |
+| `participantId` | `String` | The participant ID |
+| `pid` | `int` | Process ID |
+| `isInitiator` | `bool` | Whether this is the initiator |
+| `sessionId` | `int` | Session ID for this handle |
+| `startTime` | `DateTime` | When operation was started |
+| `isAborted` | `bool` | Whether this participant is aborted |
+| `onAbort` | `Future<void>` | Completes when abort is signaled |
+| `onFailure` | `Future<OperationFailedInfo>` | Completes when operation fails |
+| `elapsedFormatted` | `String` | Elapsed time as "SSS.mmm" |
+| `elapsedDuration` | `Duration` | Elapsed duration since start |
+| `startTimeIso` | `String` | Start time as ISO 8601 string |
+| `startTimeMs` | `int` | Start time in milliseconds since epoch |
+
+#### Methods
+
+##### startCall
+
+Start a typed call tracked to this session. Returns `Call<T>` with full callback support.
+
+```dart
+Future<Call<T>> startCall<T>({
+  CallCallback<T>? callback,
+  String? description,
+  bool failOnCrash = true,
+})
+```
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `callback` | `CallCallback<T>?` | `null` | Callbacks for completion, cleanup, crash |
+| `description` | `String?` | `null` | Human-readable call description |
+| `failOnCrash` | `bool` | `true` | Whether crash fails entire operation |
+
+**Returns:** `Call<T>` - Typed call handle (same as local `Operation.startCall<T>()`).
+
+##### spawnCall
+
+Spawn a typed call that runs work asynchronously.
+
+```dart
+SpawnedCall<T> spawnCall<T>({
+  Future<T> Function()? work,
+  Future<T> Function(SpawnedCall<T>)? workWithCall,
+  CallCallback<T>? callback,
+  String? description,
+  bool failOnCrash = true,
+})
+```
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `work` | `Future<T> Function()?` | Async work function |
+| `workWithCall` | `Future<T> Function(SpawnedCall<T>)?` | Work with call access |
+| `callback` | `CallCallback<T>?` | Callbacks for completion, cleanup, crash |
+| `description` | `String?` | Human-readable call description |
+| `failOnCrash` | `bool` | Whether crash fails entire operation |
+
+**Returns:** `SpawnedCall<T>` - Typed spawned call handle (same as local).
+
+##### Session Call Tracking
+
+```dart
+/// Whether there are pending calls in this session
+bool hasPendingCalls()
+
+/// Get list of pending call IDs
+List<String> getPendingCalls()
+
+/// Get list of pending spawned calls
+List<SpawnedCall> getPendingSpawnedCalls()
+```
+
+##### sync
+
+Wait for multiple spawned calls to complete.
+
+```dart
+Future<SyncResult> sync(
+  List<SpawnedCall> calls, {
+  Future<void> Function(OperationFailedInfo)? onOperationFailed,
+})
+```
+
+##### awaitCall
+
+Wait for a spawned call and get its result.
+
+```dart
+Future<T> awaitCall<T>(SpawnedCall<T> call)
+```
+
+##### waitForCompletion
+
+Execute work and wait for completion with operation failure handling.
+
+```dart
+Future<T> waitForCompletion<T>(
+  Future<T> Function() work, {
+  Future<void> Function(OperationFailedInfo)? onOperationFailed,
+  Future<T> Function(Object, StackTrace)? onError,
+})
+```
+
+##### leave
+
+Leave this session of the operation.
+
+```dart
+Future<void> leave({bool cancelPendingCalls = false})
+```
+
+##### log
+
+Write an entry to the operation log.
+
+```dart
+Future<void> log(String message, {LogLevel level = LogLevel.info})
+```
+
+##### complete
+
+Complete the operation (for initiator only).
+
+```dart
+Future<void> complete()
+```
+
+##### setAbortFlag
+
+Set the abort flag on the operation.
+
+```dart
+Future<void> setAbortFlag(bool value)
+```
+
+##### checkAbort
+
+Check if the operation is aborted.
+
+```dart
+Future<bool> checkAbort()
+```
+
+##### triggerAbort
+
+Trigger local abort for this participant.
+
+```dart
+void triggerAbort()
+```
+
+##### startHeartbeat
+
+Start the client-side heartbeat.
+
+```dart
+void startHeartbeat({
+  Duration interval = const Duration(milliseconds: 4500),
+  int jitterMs = 500,
+  HeartbeatErrorCallback? onError,
+  HeartbeatSuccessCallback? onSuccess,
+})
+```
+
+##### stopHeartbeat
+
+Stop the heartbeat.
+
+```dart
+void stopHeartbeat()
+```
+
+##### heartbeat
+
+Perform a single heartbeat.
+
+```dart
+Future<HeartbeatResult?> heartbeat()
+```
+
+---
+
+### RemoteLedgerException
+
+Exception thrown by remote ledger operations.
+
+```dart
+class RemoteLedgerException implements Exception
+```
+
+#### Constructor
+
+```dart
+RemoteLedgerException(String message, {int? statusCode})
+```
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `message` | `String` | Error message from server |
+| `statusCode` | `int?` | HTTP status code |
+
+**Example:**
+
+```dart
+try {
+  final op = await client.joinOperation(operationId: 'invalid');
+} on RemoteLedgerException catch (e) {
+  print('Error: ${e.message} (status: ${e.statusCode})');
+}
+```
+
+---
+
+## Call Classes
+
+### Call Class
 
 Represents an active synchronous call. Returned by `Operation.startCall()`.
 
@@ -741,7 +1222,7 @@ try {
 
 ---
 
-## SpawnedCall Class
+### SpawnedCall Class
 
 Represents a call that was spawned asynchronously.
 
