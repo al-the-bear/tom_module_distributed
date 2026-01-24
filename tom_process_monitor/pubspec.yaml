@@ -1,0 +1,17 @@
+name: tom_process_monitor
+description: Process lifecycle management with file-based registry and HTTP APIs.
+version: 1.0.0
+repository: https://github.com/al-the-bear/tom_module_distributed
+
+environment:
+  sdk: ^3.10.4
+
+dependencies:
+  path: ^1.9.0
+  http: ^1.2.0
+  glob: ^2.1.0
+  args: ^2.5.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
