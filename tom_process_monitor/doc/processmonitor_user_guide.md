@@ -50,16 +50,18 @@ By default, ProcessMonitor stores its files in `~/.tom/process_monitor/`:
 
 ```
 .tom/process_monitor/
-├── registry.json          # Process registry
-├── registry.lock          # Lock file for concurrent access
-├── watcher_registry.json  # Watcher registry (if enabled)
-├── watcher_registry.lock  # Watcher lock file
-└── logs/                  # Process logs
-    ├── pm.log             # ProcessMonitor logs
-    ├── watcher.log        # Watcher logs
-    └── {process-id}/      # Individual process logs
-        ├── stdout.log
-        └── stderr.log
+├── processes_default.json       # Default instance registry
+├── processes_default.lock       # Default instance lock file
+├── processes_watcher.json       # Watcher instance registry
+├── processes_watcher.lock       # Watcher instance lock file
+├── default_logs/                # Default instance logs
+│   ├── 20260124_103000_default.log
+│   └── my-server/               # Process logs
+│       └── 20260124_103000/
+│           ├── stdout.log
+│           └── stderr.log
+└── watcher_logs/                # Watcher instance logs
+    └── 20260124_103005_watcher.log
 ```
 
 ### Port Configuration
@@ -155,9 +157,9 @@ void main() async {
   print('Managed processes: ${status.managedProcessCount}');
   
   // List all processes
-  final processes = await client.listProcesses();
-  for (final process in processes) {
-    print('${process.id}: ${process.state}');
+  final processes = await client.getAllStatus();
+  for (final entry in processes.entries) {
+    print('${entry.key}: ${entry.value.state}');
   }
   
   // Register and start a process
@@ -236,8 +238,10 @@ AlivenessCheck(
   consecutiveFailuresRequired: 2,    // Failures before marking dead
   startupCheck: StartupCheck(
     enabled: true,
-    maxWaitMs: 30000,                // Wait up to 30 seconds
-    intervalMs: 500,                 // Check every 500ms
+    initialDelayMs: 2000,            // Wait before first check
+    checkIntervalMs: 1000,           // Check every 1 second
+    maxAttempts: 30,                 // Max attempts before failing
+    failAction: 'restart',           // 'restart', 'disable', or 'fail'
   ),
 )
 ```
@@ -270,15 +274,17 @@ Control what remote clients can do:
 
 ```dart
 await client.setRemoteAccessPermissions(
-  allowRemoteRegister: true,
-  allowRemoteStart: true,
-  allowRemoteStop: true,
-  allowRemoteKill: false,            // Dangerous operation
-  allowRemoteMonitorRestart: false,  // Dangerous operation
+  allowRegister: true,
+  allowDeregister: true,
+  allowStart: true,
+  allowStop: true,
+  allowDisable: true,
+  allowAutostart: true,
+  allowMonitorRestart: false,        // Dangerous operation
 );
 
 // Configure trusted hosts (bypass restrictions)
-await client.setTrustedHosts(['192.168.1.100', '10.0.0.0/8']);
+await client.setTrustedHosts(['192.168.1.100', 'localhost']);
 
 // Configure executable whitelist/blacklist
 await client.setRemoteExecutableWhitelist([
@@ -324,10 +330,10 @@ try {
 
 ProcessMonitor logs to:
 - Console (when running in foreground)
-- `logs/pm.log` (default instance)
-- `logs/watcher.log` (watcher instance)
-- `logs/{process-id}/stdout.log` (process stdout)
-- `logs/{process-id}/stderr.log` (process stderr)
+- `default_logs/YYYYMMDD_HHMMSS_default.log` (default instance)
+- `watcher_logs/YYYYMMDD_HHMMSS_watcher.log` (watcher instance)
+- `default_logs/{process-id}/YYYYMMDD_HHMMSS/stdout.log` (process stdout)
+- `default_logs/{process-id}/YYYYMMDD_HHMMSS/stderr.log` (process stderr)
 
 ## Best Practices
 
@@ -342,10 +348,10 @@ ProcessMonitor logs to:
 
 ### Process won't start
 
-1. Check the process logs in `logs/{process-id}/stderr.log`
+1. Check the process logs in `default_logs/{process-id}/YYYYMMDD_HHMMSS/stderr.log`
 2. Verify the command and arguments are correct
 3. Check if the process is disabled
-4. Look for error messages in `logs/pm.log`
+4. Look for error messages in `default_logs/YYYYMMDD_HHMMSS_default.log`
 
 ### ProcessMonitor not responding
 
