@@ -369,14 +369,10 @@ String _resolveHomeDirectory() {
   return '.';
 }
 
-/// Resolves the default directory based on context.
+/// Resolves the default directory.
+/// Uses the user's home directory (~/.tom/process_monitor/).
+/// Override with the --directory command-line option.
 String _resolveDefaultDirectory() {
-  // In VS Code context: workspace root
-  // Outside VS Code: user home directory
-  final vsCodeWorkspace = Platform.environment['VSCODE_WORKSPACE_FOLDER'];
-  if (vsCodeWorkspace != null) {
-    return path.join(vsCodeWorkspace, '.tom', 'process_monitor');
-  }
   return path.join(
     _resolveHomeDirectory(),
     '.tom',

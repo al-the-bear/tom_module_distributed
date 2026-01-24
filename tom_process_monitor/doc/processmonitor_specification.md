@@ -74,10 +74,8 @@ All ProcessMonitor files are stored in:
 
 **Directory Resolution:**
 
-| Context | Base Path |
-|---------|-----------|
-| VS Code workspace | Workspace root (absolute root, not sub-workspace) |
-| Outside VS Code | User home directory (`~/.tom/process_monitor/`) |
+By default, ProcessMonitor uses `~/.tom/process_monitor/` in the user's home directory.
+Use the `--directory` command-line option to specify a custom location.
 
 ### Files
 
@@ -930,15 +928,13 @@ class ProcessMonitorClient {
   Future<void> restartMonitor();
 }
 
-/// Resolves the default directory based on context.
+/// Resolves the default directory.
+/// Uses the user's home directory (~/.tom/process_monitor/).
 String _resolveDefaultDirectory() {
-  // In VS Code context: workspace root
-  // Outside VS Code: user home directory
-  final vsCodeWorkspace = Platform.environment['VSCODE_WORKSPACE_FOLDER'];
-  if (vsCodeWorkspace != null) {
-    return path.join(vsCodeWorkspace, '.tom', 'process_monitor');
-  }
-  return path.join(Platform.environment['HOME'] ?? '.', '.tom', 'process_monitor');
+  final home = Platform.environment['HOME'] 
+      ?? Platform.environment['USERPROFILE'] 
+      ?? '.';
+  return path.join(home, '.tom', 'process_monitor');
 }
 ```
 

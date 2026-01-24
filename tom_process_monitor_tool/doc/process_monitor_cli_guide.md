@@ -360,7 +360,6 @@ volumes:
 
 | Variable | Platform | Description |
 |----------|----------|-------------|
-| `VSCODE_WORKSPACE_FOLDER` | All | If set, uses this as the base for the default directory |
 | `HOME` | Linux, macOS | User home directory for default path resolution |
 | `USERPROFILE` | Windows | User home directory for default path resolution (used if HOME not set) |
 
