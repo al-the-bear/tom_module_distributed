@@ -38,7 +38,7 @@ void main() async {
   // Remote API example
   print('\nUsing Remote API:');
   final remoteClient = RemoteProcessMonitorClient(
-    baseUrl: 'http://localhost:5679',
+    baseUrl: 'http://localhost:19881',
   );
 
   try {

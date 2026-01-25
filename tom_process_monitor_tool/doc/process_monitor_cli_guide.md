@@ -8,8 +8,8 @@ ProcessMonitor provides two CLI tools:
 
 | Tool | Description | Default Ports |
 |------|-------------|---------------|
-| `process_monitor` | Main ProcessMonitor daemon | Aliveness: 5681, Remote: 5679 |
-| `monitor_watcher` | Watcher instance that monitors the main daemon | Aliveness: 5682, Remote: 5680 |
+| `process_monitor` | Main ProcessMonitor daemon | Aliveness: 19883, Remote: 19881 |
+| `monitor_watcher` | Watcher instance that monitors the main daemon | Aliveness: 19884, Remote: 19882 |
 
 ## Installation
 
@@ -304,8 +304,8 @@ services:
     volumes:
       - pm-data:/root/.tom/process_monitor
     ports:
-      - "5679:5679"
-      - "5681:5681"
+      - "19881:19881"
+      - "19883:19883"
 
 volumes:
   pm-data:
@@ -320,7 +320,7 @@ volumes:
 **Solutions:**
 1. Try running with `--foreground` to see error messages
 2. Check if another instance is already running
-3. Verify port availability (5679, 5681)
+3. Verify port availability (19881, 19883)
 
 ### Cannot connect to running instance
 
@@ -328,7 +328,7 @@ volumes:
 
 **Solutions:**
 1. Verify the instance is actually running: `ps aux | grep process_monitor`
-2. Check if the remote API port (5679) is accessible
+2. Check if the remote API port (19881) is accessible
 3. Verify you're using the correct `--directory` if using a custom path
 
 ### Permission errors
@@ -345,7 +345,7 @@ volumes:
 **Symptom:** "Address already in use" error
 
 **Solutions:**
-1. Check for other instances: `lsof -i :5679` and `lsof -i :5681`
+1. Check for other instances: `lsof -i :19881` and `lsof -i :19883`
 2. Kill any orphaned processes
 3. Wait for the port to be released (may take up to 60 seconds)
 
@@ -370,7 +370,7 @@ When ProcessMonitor starts for the first time:
 1. **Creates directory structure**: `~/.tom/process_monitor/` and log subdirectories
 2. **Creates registry file**: `processes_default.json` with default settings
 3. **Creates lock file**: `processes_default.lock` for exclusive access
-4. **Starts servers**: Aliveness server (5681) and Remote API server (5679)
+4. **Starts servers**: Aliveness server (19883) and Remote API server (19881)
 
 The default registry is initialized with:
 - Remote access enabled

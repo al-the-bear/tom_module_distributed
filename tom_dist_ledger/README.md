@@ -107,7 +107,7 @@ import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 // Start server on a specific port
 final server = await LedgerServer.start(
   basePath: '/path/to/ledger',
-  port: 19876,
+  port: 19880,
 );
 
 print('Server running on port ${server.port}');
@@ -129,7 +129,7 @@ final client = await RemoteLedgerClient.connect(
 
 // Or connect to a specific server
 final client = await RemoteLedgerClient.connect(
-  serverUrl: 'http://localhost:19876',
+  serverUrl: 'http://localhost:19880',
   participantId: 'my_client',
 );
 
@@ -146,7 +146,7 @@ For synchronous construction when you already have the server URL:
 
 ```dart
 final client = RemoteLedgerClient(
-  serverUrl: 'http://localhost:19876',
+  serverUrl: 'http://localhost:19880',
   participantId: 'my_client',
 );
 ```
@@ -166,7 +166,7 @@ Configure discovery options:
 ```dart
 final client = await RemoteLedgerClient.connect(
   participantId: 'client',
-  port: 19876,
+  port: 19880,
   timeout: Duration(seconds: 1),      // Connection timeout per host
   scanSubnet: true,                   // Enable subnet scanning
   logger: (msg) => print(msg),        // Optional progress logging
@@ -178,7 +178,7 @@ Or use `ServerDiscovery` directly to find all available servers:
 ```dart
 final servers = await ServerDiscovery.discoverAll(
   DiscoveryOptions(
-    port: 19876,
+    port: 19880,
     timeout: Duration(milliseconds: 500),
     scanSubnet: true,
   ),

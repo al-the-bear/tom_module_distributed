@@ -8,8 +8,8 @@ import 'package:tom_process_monitor_tool/tom_process_monitor_tool.dart';
 /// and is monitored by the watcher instance.
 ///
 /// Default ports:
-/// - Aliveness: 5681
-/// - Remote API: 5679
+/// - Aliveness: 19883
+/// - Remote API: 19881
 void main(List<String> args) async {
   final command = ProcessMonitorCommand();
   final exitCode = await command.run(args);

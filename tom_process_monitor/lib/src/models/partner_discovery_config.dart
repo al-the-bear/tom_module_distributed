@@ -29,14 +29,14 @@ class PartnerDiscoveryConfig {
     if (instanceId == 'default') {
       return const PartnerDiscoveryConfig(
         partnerInstanceId: 'watcher',
-        partnerAlivenessPort: 5682,
-        partnerStatusUrl: 'http://localhost:5682/status',
+        partnerAlivenessPort: 19884,
+        partnerStatusUrl: 'http://localhost:19884/status',
       );
     } else {
       return const PartnerDiscoveryConfig(
         partnerInstanceId: 'default',
-        partnerAlivenessPort: 5681,
-        partnerStatusUrl: 'http://localhost:5681/status',
+        partnerAlivenessPort: 19883,
+        partnerStatusUrl: 'http://localhost:19883/status',
       );
     }
   }

@@ -30,7 +30,7 @@ import '../ledger_api/ledger_api.dart';
 ///
 /// // Or connect to a specific server
 /// final client = await RemoteLedgerClient.connect(
-///   serverUrl: 'http://localhost:19876',
+///   serverUrl: 'http://localhost:19880',
 ///   participantId: 'remote_worker',
 /// );
 ///
@@ -47,7 +47,7 @@ import '../ledger_api/ledger_api.dart';
 ///
 /// ```dart
 /// final client = RemoteLedgerClient(
-///   serverUrl: 'http://localhost:19876',
+///   serverUrl: 'http://localhost:19880',
 ///   participantId: 'remote_worker',
 /// );
 /// ```
@@ -84,7 +84,7 @@ class RemoteLedgerClient extends LedgerBase {
   /// Creates a new remote ledger client.
   ///
   /// Parameters:
-  /// - [serverUrl] - URL of the ledger server (e.g., 'http://localhost:19876')
+  /// - [serverUrl] - URL of the ledger server (e.g., 'http://localhost:19880')
   /// - [participantId] - Unique identifier for this client
   /// - [participantPid] - Process ID (defaults to current PID)
   /// - [heartbeatInterval] - How often to send heartbeats
@@ -122,7 +122,7 @@ class RemoteLedgerClient extends LedgerBase {
   ///
   /// // Connect to a specific server
   /// final client = await RemoteLedgerClient.connect(
-  ///   serverUrl: 'http://192.168.1.100:19876',
+  ///   serverUrl: 'http://192.168.1.100:19880',
   ///   participantId: 'my_client',
   /// );
   /// ```
@@ -133,7 +133,7 @@ class RemoteLedgerClient extends LedgerBase {
     int maxBackups = 20,
     Duration heartbeatInterval = const Duration(seconds: 5),
     Duration staleThreshold = const Duration(seconds: 15),
-    int port = 19876,
+    int port = 19880,
     Duration timeout = const Duration(milliseconds: 500),
     bool scanSubnet = true,
     void Function(String message)? logger,
@@ -185,7 +185,7 @@ class RemoteLedgerClient extends LedgerBase {
     int maxBackups = 20,
     Duration heartbeatInterval = const Duration(seconds: 5),
     Duration staleThreshold = const Duration(seconds: 15),
-    int port = 19876,
+    int port = 19880,
     Duration timeout = const Duration(milliseconds: 500),
     bool scanSubnet = true,
     void Function(String message)? logger,

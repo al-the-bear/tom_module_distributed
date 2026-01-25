@@ -39,7 +39,7 @@ class RemoteAccessConfig {
   /// Creates a remote access configuration.
   const RemoteAccessConfig({
     this.startRemoteAccess = false,
-    this.remotePort = 5679,
+    this.remotePort = 19881,
     this.trustedHosts = const ['localhost', '127.0.0.1', '::1'],
     this.allowRemoteRegister = true,
     this.allowRemoteDeregister = true,
@@ -59,7 +59,7 @@ class RemoteAccessConfig {
   factory RemoteAccessConfig.fromJson(Map<String, dynamic> json) {
     return RemoteAccessConfig(
       startRemoteAccess: json['startRemoteAccess'] as bool? ?? false,
-      remotePort: json['remotePort'] as int? ?? 5679,
+      remotePort: json['remotePort'] as int? ?? 19881,
       trustedHosts:
           (json['trustedHosts'] as List<dynamic>?)
               ?.map((e) => e as String)

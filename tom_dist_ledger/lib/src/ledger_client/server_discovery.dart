@@ -54,7 +54,7 @@ class DiscoveryOptions {
 
   /// Creates discovery options.
   const DiscoveryOptions({
-    this.port = 19876,
+    this.port = 19880,
     this.timeout = const Duration(milliseconds: 500),
     this.scanSubnet = true,
     this.maxConcurrent = 20,

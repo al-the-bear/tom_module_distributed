@@ -133,7 +133,7 @@ class CliRunner {
 
     // Use remote client to interact with running instance
     final remoteClient = RemoteProcessMonitorClient(
-      baseUrl: 'http://localhost:5679',
+      baseUrl: 'http://localhost:19881',
     );
 
     if (stop) {
@@ -188,7 +188,7 @@ class CliRunner {
 
     // Use remote client to interact with running instance
     final remoteClient = RemoteProcessMonitorClient(
-      baseUrl: 'http://localhost:5680',
+      baseUrl: 'http://localhost:19882',
     );
 
     if (stop) {

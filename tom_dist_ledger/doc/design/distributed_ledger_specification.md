@@ -149,7 +149,7 @@ The `LedgerServer` class provides HTTP access to the ledger:
 ```dart
 final server = await LedgerServer.start(
   basePath: '/tmp/ledger',
-  port: 19876,
+  port: 19880,
   address: InternetAddress.anyIPv4,  // Optional, defaults to loopback
 );
 ```
@@ -168,7 +168,7 @@ final client = await RemoteLedgerClient.connect(
 
 // Or connect to a specific server
 final client = await RemoteLedgerClient.connect(
-  serverUrl: 'http://localhost:19876',
+  serverUrl: 'http://localhost:19880',
   participantId: 'remote_worker',
   heartbeatInterval: Duration(seconds: 5),
   staleThreshold: Duration(seconds: 15),
@@ -179,7 +179,7 @@ If auto-discovery is not needed, direct construction is also available:
 
 ```dart
 final client = RemoteLedgerClient(
-  serverUrl: 'http://localhost:19876',
+  serverUrl: 'http://localhost:19880',
   participantId: 'remote_worker',
 );
 ```

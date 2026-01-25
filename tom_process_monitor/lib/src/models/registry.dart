@@ -11,13 +11,13 @@ class AlivenessServerConfig {
   final int port;
 
   /// Creates an aliveness server configuration.
-  const AlivenessServerConfig({this.enabled = true, this.port = 5681});
+  const AlivenessServerConfig({this.enabled = true, this.port = 19883});
 
   /// Creates an AlivenessServerConfig from JSON.
   factory AlivenessServerConfig.fromJson(Map<String, dynamic> json) {
     return AlivenessServerConfig(
       enabled: json['enabled'] as bool? ?? true,
-      port: json['port'] as int? ?? 5681,
+      port: json['port'] as int? ?? 19883,
     );
   }
 
@@ -115,7 +115,7 @@ class ProcessRegistry {
        remoteAccess = remoteAccess ?? RemoteAccessConfig.defaultConfig,
        alivenessServer =
            alivenessServer ??
-           AlivenessServerConfig(port: instanceId == 'watcher' ? 5682 : 5681),
+           AlivenessServerConfig(port: instanceId == 'watcher' ? 19884 : 19883),
        processes = processes ?? {};
 
   /// Creates a ProcessRegistry from JSON.
@@ -143,7 +143,7 @@ class ProcessRegistry {
           ? AlivenessServerConfig.fromJson(
               json['alivenessServer'] as Map<String, dynamic>,
             )
-          : AlivenessServerConfig(port: instanceId == 'watcher' ? 5682 : 5681),
+          : AlivenessServerConfig(port: instanceId == 'watcher' ? 19884 : 19883),
       watcherInfo: json['watcherInfo'] != null
           ? WatcherInfo.fromJson(json['watcherInfo'] as Map<String, dynamic>)
           : null,

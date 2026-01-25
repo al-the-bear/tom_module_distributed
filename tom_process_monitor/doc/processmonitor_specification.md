@@ -44,7 +44,7 @@ The ProcessMonitor is a daemon-like component that:
 |                                                                   |
 |  +-------------------------------------------------------------+  |
 |  |                    REMOTE HTTP API                          |  |
-|  |  Port: 5679 (configurable)                                  |  |
+|  |  Port: 19881 (configurable)                                  |  |
 |  |                                                             |  |
 |  |  POST /processes | DELETE /processes/{id}                   |  |
 |  |  POST /processes/{id}/start | POST /processes/{id}/stop    |  |
@@ -53,7 +53,7 @@ The ProcessMonitor is a daemon-like component that:
 |                                                                   |
 |  +-------------------------------------------------------------+  |
 |  |                   ALIVENESS SERVER                          |  |
-|  |  Port: 5681 (default) or 5682 (watcher)                     |  |
+|  |  Port: 19883 (default) or 19884 (watcher)                     |  |
 |  |                                                             |  |
 |  |  GET /alive -> "OK"                                         |  |
 |  +-------------------------------------------------------------+  |
@@ -173,14 +173,14 @@ The registry file (`processes_{id}.json`) contains the complete configuration of
   "standaloneMode": false,
   "partnerDiscovery": {
     "partnerInstanceId": "watcher",
-    "partnerAlivenessPort": 5682,
-    "partnerStatusUrl": "http://localhost:5682/status",
+    "partnerAlivenessPort": 19884,
+    "partnerStatusUrl": "http://localhost:19884/status",
     "discoveryOnStartup": true,
     "startPartnerIfMissing": false
   },
   "remoteAccess": {
     "startRemoteAccess": true,
-    "remotePort": 5679,
+    "remotePort": 19881,
     "trustedHosts": ["localhost", "127.0.0.1", "::1"],
     "allowRemoteRegister": true,
     "allowRemoteDeregister": true,
@@ -201,12 +201,12 @@ The registry file (`processes_{id}.json`) contains the complete configuration of
   },
   "alivenessServer": {
     "enabled": true,
-    "port": 5681
+    "port": 19883
   },
   "watcherInfo": {
     "watcherPid": 54321,
     "watcherInstanceId": "watcher",
-    "watcherAlivenessPort": 5682
+    "watcherAlivenessPort": 19884
   },
   "processes": {
     "process-id-1": {
@@ -268,8 +268,8 @@ Partner discovery is disabled when `standaloneMode: true` in the global configur
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `partnerInstanceId` | string | (auto) | Partner instance ID ("watcher" for default, "default" for watcher) |
-| `partnerAlivenessPort` | int | (auto) | Partner aliveness port (5682 for default→watcher, 5681 for watcher→default) |
-| `partnerStatusUrl` | string | (auto) | URL to fetch partner status (e.g., `http://localhost:5682/status`) |
+| `partnerAlivenessPort` | int | (auto) | Partner aliveness port (19884 for default→watcher, 19883 for watcher→default) |
+| `partnerStatusUrl` | string | (auto) | URL to fetch partner status (e.g., `http://localhost:19884/status`) |
 | `discoveryOnStartup` | bool | true | Attempt to discover partner on startup |
 | `startPartnerIfMissing` | bool | false | Start partner if not found on startup |
 
@@ -278,7 +278,7 @@ Partner discovery is disabled when `standaloneMode: true` in the global configur
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `startRemoteAccess` | bool | false | Enable HTTP remote API |
-| `remotePort` | int | 5679 | HTTP server port for remote API |
+| `remotePort` | int | 19881 | HTTP server port for remote API |
 | `trustedHosts` | string[] | ["localhost", "127.0.0.1", "::1", "0.0.0.0"] | Hosts that bypass all permission checks. Supports patterns. |
 | `allowRemoteRegister` | bool | true | Allow remote process registration |
 | `allowRemoteDeregister` | bool | true | Allow remote process deregistration |
@@ -311,7 +311,7 @@ Whitelist patterns use glob syntax:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | true | Enable aliveness HTTP server |
-| `port` | int | 5681/5682 | Aliveness server port (5681 for default, 5682 for watcher) |
+| `port` | int | 19883/19884 | Aliveness server port (19883 for default, 19884 for watcher) |
 
 ### Watcher Info
 
@@ -646,7 +646,7 @@ ProcessMonitor.start(instanceId: "default")
     +---> 7. START REMOTE API SERVER (if enabled)
     |         |
     |         +---> If remoteAccess.startRemoteAccess:
-    |               Start HTTP server on remotePort (default 5679)
+    |               Start HTTP server on remotePort (default 19881)
     |
     +---> 8. START AUTOSTART PROCESSES
     |         |
@@ -1148,7 +1148,7 @@ The remote API is enabled when `remoteAccess.startRemoteAccess` is `true` in the
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Port | 5679 | HTTP server port |
+| Port | 19881 | HTTP server port |
 | Bind Address | 0.0.0.0 | Listen on all interfaces |
 
 ### Security Model
@@ -1403,7 +1403,7 @@ POST /monitor/restart
 
 ```bash
 # Restart ProcessMonitor from localhost (trusted by default)
-curl -X POST http://localhost:5679/monitor/restart
+curl -X POST http://localhost:19881/monitor/restart
 
 # Response
 {"success": true, "message": "ProcessMonitor restart initiated"}
@@ -1502,8 +1502,8 @@ Content-Type: application/json
 
 {
   "partnerInstanceId": "watcher",
-  "partnerAlivenessPort": 5682,
-  "partnerStatusUrl": "http://localhost:5682/status",
+  "partnerAlivenessPort": 19884,
+  "partnerStatusUrl": "http://localhost:19884/status",
   "discoveryOnStartup": true,
   "startPartnerIfMissing": false
 }
@@ -1529,21 +1529,21 @@ class RemoteProcessMonitorClient {
   /// Base URL of the ProcessMonitor HTTP API.
   final String baseUrl;
   
-  /// Default: http://localhost:5679
+  /// Default: http://localhost:19881
   RemoteProcessMonitorClient({String? baseUrl})
-      : baseUrl = baseUrl ?? 'http://localhost:5679';
+      : baseUrl = baseUrl ?? 'http://localhost:19881';
   
   /// Auto-discover a ProcessMonitor instance.
   ///
   /// Discovery order:
-  /// 1. Try localhost:5679
-  /// 2. Try 127.0.0.1:5679
-  /// 3. Try 0.0.0.0:5679
+  /// 1. Try localhost:19881
+  /// 2. Try 127.0.0.1:19881
+  /// 3. Try 0.0.0.0:19881
   /// 4. Scan local subnet (if network interfaces accessible)
   ///
   /// Throws [DiscoveryFailedException] if no instance found.
   static Future<RemoteProcessMonitorClient> discover({
-    int port = 5679,
+    int port = 19881,
     Duration timeout = const Duration(seconds: 5),
   });
   
@@ -1552,7 +1552,7 @@ class RemoteProcessMonitorClient {
   /// Returns list of responding URLs.
   static Future<List<String>> scanSubnet(
     String subnet, {
-    int port = 5679,
+    int port = 19881,
     Duration timeout = const Duration(milliseconds: 500),
   });
   
@@ -1669,7 +1669,7 @@ class RemoteProcessMonitorClient {
 
 ```dart
 final remote = RemoteProcessMonitorClient(
-  baseUrl: 'http://192.168.1.100:5679',
+  baseUrl: 'http://192.168.1.100:19881',
 );
 
 // Register a remote process
@@ -2070,7 +2070,7 @@ The ProcessMonitor supports running two instances that monitor each other: a **d
      +------------------------+      +------------------------+
      |   DEFAULT INSTANCE     |      |   WATCHER INSTANCE     |
      |   instanceId: default  |      |   instanceId: watcher  |
-     |   alivenessPort: 5681  |      |   alivenessPort: 5682  |
+     |   alivenessPort: 19883  |      |   alivenessPort: 19884  |
      +------------------------+      +------------------------+
               |                               |
               |  Monitors watcher via         |  Monitors default via
@@ -2280,8 +2280,8 @@ For processes without HTTP endpoints, PID checking alone is sufficient for basic
 
 | Instance | ID | Aliveness Port | Remote Port | Purpose |
 |----------|-----|---------------|-------------|---------|
-| Default | `default` | 5681 | 5679 | Primary process manager |
-| Watcher | `watcher` | 5682 | 5680 | Monitors default, restarts if needed |
+| Default | `default` | 19883 | 19881 | Primary process manager |
+| Watcher | `watcher` | 19884 | 19882 | Monitors default, restarts if needed |
 
 ### Watcher Startup Flow
 
@@ -2296,7 +2296,7 @@ Watcher.start(instanceId: "watcher")
     |         +---> args: ["--instance-id", "default", "--watcher-pid", <watcher-pid>]
     |         +---> autostart: true
     |         +---> alivenessCheck:
-    |               url: http://localhost:5681/alive
+    |               url: http://localhost:19883/alive
     |
     +---> 3. Start "default" ProcessMonitor
     |
@@ -2319,14 +2319,14 @@ Default.start(instanceId: "default", watcherPid: 54321)
     |         |
     |         +---> watcherInfo.watcherPid = 54321
     |         +---> watcherInfo.watcherInstanceId = "watcher"
-    |         +---> watcherInfo.watcherAlivenessPort = 5682
+    |         +---> watcherInfo.watcherAlivenessPort = 19884
     |
     +---> 3. Register watcher as managed process
     |         |
     |         +---> Mark as running (already started)
     |         +---> Set PID from command line argument
     |         +---> alivenessCheck:
-    |               url: http://localhost:5682/alive
+    |               url: http://localhost:19884/alive
     |
     +---> 4. Continue normal startup
     |
@@ -2355,9 +2355,9 @@ A ProcessMonitor can restart itself (e.g., after an update or configuration chan
 ```
 restartSelf()
     |
-    +---> 1. Stop aliveness HTTP server (port 5681/5682)
+    +---> 1. Stop aliveness HTTP server (port 19883/19884)
     |
-    +---> 2. Stop remote API HTTP server (port 5679/5680)
+    +---> 2. Stop remote API HTTP server (port 19881/19882)
     |
     +---> 3. Wait for ports to fully release (100ms)
     |
@@ -2463,8 +2463,8 @@ Each ProcessMonitor instance runs an aliveness HTTP server.
 
 | Instance | Default Port | Endpoints |
 |----------|-------------|----------|
-| Default | 5681 | `GET /alive`, `GET /status` |
-| Watcher | 5682 | `GET /alive`, `GET /status` |
+| Default | 19883 | `GET /alive`, `GET /status` |
+| Watcher | 19884 | `GET /alive`, `GET /status` |
 
 ### Alive Endpoint
 
@@ -2472,7 +2472,7 @@ Each ProcessMonitor instance runs an aliveness HTTP server.
 
 ```
 GET /alive HTTP/1.1
-Host: localhost:5681
+Host: localhost:19883
 ```
 
 **Success Response:**
@@ -2502,7 +2502,7 @@ The `/status` endpoint provides detailed information about the ProcessMonitor in
 
 ```
 GET /status HTTP/1.1
-Host: localhost:5681
+Host: localhost:19883
 ```
 
 **Response:**
@@ -2705,7 +2705,7 @@ await aliveness.start();
   "monitorIntervalMs": 5000,
   "remoteAccess": {
     "startRemoteAccess": true,
-    "remotePort": 5679,
+    "remotePort": 19881,
     "trustedHosts": ["localhost", "127.0.0.1", "::1"],
     "allowRemoteRegister": true,
     "allowRemoteDeregister": true,
@@ -2726,12 +2726,12 @@ await aliveness.start();
   },
   "alivenessServer": {
     "enabled": true,
-    "port": 5681
+    "port": 19883
   },
   "watcherInfo": {
     "watcherPid": 54321,
     "watcherInstanceId": "watcher",
-    "watcherAlivenessPort": 5682
+    "watcherAlivenessPort": 19884
   },
   "processes": {
     "watcher": {
@@ -2744,7 +2744,7 @@ await aliveness.start();
       "isRemote": false,
       "alivenessCheck": {
         "enabled": true,
-        "url": "http://localhost:5682/alive",
+        "url": "http://localhost:19884/alive",
         "intervalMs": 3000,
         "timeoutMs": 2000,
         "consecutiveFailuresRequired": 2
@@ -2866,7 +2866,7 @@ await client.deregister('my-api');
 ```dart
 // Create remote client
 final remote = RemoteProcessMonitorClient(
-  baseUrl: 'http://192.168.1.100:5679',
+  baseUrl: 'http://192.168.1.100:19881',
 );
 
 // Register a remote process
@@ -2907,7 +2907,7 @@ void main() async {
   final watcherPidIndex = Platform.arguments.indexOf('--watcher-pid');
   if (watcherPidIndex >= 0) {
     final watcherPid = int.parse(Platform.arguments[watcherPidIndex + 1]);
-    monitor.setWatcherInfo(watcherPid, 'watcher', 5682);
+    monitor.setWatcherInfo(watcherPid, 'watcher', 19884);
   }
   
   await monitor.start();
@@ -2923,7 +2923,7 @@ void main() async {
       autostart: true,
       alivenessCheck: AlivenessCheck(
         enabled: true,
-        url: 'http://localhost:5681/alive',
+        url: 'http://localhost:19883/alive',
       ),
     ));
   }

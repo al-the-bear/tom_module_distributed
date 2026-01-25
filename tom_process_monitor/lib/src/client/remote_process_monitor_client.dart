@@ -28,19 +28,19 @@ class RemoteProcessMonitorClient {
 
   /// Creates a remote process monitor client.
   RemoteProcessMonitorClient({String? baseUrl})
-    : baseUrl = baseUrl ?? 'http://localhost:5679',
+    : baseUrl = baseUrl ?? 'http://localhost:19881',
       _client = http.Client();
 
   /// Auto-discover a ProcessMonitor instance.
   ///
   /// Discovery order:
-  /// 1. Try localhost on default port (5679)
+  /// 1. Try localhost on default port (19881)
   /// 2. Try 127.0.0.1 on default port
   /// 3. Scan local subnet for ProcessMonitor instances
   ///
   /// Throws [DiscoveryFailedException] if no instance is found.
   static Future<RemoteProcessMonitorClient> discover({
-    int port = 5679,
+    int port = 19881,
     Duration timeout = const Duration(seconds: 5),
   }) async {
     final client = http.Client();
@@ -97,7 +97,7 @@ class RemoteProcessMonitorClient {
   /// Returns list of URLs where ProcessMonitor is responding.
   static Future<List<String>> scanSubnet(
     String subnet, {
-    int port = 5679,
+    int port = 19881,
     Duration timeout = const Duration(milliseconds: 500),
   }) async {
     final client = http.Client();

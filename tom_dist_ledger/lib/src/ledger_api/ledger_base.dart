@@ -92,7 +92,7 @@ abstract class OperationBase {
 /// For remote access:
 /// ```dart
 /// final ledger = RemoteLedgerClient(
-///   serverUrl: 'http://localhost:19876',
+///   serverUrl: 'http://localhost:19880',
 ///   participantId: 'remote_worker',
 /// );
 /// ```

@@ -94,7 +94,7 @@ class ProcessMonitor {
       registry.watcherInfo = WatcherInfo(
         watcherPid: watcherPid!,
         watcherInstanceId: 'watcher',
-        watcherAlivenessPort: 5682,
+        watcherAlivenessPort: 19884,
       );
       await _registryService.save(registry);
     }

@@ -27,7 +27,7 @@ void main() {
       expect(registry, isNotNull);
       expect(registry.processes, isEmpty);
       expect(registry.alivenessServer.enabled, isTrue);
-      expect(registry.alivenessServer.port, equals(5681));
+      expect(registry.alivenessServer.port, equals(19883));
     });
 
     test('saves and loads registry', () async {
@@ -113,7 +113,7 @@ void main() {
         );
         registry.remoteAccess = RemoteAccessConfig(
           startRemoteAccess: true,
-          remotePort: 5679,
+          remotePort: 19881,
         );
       });
 
@@ -140,8 +140,8 @@ void main() {
             'registeredAt': DateTime.now().toIso8601String(),
           },
         },
-        'alivenessServer': {'enabled': true, 'port': 5681},
-        'remoteAccess': {'startRemoteAccess': false, 'remotePort': 5679},
+        'alivenessServer': {'enabled': true, 'port': 19883},
+        'remoteAccess': {'startRemoteAccess': false, 'remotePort': 19881},
       };
 
       final registry = ProcessRegistry.fromJson(json);

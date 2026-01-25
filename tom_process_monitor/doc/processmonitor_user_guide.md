@@ -70,8 +70,8 @@ Default ports:
 
 | Instance | Aliveness Port | Remote API Port |
 |----------|----------------|-----------------|
-| Default  | 5681           | 5679            |
-| Watcher  | 5682           | 5680            |
+| Default  | 19883           | 19881            |
+| Watcher  | 19884           | 19882            |
 
 ### First-Time Startup
 
@@ -200,7 +200,7 @@ import 'package:tom_process_monitor/tom_process_monitor.dart';
 
 void main() async {
   final client = RemoteProcessMonitorClient(
-    baseUrl: 'http://localhost:5679',
+    baseUrl: 'http://localhost:19881',
   );
   
   // Get monitor status
@@ -266,14 +266,14 @@ void main() async {
 | `GET` | `/config/partner-discovery` | Get partner discovery config |
 | `PUT` | `/config/partner-discovery` | Set partner discovery config |
 
-## Aliveness Endpoints (Port 5681/5682)
+## Aliveness Endpoints (Port 19883/19884)
 
 ProcessMonitor provides aliveness endpoints on a **separate HTTP server** from the Remote API:
 
 | Instance | Port | Endpoints |
 |----------|------|-----------|
-| Default | 5681 | `/alive`, `/status` |
-| Watcher | 5682 | `/alive`, `/status` |
+| Default | 19883 | `/alive`, `/status` |
+| Watcher | 19884 | `/alive`, `/status` |
 
 ### Endpoints
 
@@ -286,11 +286,11 @@ ProcessMonitor provides aliveness endpoints on a **separate HTTP server** from t
 
 ```bash
 # Check if ProcessMonitor is alive
-curl http://localhost:5681/alive
+curl http://localhost:19883/alive
 # Returns: OK
 
 # Get detailed status
-curl http://localhost:5681/status
+curl http://localhost:19883/status
 # Returns: {"instanceId":"default","pid":12345,"uptime":3600,...}
 ```
 
@@ -352,8 +352,8 @@ The ProcessMonitor supports mutual monitoring between two instances: a **default
 +------------------------+      +------------------------+
 |   DEFAULT INSTANCE     |      |   WATCHER INSTANCE     |
 |   instanceId: default  |      |   instanceId: watcher  |
-|   alivenessPort: 5681  |      |   alivenessPort: 5682  |
-|   remotePort: 5679     |      |   remotePort: 5680     |
+|   alivenessPort: 19883  |      |   alivenessPort: 19884  |
+|   remotePort: 19881     |      |   remotePort: 19882     |
 +------------------------+      +------------------------+
          |                               |
          |  Monitors watcher via         |  Monitors default via
@@ -399,8 +399,8 @@ Both instances need to know about each other:
 {
   "partnerDiscovery": {
     "partnerInstanceId": "watcher",
-    "partnerAlivenessPort": 5682,
-    "partnerStatusUrl": "http://localhost:5682/status",
+    "partnerAlivenessPort": 19884,
+    "partnerStatusUrl": "http://localhost:19884/status",
     "discoveryOnStartup": true,
     "startPartnerIfMissing": false
   }
@@ -421,7 +421,7 @@ await client.register(ProcessConfig(
   autostart: true,
   alivenessCheck: AlivenessCheck(
     enabled: true,
-    url: 'http://localhost:5682/alive',
+    url: 'http://localhost:19884/alive',
     intervalMs: 3000,
     consecutiveFailuresRequired: 2,
   ),
@@ -534,14 +534,14 @@ final client = await RemoteProcessMonitorClient.discover(
 );
 
 // Use explicit URL (skips discovery)
-final client = RemoteProcessMonitorClient(baseUrl: 'http://192.168.1.100:5679');
+final client = RemoteProcessMonitorClient(baseUrl: 'http://192.168.1.100:19881');
 ```
 
 ### Discovery Process
 
-1. Try `0.0.0.0:5679` (any local interface)
-2. Try `127.0.0.1:5679` (localhost)
-3. Try `localhost:5679`
+1. Try `0.0.0.0:19881` (any local interface)
+2. Try `127.0.0.1:19881` (localhost)
+3. Try `localhost:19881`
 4. Get own IP address and scan local subnet (e.g., 192.168.1.1-255)
 
 The first responding instance is used.
@@ -647,7 +647,7 @@ ProcessMonitor logs to:
 
 ### ProcessMonitor not responding
 
-1. Check if the aliveness endpoint is responding: `curl http://localhost:5681/alive`
+1. Check if the aliveness endpoint is responding: `curl http://localhost:19883/alive`
 2. Check the logs for errors
 3. Try the watcher to restart: `monitor_watcher --restart`
 

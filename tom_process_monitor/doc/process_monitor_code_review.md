@@ -78,7 +78,7 @@ The README still has TODO placeholders. This should be updated with actual docum
 
 **Location:** `lib/src/models/registry.dart` line 17
 
-Default ports (5681, 5682) are hardcoded.
+Default ports (19883, 19884) are hardcoded.
 
 **Recommendation:** Document these ports or make them configurable via environment variables.
 

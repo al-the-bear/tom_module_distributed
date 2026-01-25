@@ -8,8 +8,8 @@ import 'package:tom_process_monitor_tool/tom_process_monitor_tool.dart';
 /// instance and can restart it if it becomes unresponsive.
 ///
 /// Default ports:
-/// - Aliveness: 5682
-/// - Remote API: 5680
+/// - Aliveness: 19884
+/// - Remote API: 19882
 void main(List<String> args) async {
   final command = MonitorWatcherCommand();
   final exitCode = await command.run(args);
