@@ -110,6 +110,10 @@ class LedgerServer {
         _sendJson(request.response, {'status': 'ok'});
         break;
 
+      case '/status':
+        _handleStatus(request);
+        break;
+
       case '/operation/create':
         await _handleCreateOperation(request, body);
         break;
@@ -162,6 +166,21 @@ class LedgerServer {
   // ─────────────────────────────────────────────────────────────
   // Request handlers
   // ─────────────────────────────────────────────────────────────
+
+  /// Handle GET /status
+  ///
+  /// Returns server status for auto-discovery and monitoring.
+  /// This is a lightweight endpoint used by clients to discover servers.
+  void _handleStatus(HttpRequest request) {
+    _sendJson(request.response, {
+      'service': 'tom_dist_ledger',
+      'version': '0.1.0',
+      'status': 'ok',
+      'port': port,
+      'basePath': basePath,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
 
   /// Handle POST /operation/create
   Future<void> _handleCreateOperation(

@@ -23,3 +23,6 @@ export 'src/ledger_local/file_ledger.dart';
 
 // Remote Ledger Client - HTTP client for remote access
 export 'src/ledger_client/remote_ledger_client.dart';
+
+// Server Discovery - auto-discovery for remote servers
+export 'src/ledger_client/server_discovery.dart';

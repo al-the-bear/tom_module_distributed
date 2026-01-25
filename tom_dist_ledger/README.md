@@ -94,6 +94,101 @@ final config = SimulationConfig(
 See [doc/distributed_operation_ledger_proposal.md](doc/distributed_operation_ledger_proposal.md)
 for the full protocol specification.
 
+## Remote Ledger Server
+
+For distributed deployments where processes run on different machines, use the
+HTTP-based ledger server:
+
+### Starting a Server
+
+```dart
+import 'package:tom_dist_ledger/tom_dist_ledger.dart';
+
+// Start server on a specific port
+final server = await LedgerServer.start(
+  basePath: '/path/to/ledger',
+  port: 8765,
+);
+
+print('Server running on port ${server.port}');
+
+// Stop when done
+await server.stop();
+```
+
+### Connecting a Client
+
+The recommended way to create a client is using `connect()`, which supports
+both explicit server URLs and auto-discovery:
+
+```dart
+// Auto-discover a server on the network
+final client = await RemoteLedgerClient.connect(
+  participantId: 'my_client',
+);
+
+// Or connect to a specific server
+final client = await RemoteLedgerClient.connect(
+  serverUrl: 'http://localhost:8765',
+  participantId: 'my_client',
+);
+
+if (client != null) {
+  final op = await client.createOperation();
+  final call = await op.startCall<String>();
+  await call.end('result');
+  await op.complete();
+  client.dispose();
+}
+```
+
+For synchronous construction when you already have the server URL:
+
+```dart
+final client = RemoteLedgerClient(
+  serverUrl: 'http://localhost:8765',
+  participantId: 'my_client',
+);
+```
+
+### Auto-Discovery
+
+When `serverUrl` is not provided to `connect()`, clients automatically
+discover running ledger servers on the local network.
+
+Discovery scans in this order:
+1. `localhost` / `127.0.0.1`
+2. Local machine's IP addresses
+3. All IPs in the local subnet (e.g., 192.168.1.1-255)
+
+Configure discovery options:
+
+```dart
+final client = await RemoteLedgerClient.connect(
+  participantId: 'client',
+  port: 8765,
+  timeout: Duration(seconds: 1),      // Connection timeout per host
+  scanSubnet: true,                   // Enable subnet scanning
+  logger: (msg) => print(msg),        // Optional progress logging
+);
+```
+
+Or use `ServerDiscovery` directly to find all available servers:
+
+```dart
+final servers = await ServerDiscovery.discoverAll(
+  DiscoveryOptions(
+    port: 8765,
+    timeout: Duration(milliseconds: 500),
+    scanSubnet: true,
+  ),
+);
+
+for (final server in servers) {
+  print('Found: ${server.serverUrl} - ${server.service}');
+}
+```
+
 ## Running the Simulator
 
 ```dart

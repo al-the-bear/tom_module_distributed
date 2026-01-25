@@ -19,22 +19,37 @@ import '../ledger_api/ledger_api.dart';
 ///
 /// ## Usage
 ///
+/// The recommended way to create a client is using [connect], which supports
+/// both explicit server URLs and auto-discovery:
+///
+/// ```dart
+/// // Auto-discover a server on the network
+/// final client = await RemoteLedgerClient.connect(
+///   participantId: 'remote_worker',
+/// );
+///
+/// // Or connect to a specific server
+/// final client = await RemoteLedgerClient.connect(
+///   serverUrl: 'http://localhost:8765',
+///   participantId: 'remote_worker',
+/// );
+///
+/// if (client != null) {
+///   final op = await client.createOperation();
+///   final call = await op.startCall<int>();
+///   await call.end(42);
+///   await op.complete();
+///   client.dispose();
+/// }
+/// ```
+///
+/// For synchronous construction when you already have the server URL:
+///
 /// ```dart
 /// final client = RemoteLedgerClient(
 ///   serverUrl: 'http://localhost:8765',
 ///   participantId: 'remote_worker',
 /// );
-///
-/// // Create an operation (remote call)
-/// final op = await client.createOperation();
-///
-/// // Use the operation just like with a local ledger
-/// final call = await op.startCall<int>();
-/// // ... do work ...
-/// await call.end(42);
-///
-/// await op.complete();
-/// client.dispose();
 /// ```
 class RemoteLedgerClient extends LedgerBase {
   /// The URL of the ledger server.
@@ -83,6 +98,231 @@ class RemoteLedgerClient extends LedgerBase {
     this.staleThreshold = const Duration(seconds: 15),
   }) : participantPid = participantPid ?? pid,
        _httpClient = HttpClient();
+
+  /// Discover a LedgerServer and create a client connected to it.
+  ///
+  /// If [serverUrl] is provided, connects directly to that server.
+  /// If [serverUrl] is `null`, uses auto-discovery to find a running server.
+  ///
+  /// Discovery scans in order:
+  /// 1. `localhost` / `127.0.0.1`
+  /// 2. Local machine's IP addresses
+  /// 3. All IPs in the local subnet (if [scanSubnet] is true)
+  ///
+  /// Returns `null` if no server is found (discovery mode) or if connection
+  /// fails (direct mode).
+  ///
+  /// ## Examples
+  ///
+  /// ```dart
+  /// // Auto-discover a server
+  /// final client = await RemoteLedgerClient.connect(
+  ///   participantId: 'my_client',
+  /// );
+  ///
+  /// // Connect to a specific server
+  /// final client = await RemoteLedgerClient.connect(
+  ///   serverUrl: 'http://192.168.1.100:8765',
+  ///   participantId: 'my_client',
+  /// );
+  /// ```
+  static Future<RemoteLedgerClient?> connect({
+    required String participantId,
+    String? serverUrl,
+    int? participantPid,
+    int maxBackups = 20,
+    Duration heartbeatInterval = const Duration(seconds: 5),
+    Duration staleThreshold = const Duration(seconds: 15),
+    int port = 8765,
+    Duration timeout = const Duration(milliseconds: 500),
+    bool scanSubnet = true,
+    void Function(String message)? logger,
+  }) async {
+    String resolvedServerUrl;
+
+    if (serverUrl != null) {
+      // Direct connection - verify server is reachable
+      final result = await _tryConnect(serverUrl, timeout, logger);
+      if (result == null) {
+        logger?.call('Failed to connect to $serverUrl');
+        return null;
+      }
+      resolvedServerUrl = serverUrl;
+    } else {
+      // Auto-discovery mode
+      final discovery = await _discoverServer(
+        port: port,
+        timeout: timeout,
+        scanSubnet: scanSubnet,
+        logger: logger,
+      );
+
+      if (discovery == null) {
+        logger?.call('No server found via auto-discovery');
+        return null;
+      }
+      resolvedServerUrl = discovery['serverUrl'] as String;
+    }
+
+    return RemoteLedgerClient(
+      serverUrl: resolvedServerUrl,
+      participantId: participantId,
+      participantPid: participantPid,
+      maxBackups: maxBackups,
+      heartbeatInterval: heartbeatInterval,
+      staleThreshold: staleThreshold,
+    );
+  }
+
+  /// Discover a LedgerServer and create a client connected to it.
+  ///
+  /// This is an alias for [connect] with [serverUrl] set to `null`.
+  /// Use [connect] for both discovery and direct connection.
+  @Deprecated('Use connect() instead')
+  static Future<RemoteLedgerClient?> discover({
+    required String participantId,
+    int? participantPid,
+    int maxBackups = 20,
+    Duration heartbeatInterval = const Duration(seconds: 5),
+    Duration staleThreshold = const Duration(seconds: 15),
+    int port = 8765,
+    Duration timeout = const Duration(milliseconds: 500),
+    bool scanSubnet = true,
+    void Function(String message)? logger,
+  }) async {
+    // Import here to avoid circular dependency
+    final discovery = await _discoverServer(
+      port: port,
+      timeout: timeout,
+      scanSubnet: scanSubnet,
+      logger: logger,
+    );
+
+    if (discovery == null) return null;
+
+    return RemoteLedgerClient(
+      serverUrl: discovery['serverUrl'] as String,
+      participantId: participantId,
+      participantPid: participantPid,
+      maxBackups: maxBackups,
+      heartbeatInterval: heartbeatInterval,
+      staleThreshold: staleThreshold,
+    );
+  }
+
+  /// Internal discovery implementation.
+  static Future<Map<String, dynamic>?> _discoverServer({
+    required int port,
+    required Duration timeout,
+    required bool scanSubnet,
+    void Function(String message)? logger,
+  }) async {
+    // Build candidate list
+    final candidates = <String>[];
+
+    // 1. Primary localhost addresses
+    candidates.add('http://127.0.0.1:$port');
+    candidates.add('http://localhost:$port');
+
+    // 2. Get local machine's IP addresses
+    final localIps = await _getLocalIpAddresses();
+    for (final ip in localIps) {
+      candidates.add('http://$ip:$port');
+    }
+
+    // 3. Scan subnet if enabled
+    if (scanSubnet && localIps.isNotEmpty) {
+      final subnetAddresses = _getSubnetAddresses(localIps.first);
+      for (final ip in subnetAddresses) {
+        final url = 'http://$ip:$port';
+        if (!candidates.contains(url)) {
+          candidates.add(url);
+        }
+      }
+    }
+
+    // Try each candidate
+    for (final url in candidates) {
+      final result = await _tryConnect(url, timeout, logger);
+      if (result != null) {
+        return {'serverUrl': url, 'status': result};
+      }
+    }
+
+    return null;
+  }
+
+  /// Get local IP addresses of the machine.
+  static Future<List<String>> _getLocalIpAddresses() async {
+    final addresses = <String>[];
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (!addr.isLoopback) {
+            addresses.add(addr.address);
+          }
+        }
+      }
+    } catch (_) {
+      // Ignore errors
+    }
+    return addresses;
+  }
+
+  /// Get all addresses in the /24 subnet.
+  static List<String> _getSubnetAddresses(String ip) {
+    final addresses = <String>[];
+    final parts = ip.split('.');
+    if (parts.length != 4) return addresses;
+
+    final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+    for (var i = 1; i < 255; i++) {
+      final addr = '$prefix.$i';
+      if (addr != ip) {
+        addresses.add(addr);
+      }
+    }
+    return addresses;
+  }
+
+  /// Try to connect to a server.
+  static Future<Map<String, dynamic>?> _tryConnect(
+    String url,
+    Duration timeout,
+    void Function(String message)? logger,
+  ) async {
+    final client = HttpClient();
+    client.connectionTimeout = timeout;
+
+    try {
+      logger?.call('Trying $url/status...');
+      final request = await client.getUrl(Uri.parse('$url/status'));
+      final response = await request.close().timeout(timeout);
+
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        if (body.isNotEmpty) {
+          final json = jsonDecode(body) as Map<String, dynamic>;
+          if (json['service'] == 'tom_dist_ledger') {
+            logger?.call('Found server at $url');
+            return json;
+          }
+        }
+      }
+    } on TimeoutException {
+      // Expected
+    } on SocketException {
+      // Expected
+    } catch (_) {
+      // Other errors
+    } finally {
+      client.close(force: true);
+    }
+    return null;
+  }
 
   /// Pattern for valid operation IDs.
   ///
