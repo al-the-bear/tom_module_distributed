@@ -594,7 +594,7 @@ class _RemoteOperation {
           }
         }
       } catch (e) {
-        stderr.writeln('Failed to cleanup temp resource $path: $e');
+        // Silently ignore errors - file may have been cleaned up by another participant
       }
     }
     _localTempResources.clear();

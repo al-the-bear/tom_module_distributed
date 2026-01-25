@@ -6,6 +6,7 @@ import 'dart:io';
 import 'dart:math';
 
 import '../ledger_local/file_ledger.dart';
+import 'cleanup_handler.dart';
 import 'ledger_base.dart';
 
 // Re-export types
@@ -539,6 +540,12 @@ class _LedgerOperation implements CallLifecycle {
   /// Random for generating unique call IDs.
   final _random = Random();
 
+  /// Locally tracked temporary resources for cleanup on exit.
+  final Set<String> _localTempResources = {};
+
+  /// Cleanup handler registration ID for signal handling.
+  int? _cleanupHandlerId;
+
   _LedgerOperation._({
     required LocalLedger ledger,
     required this.operationId,
@@ -546,7 +553,38 @@ class _LedgerOperation implements CallLifecycle {
     required this.pid,
     required this.isInitiator,
     required this.startTime,
-  }) : _ledger = ledger;
+  }) : _ledger = ledger {
+    // Register cleanup handler for graceful shutdown
+    _cleanupHandlerId = CleanupHandler.instance.register(_cleanupTempResources);
+  }
+
+  /// Cleanup temp resources (called by CleanupHandler on signal).
+  Future<void> _cleanupTempResources() async {
+    for (final path in _localTempResources.toList()) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        } else {
+          final dir = Directory(path);
+          if (await dir.exists()) {
+            await dir.delete(recursive: true);
+          }
+        }
+      } catch (e) {
+        // Silently ignore errors - file may have been cleaned up by another participant
+      }
+    }
+    _localTempResources.clear();
+  }
+
+  /// Unregister from cleanup handler.
+  void _unregisterCleanup() {
+    if (_cleanupHandlerId != null) {
+      CleanupHandler.instance.unregister(_cleanupHandlerId!);
+      _cleanupHandlerId = null;
+    }
+  }
 
   /// Number of times this operation has been joined.
   ///
@@ -794,6 +832,7 @@ class _LedgerOperation implements CallLifecycle {
 
     if (_joinCount == 0) {
       stopHeartbeat();
+      _unregisterCleanup();
       _ledger._unregisterOperation(operationId);
     }
   }
@@ -1797,6 +1836,8 @@ class _LedgerOperation implements CallLifecycle {
 
   /// Register a temporary resource.
   Future<void> registerTempResource({required String path}) async {
+    // Track locally for signal-based cleanup
+    _localTempResources.add(path);
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
@@ -1813,6 +1854,8 @@ class _LedgerOperation implements CallLifecycle {
 
   /// Unregister a temporary resource.
   Future<void> unregisterTempResource({required String path}) async {
+    // Remove from local tracking
+    _localTempResources.remove(path);
     final updated = await _ledger._modifyOperation(
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
