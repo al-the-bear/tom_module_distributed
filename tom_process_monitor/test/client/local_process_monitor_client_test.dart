@@ -5,13 +5,13 @@ import 'package:test/test.dart';
 import 'package:tom_process_monitor/tom_process_monitor.dart';
 
 void main() {
-  group('ProcessMonitorClient', () {
+  group('LocalProcessMonitorClient', () {
     late String tempDir;
-    late ProcessMonitorClient client;
+    late LocalProcessMonitorClient client;
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('pm_client_test_').path;
-      client = ProcessMonitorClient(directory: tempDir, instanceId: 'test');
+      client = LocalProcessMonitorClient(directory: tempDir, instanceId: 'test');
     });
 
     tearDown(() async {

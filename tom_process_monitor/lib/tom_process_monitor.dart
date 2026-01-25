@@ -37,7 +37,8 @@ export 'src/services/aliveness_server_helper.dart';
 export 'src/services/log_manager.dart';
 
 // Client APIs
-export 'src/client/process_monitor_client.dart';
+export 'src/client/process_monitor_base.dart';
+export 'src/client/local_process_monitor_client.dart';
 export 'src/client/remote_process_monitor_client.dart';
 
 // HTTP API

@@ -9,6 +9,8 @@ import '../models/monitor_status.dart';
 import '../models/partner_discovery_config.dart';
 import '../models/process_config.dart';
 import '../models/process_status.dart';
+import '../models/remote_access_config.dart';
+import 'process_monitor_base.dart';
 
 /// Exception thrown when auto-discovery fails to find a ProcessMonitor instance.
 class DiscoveryFailedException implements Exception {
@@ -20,7 +22,7 @@ class DiscoveryFailedException implements Exception {
 }
 
 /// Remote client API for interacting with ProcessMonitor via HTTP.
-class RemoteProcessMonitorClient {
+class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Base URL of the ProcessMonitor HTTP API.
   final String baseUrl;
 
@@ -97,7 +99,7 @@ class RemoteProcessMonitorClient {
 
       // Scan all subnets
       for (final subnet in subnets) {
-        final found = await scanSubnet_(
+        final found = await scanSubnet(
           subnet,
           port: port,
           timeout: const Duration(milliseconds: 500),
@@ -120,7 +122,7 @@ class RemoteProcessMonitorClient {
   ///
   /// [subnet] should be in format "192.168.1" (first 3 octets).
   /// Returns list of URLs where ProcessMonitor is responding.
-  static Future<List<String>> scanSubnet_(
+  static Future<List<String>> scanSubnet(
     String subnet, {
     int port = 19881,
     Duration timeout = const Duration(milliseconds: 500),
@@ -172,6 +174,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Disposes the client.
+  @override
   void dispose() {
     _client.close();
   }
@@ -179,6 +182,7 @@ class RemoteProcessMonitorClient {
   // --- Registration ---
 
   /// Register a new remote process.
+  @override
   Future<void> register(ProcessConfig config) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/processes'),
@@ -190,6 +194,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Remove a remote process from the registry.
+  @override
   Future<void> deregister(String processId) async {
     final response = await _client.delete(
       Uri.parse('$baseUrl/processes/$processId'),
@@ -201,6 +206,7 @@ class RemoteProcessMonitorClient {
   // --- Enable/Disable ---
 
   /// Enable a remote process.
+  @override
   Future<void> enable(String processId) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/processes/$processId/enable'),
@@ -210,6 +216,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Disable a remote process.
+  @override
   Future<void> disable(String processId) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/processes/$processId/disable'),
@@ -221,6 +228,7 @@ class RemoteProcessMonitorClient {
   // --- Autostart ---
 
   /// Set autostart for a remote process.
+  @override
   Future<void> setAutostart(String processId, bool autostart) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/processes/$processId/autostart'),
@@ -234,6 +242,7 @@ class RemoteProcessMonitorClient {
   // --- Process Control ---
 
   /// Start a remote process.
+  @override
   Future<void> start(String processId) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/processes/$processId/start'),
@@ -243,6 +252,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Stop a remote process.
+  @override
   Future<void> stop(String processId) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/processes/$processId/stop'),
@@ -252,6 +262,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Restart a remote process.
+  @override
   Future<void> restart(String processId) async {
     final response = await _client.post(
       Uri.parse('$baseUrl/processes/$processId/restart'),
@@ -263,6 +274,7 @@ class RemoteProcessMonitorClient {
   // --- Status ---
 
   /// Get status of a specific process.
+  @override
   Future<ProcessStatus> getStatus(String processId) async {
     final response = await _client.get(
       Uri.parse('$baseUrl/processes/$processId'),
@@ -275,6 +287,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Get status of all processes.
+  @override
   Future<Map<String, ProcessStatus>> getAllStatus() async {
     final response = await _client.get(Uri.parse('$baseUrl/processes'));
 
@@ -289,6 +302,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Get ProcessMonitor instance status.
+  @override
   Future<MonitorStatus> getMonitorStatus() async {
     final response = await _client.get(Uri.parse('$baseUrl/monitor/status'));
 
@@ -300,7 +314,33 @@ class RemoteProcessMonitorClient {
 
   // --- Remote Access Configuration ---
 
+  /// Enable or disable remote HTTP API access.
+  @override
+  Future<void> setRemoteAccess(bool enabled) async {
+    final response = await _client.put(
+      Uri.parse('$baseUrl/config/remote-access'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'startRemoteAccess': enabled}),
+    );
+
+    _checkResponse(response);
+  }
+
+  /// Get current remote access configuration.
+  @override
+  Future<RemoteAccessConfig> getRemoteAccessConfig() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/config/remote-access'),
+    );
+
+    _checkResponse(response);
+    return RemoteAccessConfig.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   /// Set remote access permissions.
+  @override
   Future<void> setRemoteAccessPermissions({
     bool? allowRegister,
     bool? allowDeregister,
@@ -312,8 +352,7 @@ class RemoteProcessMonitorClient {
   }) async {
     final body = <String, dynamic>{};
     if (allowRegister != null) body['allowRemoteRegister'] = allowRegister;
-    if (allowDeregister != null)
-      body['allowRemoteDeregister'] = allowDeregister;
+    if (allowDeregister != null) body['allowRemoteDeregister'] = allowDeregister;
     if (allowStart != null) body['allowRemoteStart'] = allowStart;
     if (allowStop != null) body['allowRemoteStop'] = allowStop;
     if (allowDisable != null) body['allowRemoteDisable'] = allowDisable;
@@ -332,6 +371,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Set trusted hosts list.
+  @override
   Future<void> setTrustedHosts(List<String> hosts) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/config/trusted-hosts'),
@@ -343,6 +383,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Get trusted hosts list.
+  @override
   Future<List<String>> getTrustedHosts() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/config/trusted-hosts'),
@@ -358,6 +399,7 @@ class RemoteProcessMonitorClient {
   // --- Executable Filtering ---
 
   /// Get the current executable whitelist.
+  @override
   Future<List<String>> getRemoteExecutableWhitelist() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/config/executable-whitelist'),
@@ -369,6 +411,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Set the executable whitelist.
+  @override
   Future<void> setRemoteExecutableWhitelist(List<String> patterns) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/config/executable-whitelist'),
@@ -380,6 +423,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Get the current executable blacklist.
+  @override
   Future<List<String>> getRemoteExecutableBlacklist() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/config/executable-blacklist'),
@@ -391,6 +435,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Set the executable blacklist.
+  @override
   Future<void> setRemoteExecutableBlacklist(List<String> patterns) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/config/executable-blacklist'),
@@ -404,6 +449,7 @@ class RemoteProcessMonitorClient {
   // --- Standalone / Partner Configuration ---
 
   /// Enable or disable standalone mode.
+  @override
   Future<void> setStandaloneMode(bool enabled) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/config/standalone-mode'),
@@ -415,6 +461,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Get current standalone mode setting.
+  @override
   Future<bool> isStandaloneMode() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/config/standalone-mode'),
@@ -426,6 +473,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Get partner discovery configuration.
+  @override
   Future<PartnerDiscoveryConfig> getPartnerDiscoveryConfig() async {
     final response = await _client.get(
       Uri.parse('$baseUrl/config/partner-discovery'),
@@ -438,6 +486,7 @@ class RemoteProcessMonitorClient {
   }
 
   /// Set partner discovery configuration.
+  @override
   Future<void> setPartnerDiscoveryConfig(PartnerDiscoveryConfig config) async {
     final response = await _client.put(
       Uri.parse('$baseUrl/config/partner-discovery'),
@@ -451,6 +500,7 @@ class RemoteProcessMonitorClient {
   // --- Monitor Control ---
 
   /// Restart the ProcessMonitor itself.
+  @override
   Future<void> restartMonitor() async {
     final response = await _client.post(Uri.parse('$baseUrl/monitor/restart'));
 
