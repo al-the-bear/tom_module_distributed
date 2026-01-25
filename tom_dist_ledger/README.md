@@ -12,6 +12,7 @@ across multiple processes (CLI, VS Code Extension, AI Scripts). It enables:
 - **Heartbeat monitoring** with automatic stale detection
 - **Abort propagation** from any participant
 - **Temporary resource registration** with guaranteed cleanup
+- **Signal-based cleanup** via SIGINT/SIGTERM handlers
 - **Backup trails** for debugging and recovery
 
 ## Package Structure
@@ -25,11 +26,12 @@ High-level API for operation management:
 - `Ledger` - Abstract base class for all ledger implementations
 - `LocalLedger` - Local file-based ledger implementation  
 - `RemoteLedgerClient` - HTTP client for remote ledger servers
-- `Operation` - Per-participant handle with caching (local)
-- `RemoteOperation` - Remote operation handle
+- `Operation` - Abstract base class with unified API for both local and remote
+- `LocalOperation` / `RemoteOperation` - Concrete implementations (rarely used directly)
+- `CleanupHandler` - Signal-based cleanup for SIGINT/SIGTERM
 - `Ledger.connect()` - Unified factory method for both local and remote access
 - Heartbeat with error/success callbacks
-- Call execution tracking (`startCallExecution`/`endCallExecution`)
+- Call execution tracking (`startCall`/`endCall`, `spawnCall`/`sync`)
 
 ### Local Ledger (`local_ledger`)
 
