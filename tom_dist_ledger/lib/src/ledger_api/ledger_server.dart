@@ -1,15 +1,5 @@
-/// HTTP server for distributed ledger access.
-///
-/// This server exposes the ledger API via HTTP, allowing remote clients
-/// to create and join operations. Each request includes the client's
-/// participantId, which the server uses to identify the client.
-library;
-
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
-import '../ledger_api/ledger_api.dart';
+// ignore_for_file: library_private_types_in_public_api
+part of 'ledger_api.dart';
 
 /// HTTP server that provides remote access to the distributed ledger.
 ///
@@ -191,7 +181,7 @@ class LedgerServer {
     final participantPid = body?['participantPid'] as int? ?? -1;
 
     try {
-      final operation = await _ledger.createOperationForClient$(
+      final operation = await _ledger._createOperationForClient(
         participantId: participantId,
         participantPid: participantPid,
         description: description,
@@ -229,7 +219,7 @@ class LedgerServer {
     final participantPid = body?['participantPid'] as int? ?? -1;
 
     try {
-      final operation = await _ledger.joinOperationForClient$(
+      final operation = await _ledger._joinOperationForClient(
         operationId: operationId,
         participantId: participantId,
         participantPid: participantPid,
@@ -248,6 +238,9 @@ class LedgerServer {
   }
 
   /// Handle POST /operation/leave
+  ///
+  /// This endpoint handles client session leave notifications.
+  /// The actual session cleanup happens on the client side.
   Future<void> _handleLeaveOperation(
     HttpRequest request,
     Map<String, dynamic>? body,
@@ -260,16 +253,14 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
       }
 
-      final cancelPendingCalls =
-          body?['cancelPendingCalls'] as bool? ?? false;
-      operation.leave(cancelPendingCalls: cancelPendingCalls);
-
+      // Client handles session leave locally - server just acknowledges
+      // No session-specific cleanup needed on server side for leave
       _sendJson(request.response, {'success': true});
     } catch (e) {
       _sendError(request.response, 500, 'Failed to leave operation: $e');
@@ -289,7 +280,7 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -316,7 +307,7 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -357,7 +348,7 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -386,7 +377,7 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -398,7 +389,7 @@ class LedgerServer {
       _sendJson(request.response, {
         'operationId': operationId,
         'state': state?.name ?? 'unknown',
-        'aborted': operation.isAborted,
+        'aborted': cachedData?.aborted ?? operation.isAborted,
         'callFrameCount': cachedData?.callFrames.length ?? 0,
         'participants': cachedData?.callFrames
             .map((f) => f.participantId)
@@ -429,7 +420,7 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -463,7 +454,7 @@ class LedgerServer {
     }
 
     try {
-      final operation = _ledger.getOperationForServer$(operationId);
+      final operation = _ledger._getOperationForServer(operationId);
       if (operation == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -501,7 +492,7 @@ class LedgerServer {
     }
 
     try {
-      final internalOp = _ledger.getInternalOperation$(operationId);
+      final internalOp = _ledger._getInternalOperation(operationId);
       if (internalOp == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;
@@ -535,7 +526,7 @@ class LedgerServer {
     }
 
     try {
-      final internalOp = _ledger.getInternalOperation$(operationId);
+      final internalOp = _ledger._getInternalOperation(operationId);
       if (internalOp == null) {
         _sendError(request.response, 404, 'Operation not found');
         return;

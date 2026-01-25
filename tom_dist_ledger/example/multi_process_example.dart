@@ -289,7 +289,7 @@ void main() async {
       final requestId = 'request_$i';
       
       final spawnedCall = operation.spawnCall<Map<String, dynamic>>(
-        work: () async {
+        work: (_, __) async {
           return await serverProcess!.handleRequest(requestId);
         },
         callback: CallCallback(

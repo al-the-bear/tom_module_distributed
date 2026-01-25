@@ -1,16 +1,20 @@
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import '../ledger_local/file_ledger.dart';
-import 'call_callback.dart';
 import 'ledger_base.dart';
 
 // Re-export types
-export 'call_callback.dart';
 export 'ledger_base.dart';
 export 'ledger_types.dart';
+
+// Part files
+part 'call_callback.dart';
+part 'ledger_server.dart';
 
 /// Internal callback for heartbeat errors (uses _LedgerOperation).
 typedef _InternalHeartbeatErrorCallback = void Function(
@@ -171,16 +175,15 @@ class Operation implements OperationBase {
   ///
   /// See [Operation.spawnCall] for details.
   SpawnedCall<T> spawnCall<T>({
-    Future<T> Function()? work,
-    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    required Future<T> Function(SpawnedCall<T> call, Operation operation) work,
     CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) {
     return _operation._spawnCallWithSession<T>(
       sessionId: sessionId,
+      operation: this,
       work: work,
-      workWithCall: workWithCall,
       callback: callback,
       description: description,
       failOnCrash: failOnCrash,
@@ -460,7 +463,7 @@ class Operation implements OperationBase {
 /// Each participant gets their own _LedgerOperation object to interact with
 /// the shared operation file and log. This class is internal; users interact
 /// with [Operation] which wraps this with session-aware call tracking.
-class _LedgerOperation {
+class _LedgerOperation implements CallLifecycle {
   final Ledger _ledger;
   final String operationId;
   final String participantId;
@@ -653,17 +656,12 @@ class _LedgerOperation {
   /// Spawn a call tracked to a specific session.
   SpawnedCall<T> _spawnCallWithSession<T>({
     required int sessionId,
-    Future<T> Function()? work,
-    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    required Operation operation,
+    required Future<T> Function(SpawnedCall<T> call, Operation operation) work,
     CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) {
-    // Either work or workWithCall must be provided
-    if (work == null && workWithCall == null) {
-      throw ArgumentError('Either work or workWithCall must be provided');
-    }
-    
     final callId = _generateCallId();
     final now = DateTime.now();
 
@@ -690,13 +688,10 @@ class _LedgerOperation {
       failOnCrash: failOnCrash,
     );
 
-    // Create the actual work function
-    final actualWork = work ?? (() => workWithCall!(spawnedCall));
-
     // Execute asynchronously
     _runSpawnedCall<T>(
       callId: callId,
-      work: actualWork,
+      work: () => work(spawnedCall, operation),
       spawnedCall: spawnedCall,
       callback: callback,
       failOnCrash: failOnCrash,
@@ -907,7 +902,8 @@ class _LedgerOperation {
   /// 
   /// **Note:** This method is for internal use by the ledger API.
   /// Users should call [Call.end] instead.
-  Future<void> endCallInternal$<T>({
+  @override
+  Future<void> endCallInternal<T>({
     required String callId,
     T? result,
   }) async {
@@ -955,7 +951,8 @@ class _LedgerOperation {
   /// 
   /// **Note:** This method is for internal use by the ledger API.
   /// Users should call [Call.fail] instead.
-  Future<void> failCallInternal$({
+  @override
+  Future<void> failCallInternal({
     required String callId,
     required Object error,
     StackTrace? stackTrace,
@@ -1061,47 +1058,15 @@ class _LedgerOperation {
   /// Tracking for spawned calls.
   final Map<String, SpawnedCall> _spawnedCalls = {};
 
-  /// Spawn a call that runs asynchronously.
+  /// Internal spawn call for simple work without call/operation access.
   ///
-  /// Returns [SpawnedCall<T>] immediately. The call executes `work` asynchronously
-  /// and manages its own lifecycle (no need to call endCall).
-  ///
-  /// Parameters:
-  /// - [work] - Async function that produces the result
-  /// - [callback] - Optional callbacks for completion, crash, cleanup, and operation failure
-  /// - [description] - Optional description for logging
-  /// - [failOnCrash] - If true (default), a crash fails the entire operation
-  ///
-  /// Example:
-  /// ```dart
-  /// final call = operation.spawnCall<int>(
-  ///   work: () async => await computeExpensiveValue(),
-  ///   callback: CallCallback(
-  ///     onCompletion: (result) async => print('Got: $result'),
-  ///     onCallCrashed: () async => 0, // Fallback value
-  ///     onOperationFailed: (info) async => print('Op failed!'),
-  ///   ),
-  /// );
-  /// 
-  /// // Access callId immediately
-  /// print('Call started: ${call.callId}');
-  /// 
-  /// // Wait for result later
-  /// await call.future;
-  /// print('Result: ${call.result}');
-  /// ```
-  SpawnedCall<T> spawnCall<T>({
-    Future<T> Function()? work,
-    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+  /// Used by [execServerRequest] for convenience.
+  SpawnedCall<T> _spawnCallSimple<T>({
+    required Future<T> Function() work,
     CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) {
-    // Either work or workWithCall must be provided
-    if (work == null && workWithCall == null) {
-      throw ArgumentError('Either work or workWithCall must be provided');
-    }
-    
     final callId = _generateCallId();
     final now = DateTime.now();
 
@@ -1117,7 +1082,7 @@ class _LedgerOperation {
       onCleanup: callback?.onCleanup,
     );
 
-    // Track locally (sessionId: 0 for direct Operation calls, not via handle)
+    // Track locally (sessionId: 0 for internal calls)
     _activeCalls[callId] = _ActiveCall(
       callId: callId,
       sessionId: 0,
@@ -1128,13 +1093,57 @@ class _LedgerOperation {
       failOnCrash: failOnCrash,
     );
 
-    // Create the actual work function
-    final actualWork = work ?? (() => workWithCall!(spawnedCall));
+    // Execute asynchronously
+    _runSpawnedCall<T>(
+      callId: callId,
+      work: work,
+      spawnedCall: spawnedCall,
+      callback: callback,
+      failOnCrash: failOnCrash,
+    );
+
+    return spawnedCall;
+  }
+
+  /// Internal spawn call for work that needs call access (e.g., process spawning).
+  ///
+  /// Used by [spawnProcessWithOutput] and similar methods.
+  SpawnedCall<T> _spawnCallWithCallAccess<T>({
+    required Future<T> Function(SpawnedCall<T> call) work,
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  }) {
+    final callId = _generateCallId();
+    final now = DateTime.now();
+
+    // Create SpawnedCall instance
+    final spawnedCall = SpawnedCall<T>(
+      callId: callId,
+      description: description,
+    );
+    _spawnedCalls[callId] = spawnedCall;
+
+    // Create internal callback for cleanup
+    final internalCallback = CallCallback<dynamic>(
+      onCleanup: callback?.onCleanup,
+    );
+
+    // Track locally (sessionId: 0 for internal calls)
+    _activeCalls[callId] = _ActiveCall(
+      callId: callId,
+      sessionId: 0,
+      callback: internalCallback,
+      startedAt: now,
+      description: description,
+      isSpawned: true,
+      failOnCrash: failOnCrash,
+    );
 
     // Execute asynchronously
     _runSpawnedCall<T>(
       callId: callId,
-      work: actualWork,
+      work: () => work(spawnedCall),
       spawnedCall: spawnedCall,
       callback: callback,
       failOnCrash: failOnCrash,
@@ -1427,8 +1436,8 @@ class _LedgerOperation {
     bool failOnCrash = true,
     CallCallback<T>? callback,
   }) {
-    return spawnCall<T>(
-      workWithCall: (call) async {
+    return _spawnCallWithCallAccess<T>(
+      work: (call) async {
         // Start the process
         final process = await Process.start(
           executable,
@@ -1437,7 +1446,7 @@ class _LedgerOperation {
         );
         
         // Attach process to SpawnedCall for kill/cancel support
-        call.setProcess$(process);
+        call._setProcess(process);
 
         // Handle stdout
         process.stdout.transform(utf8.decoder).listen((data) {
@@ -1557,8 +1566,8 @@ class _LedgerOperation {
     bool failOnCrash = true,
     CallCallback<T>? callback,
   }) {
-    return spawnCall<T>(
-      workWithCall: (call) async {
+    return _spawnCallWithCallAccess<T>(
+      work: (call) async {
         // Start the process
         final process = await Process.start(
           executable,
@@ -1567,7 +1576,7 @@ class _LedgerOperation {
         );
         
         // Attach process to SpawnedCall for kill/cancel support
-        call.setProcess$(process);
+        call._setProcess(process);
 
         // Handle stderr
         process.stderr.transform(utf8.decoder).listen((data) {
@@ -1670,7 +1679,7 @@ class _LedgerOperation {
     bool failOnCrash = true,
     CallCallback<T>? callback,
   }) {
-    return spawnCall<T>(
+    return _spawnCallSimple<T>(
       work: () async {
         if (timeout != null) {
           return await work().timeout(timeout);
@@ -3026,7 +3035,7 @@ class Ledger extends LedgerBase {
   ///
   /// The [participantId] should be the remote client's identifier.
   /// The [participantPid] is optional; defaults to -1 for remote clients.
-  Future<Operation> createOperationForClient$({
+  Future<Operation> _createOperationForClient({
     required String participantId,
     int participantPid = -1,
     String? description,
@@ -3049,7 +3058,9 @@ class Ledger extends LedgerBase {
   ///
   /// The [participantId] should be the remote client's identifier.
   /// The [participantPid] is optional; defaults to -1 for remote clients.
-  Future<Operation> joinOperationForClient$({
+  ///
+  /// Throws [StateError] if the operation does not exist.
+  Future<Operation> _joinOperationForClient({
     required String operationId,
     required String participantId,
     int participantPid = -1,
@@ -3060,6 +3071,12 @@ class Ledger extends LedgerBase {
     final isFirstJoin = ledgerOp == null;
 
     if (isFirstJoin) {
+      // Verify the operation exists before joining
+      final existingData = await _readOperation(operationId);
+      if (existingData == null) {
+        throw StateError('Operation not found: $operationId');
+      }
+
       // First join - create new _LedgerOperation
       final joinTime = DateTime.now();
 
@@ -3072,7 +3089,7 @@ class Ledger extends LedgerBase {
         startTime: joinTime,
       );
 
-      // Load current state
+      // Load current state (we know it exists now)
       await ledgerOp._refreshCache();
 
       // Register in global registry
@@ -3111,7 +3128,7 @@ class Ledger extends LedgerBase {
   ///
   /// **Server use only:** Returns the internal [Operation] for the given
   /// operation ID, or null if not found.
-  Operation? getOperationForServer$(String operationId) {
+  Operation? _getOperationForServer(String operationId) {
     final ledgerOp = _operations[operationId];
     if (ledgerOp == null) return null;
     // Create an Operation with session 0 (server context)
@@ -3122,7 +3139,7 @@ class Ledger extends LedgerBase {
   ///
   /// **Server use only:** Returns the internal [_LedgerOperation] for
   /// low-level operations like deleteCallFrame.
-  _LedgerOperation? getInternalOperation$(String operationId) {
+  _LedgerOperation? _getInternalOperation(String operationId) {
     return _operations[operationId];
   }
 

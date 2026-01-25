@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import '../ledger_local/file_ledger.dart';
 import '../ledger_api/ledger_api.dart';
 import 'simulation_config.dart';
 

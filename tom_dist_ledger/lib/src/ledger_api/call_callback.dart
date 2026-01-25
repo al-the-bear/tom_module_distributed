@@ -1,15 +1,7 @@
 /// Data classes for call callbacks and info structures.
 ///
 /// These classes support the callback pattern for cleanup and crash notification.
-library;
-
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
-import '../ledger_local/file_ledger.dart' show HeartbeatResult;
-import 'ledger_base.dart' show OperationBase;
-import 'ledger_types.dart' show HeartbeatError;
+part of 'ledger_api.dart';
 
 /// Callback structure for ledger-level events.
 ///
@@ -226,6 +218,31 @@ extension LogLevelExtension on LogLevel {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// CALL LIFECYCLE INTERFACE
+// ═══════════════════════════════════════════════════════════════════
+
+/// Interface for operations that can manage call lifecycle.
+///
+/// Implemented by both local [Operation] and [RemoteOperation] to allow
+/// the [Call] class to end or fail calls in a type-safe manner.
+///
+/// **Note:** This is for internal use by the ledger API.
+abstract interface class CallLifecycle {
+  /// End a call successfully with an optional result.
+  Future<void> endCallInternal<T>({
+    required String callId,
+    T? result,
+  });
+
+  /// Fail a call with an error.
+  Future<void> failCallInternal({
+    required String callId,
+    required Object error,
+    StackTrace? stackTrace,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // CALL CLASS (for synchronous call tracking)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -255,7 +272,7 @@ class Call<T> {
   final String? description;
 
   /// The operation this call belongs to.
-  final dynamic _operation; // Operation type, but avoid circular import
+  final CallLifecycle _operation;
 
   /// When the call was started.
   final DateTime startedAt;
@@ -268,7 +285,7 @@ class Call<T> {
   /// This constructor is for internal use by the ledger API.
   Call.internal({
     required this.callId,
-    required dynamic operation,
+    required CallLifecycle operation,
     required this.startedAt,
     this.description,
   }) : _operation = operation;
@@ -287,7 +304,7 @@ class Call<T> {
       throw StateError('Call $callId has already been completed');
     }
     _isCompleted = true;
-    await (_operation as dynamic).endCallInternal$(callId: callId, result: result);
+    await _operation.endCallInternal<T>(callId: callId, result: result);
   }
 
   /// Fail the call with an error.
@@ -301,7 +318,7 @@ class Call<T> {
       throw StateError('Call $callId has already been completed');
     }
     _isCompleted = true;
-    await (_operation as dynamic).failCallInternal$(
+    await _operation.failCallInternal(
       callId: callId,
       error: error,
       stackTrace: stackTrace,
@@ -473,14 +490,15 @@ class SpawnedCall<T> {
   /// Set the process reference for process-based workers.
   /// 
   /// **Note:** This is for internal use by the ledger API.
-  void setProcess$(Process process) {
+  void _setProcess(Process process) {
     _process = process;
   }
 
   /// Set the cancellation callback.
   /// 
   /// **Note:** This is for internal use by the ledger API.
-  void setOnCancel$(Future<void> Function() onCancel) {
+  // ignore: unused_element
+  void _setOnCancel(Future<void> Function() onCancel) {
     _onCancel = onCancel;
   }
 

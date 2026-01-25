@@ -111,6 +111,9 @@ class RemoteLedgerClient extends LedgerBase {
     );
     _operations[operationId] = remoteOp;
 
+    // Register the session locally for call tracking
+    remoteOp._registerSession(sessionId);
+
     final operation = RemoteOperation._(remoteOp, sessionId);
 
     // Start client-side heartbeat
@@ -153,6 +156,9 @@ class RemoteLedgerClient extends LedgerBase {
       );
       _operations[operationId] = remoteOp;
     }
+
+    // Register the session locally for call tracking
+    remoteOp._registerSession(sessionId);
 
     final operation = RemoteOperation._(remoteOp, sessionId);
 
@@ -284,6 +290,20 @@ class _RemoteOperation {
   Future<OperationFailedInfo> get onFailure => _failureCompleter.future;
   int get joinCount => _joinCount;
 
+  /// Register a session ID received from the server.
+  ///
+  /// This is used when the session is created on the server and we need
+  /// to track it locally for call management.
+  void _registerSession(int sessionId) {
+    _activeSessions.add(sessionId);
+    _sessionCalls[sessionId] = {};
+    _joinCount++;
+    // Update counter to avoid ID conflicts
+    if (sessionId > _sessionCounter) {
+      _sessionCounter = sessionId;
+    }
+  }
+
   int createSession() {
     _sessionCounter++;
     _activeSessions.add(_sessionCounter);
@@ -397,7 +417,7 @@ class _RemoteOperation {
 /// This provides the same interface as [Operation] but communicates
 /// with a remote server for ledger access. Callbacks and work execution
 /// happen client-side.
-class RemoteOperation implements OperationBase {
+class RemoteOperation implements OperationBase, CallLifecycle {
   final _RemoteOperation _operation;
 
   @override
@@ -486,7 +506,7 @@ class RemoteOperation implements OperationBase {
     // Create Call<T> object that works with this remote operation
     final call = Call<T>.internal(
       callId: callId,
-      operation: this, // RemoteOperation implements endCallInternal$/failCallInternal$
+      operation: this, // RemoteOperation implements CallLifecycle
       startedAt: startedAt,
       description: description,
     );
@@ -499,20 +519,15 @@ class RemoteOperation implements OperationBase {
   ///
   /// Work executes client-side; call frame is registered on server.
   /// Returns immediately with a [SpawnedCall<T>].
+  ///
+  /// The [work] function receives both the [SpawnedCall] (for cancellation checks)
+  /// and this [RemoteOperation] (for logging, abort checks, etc.).
   SpawnedCall<T> spawnCall<T>({
-    Future<T> Function()? work,
-    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    required Future<T> Function(SpawnedCall<T> call, RemoteOperation operation) work,
     CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) {
-    if (work == null && workWithCall == null) {
-      throw ArgumentError('Either work or workWithCall must be provided');
-    }
-    if (work != null && workWithCall != null) {
-      throw ArgumentError('Only one of work or workWithCall can be provided');
-    }
-
     // Generate a temporary call ID (will be replaced by server response)
     final tempCallId = 'spawn_${DateTime.now().millisecondsSinceEpoch}_${_operation._calls.length}';
 
@@ -529,8 +544,7 @@ class RemoteOperation implements OperationBase {
     // Start the work asynchronously
     _runSpawnedCall(
       spawnedCall: spawnedCall,
-      work: work,
-      workWithCall: workWithCall,
+      work: () => work(spawnedCall, this),
       callback: callback ?? CallCallback<T>(),
       description: description,
       failOnCrash: failOnCrash,
@@ -542,8 +556,7 @@ class RemoteOperation implements OperationBase {
   /// Internal method to run a spawned call.
   Future<void> _runSpawnedCall<T>({
     required SpawnedCall<T> spawnedCall,
-    Future<T> Function()? work,
-    Future<T> Function(SpawnedCall<T> call)? workWithCall,
+    required Future<T> Function() work,
     required CallCallback<T> callback,
     String? description,
     required bool failOnCrash,
@@ -574,9 +587,7 @@ class RemoteOperation implements OperationBase {
       _operation._activeCalls[serverCallId] = activeCall;
 
       // Execute the work
-      final result = work != null
-          ? await work()
-          : await workWithCall!(spawnedCall);
+      final result = await work();
 
       // End call on server
       await _operation.client._post('/call/end', {
@@ -649,7 +660,8 @@ class RemoteOperation implements OperationBase {
   }
 
   /// Internal method to end a call, called by Call.end().
-  Future<void> endCallInternal$<T>({
+  @override
+  Future<void> endCallInternal<T>({
     required String callId,
     T? result,
   }) async {
@@ -667,9 +679,8 @@ class RemoteOperation implements OperationBase {
     });
 
     // Trigger onCompletion callback client-side
-    if (result != null && activeCall.callback is _ActiveCallInfo<T>) {
-      final callback = (activeCall as _ActiveCallInfo<T>).callback;
-      await callback.onCompletion?.call(result);
+    if (result != null && activeCall is _ActiveCallInfo<T>) {
+      await activeCall.callback.onCompletion?.call(result);
     }
 
     // Complete the completer
@@ -679,7 +690,8 @@ class RemoteOperation implements OperationBase {
   }
 
   /// Internal method to fail a call, called by Call.fail().
-  Future<void> failCallInternal$({
+  @override
+  Future<void> failCallInternal({
     required String callId,
     required Object error,
     StackTrace? stackTrace,
@@ -825,12 +837,15 @@ class RemoteOperation implements OperationBase {
 
   @override
   Future<void> leave({bool cancelPendingCalls = false}) async {
+    // Check for pending calls before notifying server
+    _operation.leaveSession(sessionId, cancelPendingCalls: cancelPendingCalls);
+    
+    // Notify server (optional - server just acknowledges)
     await _operation.client._post('/operation/leave', {
       'operationId': operationId,
       'sessionId': sessionId,
       'cancelPendingCalls': cancelPendingCalls,
     });
-    _operation.leaveSession(sessionId, cancelPendingCalls: cancelPendingCalls);
   }
 
   @override

@@ -7,8 +7,7 @@ library;
 
 import 'dart:async';
 
-import 'package:tom_dist_ledger/src/ledger_api/call_callback.dart';
-import 'package:tom_dist_ledger/src/ledger_api/ledger_types.dart';
+import 'package:tom_dist_ledger/src/ledger_api/ledger_api.dart';
 
 // Re-export types for convenience
 export 'package:tom_dist_ledger/src/ledger_api/ledger_types.dart';

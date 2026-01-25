@@ -1,8 +1,10 @@
-import 'package:tom_dist_ledger_tool/tom_dist_ledger_tool.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('calculate', () {
-    expect(calculate(), 42);
+  group('tom_dist_ledger_tool', () {
+    test('placeholder', () {
+      // Placeholder test - real tests are in tom_dist_ledger package
+      expect(true, isTrue);
+    });
   });
 }

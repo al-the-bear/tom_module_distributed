@@ -1577,7 +1577,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final spawnedCall = operation.spawnCall<int>(
-        work: () async => 42,
+        work: (_, __) async => 42,
         description: 'spawned call',
       );
       
@@ -1596,7 +1596,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final spawnedCall = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           // Delay so the call frame is visible before work completes
           await Future.delayed(Duration(milliseconds: 50));
           return 42;
@@ -1629,7 +1629,7 @@ void main() {
       
       // Spawn a contained call (failOnCrash=false)
       final spawnedCall = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(Duration(milliseconds: 50));
           return 42;
         },
@@ -1757,7 +1757,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final spawned = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(Duration(milliseconds: 50));
           return 42;
         },
@@ -1781,7 +1781,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final spawned = operation.spawnCall<String>(
-        work: () async {
+        work: (_, __) async {
           throw Exception('Work failed');
         },
         callback: CallCallback<String>(
@@ -1803,7 +1803,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final spawned = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           throw Exception('Work failed');
         },
         description: 'will fail',
@@ -1822,13 +1822,13 @@ void main() {
       final operation = await ledger.createOperation();
 
       final call1 = operation.spawnCall<int>(
-        work: () async => 1,
+        work: (_, __) async => 1,
       );
       final call2 = operation.spawnCall<int>(
-        work: () async => 2,
+        work: (_, __) async => 2,
       );
       final call3 = operation.spawnCall<int>(
-        work: () async => 3,
+        work: (_, __) async => 3,
       );
 
       final result = await operation.sync([call1, call2, call3]);
@@ -1844,11 +1844,11 @@ void main() {
       final operation = await ledger.createOperation();
 
       final call1 = operation.spawnCall<int>(
-        work: () async => 1,
+        work: (_, __) async => 1,
         failOnCrash: false,
       );
       final call2 = operation.spawnCall<int>(
-        work: () async => throw Exception('fail'),
+        work: (_, __) async => throw Exception('fail'),
         failOnCrash: false,
       );
 
@@ -2133,7 +2133,7 @@ void main() {
 
       var completed = false;
       final call = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(Duration(milliseconds: 20));
           return 42;
         },
@@ -2581,7 +2581,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       var completionCalled = false;
-      final call = operation.spawnCall<int>(work: () async => 42);
+      final call = operation.spawnCall<int>(work: (_, __) async => 42);
 
       await operation.sync(
         [call],
@@ -2616,7 +2616,7 @@ void main() {
       int? receivedResult;
       final completer = Completer<void>();
       final call = operation.spawnCall<int>(
-        work: () async => 42,
+        work: (_, __) async => 42,
         callback: CallCallback<int>(
           onCompletion: (result) async {
             receivedResult = result;
@@ -2654,7 +2654,7 @@ void main() {
 
       // Spawn a call that will complete after delay
       final call = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(Duration(milliseconds: 50));
           return 42;
         },
@@ -2704,7 +2704,7 @@ void main() {
 
       var onOperationFailedCalled = false;
       final call = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(Duration(milliseconds: 20));
           throw Exception('Test failure');
         },
@@ -2812,7 +2812,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final call = operation.spawnCall<String>(
-        work: () async => throw Exception('Work failed'),
+        work: (_, __) async => throw Exception('Work failed'),
         callback: CallCallback<String>(
           onCallCrashed: () async => null, // Returns null, so call should fail
         ),
@@ -2831,7 +2831,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       final call = operation.spawnCall<String>(
-        work: () async => throw Exception('Work failed'),
+        work: (_, __) async => throw Exception('Work failed'),
         callback: CallCallback<String>(
           onCallCrashed: () async => throw Exception('Recovery also failed'),
         ),
@@ -3199,7 +3199,7 @@ void main() {
 
       // Spawn a call (returns immediately)
       final call = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(Duration(milliseconds: 50));
           return 42;
         },
@@ -3221,7 +3221,7 @@ void main() {
 
       // Spawn a call that will fail
       final call = operation.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           throw Exception('Test failure');
         },
         failOnCrash: false, // Don't fail the operation

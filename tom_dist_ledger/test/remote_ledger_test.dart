@@ -407,7 +407,7 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<int>(
-          work: () async {
+          work: (_, __) async {
             await Future.delayed(const Duration(milliseconds: 100));
             return 42;
           },
@@ -428,7 +428,7 @@ void main() {
         var workExecuted = false;
 
         final spawned = operation.spawnCall<String>(
-          work: () async {
+          work: (_, __) async {
             workExecuted = true;
             return 'done';
           },
@@ -442,17 +442,18 @@ void main() {
         await operation.complete();
       });
 
-      test('supports workWithCall for self-reference', () async {
+      test('supports call and operation access', () async {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<String>(
-          workWithCall: (call) async {
-            return 'callId: ${call.callId}';
+          work: (call, op) async {
+            return 'callId: ${call.callId}, opId: ${op.operationId}';
           },
         );
 
         await spawned.future;
         expect(spawned.result, startsWith('callId: spawn_'));
+        expect(spawned.result, contains('opId:'));
 
         await operation.complete();
       });
@@ -461,7 +462,7 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<int>(
-          work: () async {
+          work: (_, __) async {
             throw Exception('Work failed');
           },
           failOnCrash: false,
@@ -479,7 +480,7 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<String>(
-          work: () async {
+          work: (_, __) async {
             throw Exception('Work failed');
           },
           callback: CallCallback<String>(
@@ -503,7 +504,7 @@ void main() {
         int? completionResult;
 
         final spawned = operation.spawnCall<int>(
-          work: () async => 42,
+          work: (_, __) async => 42,
           callback: CallCallback<int>(
             onCompletion: (result) async {
               completionCalled = true;
@@ -527,7 +528,7 @@ void main() {
         var cleanupCalled = false;
 
         final spawned = operation.spawnCall<int>(
-          work: () async => throw Exception('fail'),
+          work: (_, __) async => throw Exception('fail'),
           callback: CallCallback<int>(
             onCleanup: () async {
               cleanupCalled = true;
@@ -582,14 +583,14 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned1 = operation.spawnCall<int>(
-          work: () async {
+          work: (_, __) async {
             await Future.delayed(const Duration(milliseconds: 200));
             return 1;
           },
         );
 
         final spawned2 = operation.spawnCall<int>(
-          work: () async {
+          work: (_, __) async {
             await Future.delayed(const Duration(milliseconds: 200));
             return 2;
           },
@@ -612,9 +613,9 @@ void main() {
       test('waits for multiple spawned calls', () async {
         final operation = await client.createOperation();
 
-        final call1 = operation.spawnCall<int>(work: () async => 1);
-        final call2 = operation.spawnCall<int>(work: () async => 2);
-        final call3 = operation.spawnCall<int>(work: () async => 3);
+        final call1 = operation.spawnCall<int>(work: (_, __) async => 1);
+        final call2 = operation.spawnCall<int>(work: (_, __) async => 2);
+        final call3 = operation.spawnCall<int>(work: (_, __) async => 3);
 
         final result = await operation.sync([call1, call2, call3]);
 
@@ -630,11 +631,11 @@ void main() {
         final operation = await client.createOperation();
 
         final call1 = operation.spawnCall<int>(
-          work: () async => 1,
+          work: (_, __) async => 1,
           failOnCrash: false,
         );
         final call2 = operation.spawnCall<int>(
-          work: () async => throw Exception('fail'),
+          work: (_, __) async => throw Exception('fail'),
           failOnCrash: false,
         );
 
@@ -652,8 +653,8 @@ void main() {
 
         var completionCalled = false;
 
-        final call1 = operation.spawnCall<int>(work: () async => 1);
-        final call2 = operation.spawnCall<int>(work: () async => 2);
+        final call1 = operation.spawnCall<int>(work: (_, __) async => 1);
+        final call2 = operation.spawnCall<int>(work: (_, __) async => 2);
 
         await operation.sync(
           [call1, call2],
@@ -672,7 +673,7 @@ void main() {
       test('waits for single spawned call', () async {
         final operation = await client.createOperation();
 
-        final call = operation.spawnCall<String>(work: () async => 'result');
+        final call = operation.spawnCall<String>(work: (_, __) async => 'result');
 
         final result = await operation.awaitCall(call);
 
@@ -699,24 +700,26 @@ void main() {
 
     group('leave', () {
       test('leaves session', () async {
-        final operation = await client.createOperation();
+        final initiator = await client.createOperation();
 
-        // Create another client to keep operation alive
+        // Create another client to join
         final client2 = RemoteLedgerClient(
           serverUrl: serverUrl,
-          participantId: 'keeper',
+          participantId: 'joiner',
         );
-        final op2 = await client2.joinOperation(
-          operationId: operation.operationId,
+        final joiner = await client2.joinOperation(
+          operationId: initiator.operationId,
         );
 
-        await operation.leave();
+        // Joiner leaves first
+        await joiner.leave();
 
-        // Operation should still exist since client2 is still joined
-        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
+        // Operation should still exist since initiator is still active
+        final opFile = File('${tempDir.path}/${initiator.operationId}.operation.json');
         expect(opFile.existsSync(), isTrue);
 
-        await op2.complete();
+        // Initiator completes the operation
+        await initiator.complete();
         client2.dispose();
       });
 
@@ -741,35 +744,36 @@ void main() {
         );
         final operation = await client2.createOperation();
 
-        // Create a long-running call
+        // Create a long-running call that checks cancellation
         final spawned = operation.spawnCall<int>(
-          work: () async {
-            await Future.delayed(const Duration(seconds: 10));
+          work: (call, _) async {
+            // Simulate work that checks cancellation periodically
+            for (int i = 0; i < 100; i++) {
+              if (call.isCancelled) {
+                throw StateError('Work cancelled');
+              }
+              await Future.delayed(const Duration(milliseconds: 100));
+            }
             return 42;
           },
         );
 
-        // Wait for call to be registered
+        // Wait for call to be registered and work to start
         await Future.delayed(const Duration(milliseconds: 50));
 
-        // Create another client to complete the operation
-        final client3 = RemoteLedgerClient(
-          serverUrl: serverUrl,
-          participantId: 'completer',
-        );
-        final op2 = await client3.joinOperation(
-          operationId: operation.operationId,
-        );
-
-        // Leave with cancel
+        // Leave with cancel (initiator can leave with cancel)
         await operation.leave(cancelPendingCalls: true);
 
         // Spawned call should be cancelled
         expect(spawned.isCancelled, isTrue);
 
-        await op2.complete();
+        // Wait for call to complete (work should detect cancellation and fail)
+        await spawned.future;
+        
+        // Call should have failed because it detected cancellation
+        expect(spawned.isFailed, isTrue);
+
         client2.dispose();
-        client3.dispose();
       });
     });
 
@@ -1063,14 +1067,14 @@ void main() {
 
       // Spawn calls from both clients
       final spawned1 = op1.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(const Duration(milliseconds: 50));
           return 1;
         },
       );
 
       final spawned2 = op2.spawnCall<int>(
-        work: () async {
+        work: (_, __) async {
           await Future.delayed(const Duration(milliseconds: 50));
           return 2;
         },
@@ -1131,12 +1135,12 @@ void main() {
       final remoteOp = await client.createOperation();
 
       // All these calls should compile - same as local
-      final spawn1 = remoteOp.spawnCall<int>(work: () async => 1);
+      final spawn1 = remoteOp.spawnCall<int>(work: (_, __) async => 1);
       final spawn2 = remoteOp.spawnCall<String>(
-        workWithCall: (call) async => call.callId,
+        work: (call, _) async => call.callId,
       );
       final spawn3 = remoteOp.spawnCall<void>(
-        work: () async {},
+        work: (_, __) async {},
         description: 'test',
         failOnCrash: false,
         callback: CallCallback<void>(
@@ -1157,8 +1161,8 @@ void main() {
       );
       final remoteOp = await client.createOperation();
 
-      final spawn1 = remoteOp.spawnCall<int>(work: () async => 1);
-      final spawn2 = remoteOp.spawnCall<int>(work: () async => 2);
+      final spawn1 = remoteOp.spawnCall<int>(work: (_, __) async => 1);
+      final spawn2 = remoteOp.spawnCall<int>(work: (_, __) async => 2);
 
       // Same as local
       final result = await remoteOp.sync(

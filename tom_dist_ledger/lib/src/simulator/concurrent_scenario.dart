@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'async_simulation.dart';
 import '../ledger_api/ledger_api.dart';
-import '../ledger_local/file_ledger.dart';
 
 export 'scenario.dart' show 
     FailureInjection, 
