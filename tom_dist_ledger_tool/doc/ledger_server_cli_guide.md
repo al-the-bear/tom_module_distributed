@@ -76,7 +76,7 @@ dart run tom_dist_ledger_tool:ledger_server
 
 ### Basic Usage
 
-Start with default settings (port 8765, current directory):
+Start with default settings (port 19876, current directory):
 
 ```bash
 ./ledger_server
@@ -86,9 +86,9 @@ Output:
 
 ```
 Starting Distributed Ledger Server...
-  Port: 8765
+  Port: 19876
   Base path: /current/directory
-Server listening on http://localhost:8765
+Server listening on http://localhost:19876
 Press Ctrl+C to stop.
 ```
 
@@ -128,7 +128,7 @@ Or using the short form:
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--port=<n>` | `-p <n>` | `8765` | Port to listen on |
+| `--port=<n>` | `-p <n>` | `19876` | Port to listen on |
 | `--path=<dir>` | `-d <dir>` | Current directory | Directory for ledger files |
 
 ### Examples
@@ -151,7 +151,7 @@ Or using the short form:
 ### Health Check
 
 ```bash
-curl http://localhost:8765/health
+curl http://localhost:19876/health
 ```
 
 Response:
@@ -163,7 +163,7 @@ Response:
 ### Create Operation
 
 ```bash
-curl -X POST http://localhost:8765/operation/create \
+curl -X POST http://localhost:19876/operation/create \
   -H "Content-Type: application/json" \
   -d '{"participantId": "cli", "description": "Test operation"}'
 ```
@@ -183,7 +183,7 @@ Response:
 ### Join Operation
 
 ```bash
-curl -X POST http://localhost:8765/operation/join \
+curl -X POST http://localhost:19876/operation/join \
   -H "Content-Type: application/json" \
   -d '{"operationId": "20260122T14:30:45.123-cli-a1b2c3d4", "participantId": "worker-1"}'
 ```
@@ -191,7 +191,7 @@ curl -X POST http://localhost:8765/operation/join \
 ### Send Heartbeat
 
 ```bash
-curl -X POST http://localhost:8765/operation/heartbeat \
+curl -X POST http://localhost:19876/operation/heartbeat \
   -H "Content-Type: application/json" \
   -d '{"operationId": "20260122T14:30:45.123-cli-a1b2c3d4"}'
 ```
@@ -211,7 +211,7 @@ Response:
 ### Start Call
 
 ```bash
-curl -X POST http://localhost:8765/call/start \
+curl -X POST http://localhost:19876/call/start \
   -H "Content-Type: application/json" \
   -d '{"operationId": "20260122T14:30:45.123-cli-a1b2c3d4", "sessionId": 1, "description": "Process data"}'
 ```
@@ -228,7 +228,7 @@ Response:
 ### End Call
 
 ```bash
-curl -X POST http://localhost:8765/call/end \
+curl -X POST http://localhost:19876/call/end \
   -H "Content-Type: application/json" \
   -d '{"operationId": "20260122T14:30:45.123-cli-a1b2c3d4", "callId": "call_cli_1_a1b2"}'
 ```
@@ -236,7 +236,7 @@ curl -X POST http://localhost:8765/call/end \
 ### Complete Operation
 
 ```bash
-curl -X POST http://localhost:8765/operation/complete \
+curl -X POST http://localhost:19876/operation/complete \
   -H "Content-Type: application/json" \
   -d '{"operationId": "20260122T14:30:45.123-cli-a1b2c3d4"}'
 ```
@@ -253,7 +253,7 @@ The `RemoteLedgerClient` provides the **same typed API** as the local `Ledger`:
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
 final client = RemoteLedgerClient(
-  serverUrl: 'http://localhost:8765',
+  serverUrl: 'http://localhost:19876',
   participantId: 'my_app',
   heartbeatInterval: Duration(seconds: 5),
   staleThreshold: Duration(seconds: 15),
@@ -320,9 +320,9 @@ The server logs all requests and errors to stderr:
 
 ```
 Starting Distributed Ledger Server...
-  Port: 8765
+  Port: 19876
   Base path: /tmp/ledger
-Server listening on http://localhost:8765
+Server listening on http://localhost:19876
 ```
 
 Errors are logged with full stack traces:
@@ -357,7 +357,7 @@ cat /tmp/ledger/*.operation.json | jq .
 Or check via API:
 
 ```bash
-curl -X POST http://localhost:8765/operation/state \
+curl -X POST http://localhost:19876/operation/state \
   -H "Content-Type: application/json" \
   -d '{"operationId": "..."}'
 ```
@@ -381,7 +381,7 @@ tail -f /tmp/ledger/*.operation.debug.log
 Run on localhost for development:
 
 ```bash
-./ledger_server --port=8765 --path=./ledger_data
+./ledger_server --port=19876 --path=./ledger_data
 ```
 
 ### Docker Container
@@ -398,14 +398,14 @@ RUN dart compile exe bin/ledger_server.dart -o ledger_server
 FROM debian:buster-slim
 COPY --from=build /app/ledger_server /usr/local/bin/
 VOLUME /data
-EXPOSE 8765
-CMD ["ledger_server", "--port=8765", "--path=/data"]
+EXPOSE 19876
+CMD ["ledger_server", "--port=19876", "--path=/data"]
 ```
 
 Run with:
 
 ```bash
-docker run -p 8765:8765 -v $(pwd)/ledger_data:/data ledger-server
+docker run -p 19876:19876 -v $(pwd)/ledger_data:/data ledger-server
 ```
 
 ### Systemd Service
@@ -420,7 +420,7 @@ After=network.target
 [Service]
 Type=simple
 User=ledger
-ExecStart=/usr/local/bin/ledger_server --port=8765 --path=/var/lib/ledger
+ExecStart=/usr/local/bin/ledger_server --port=19876 --path=/var/lib/ledger
 Restart=on-failure
 RestartSec=5
 
@@ -449,7 +449,7 @@ Example nginx configuration:
 
 ```nginx
 upstream ledger {
-    server 127.0.0.1:8765;
+    server 127.0.0.1:19876;
 }
 
 server {
@@ -480,7 +480,7 @@ SocketException: Address already in use
 Choose a different port or stop the existing process:
 
 ```bash
-lsof -i :8765
+lsof -i :19876
 kill <PID>
 ```
 

@@ -762,7 +762,7 @@ Start the ledger server.
 ```dart
 static Future<LedgerServer> start({
   required String basePath,
-  int port = 8765,
+  int port = 19876,
   InternetAddress? address,
 })
 ```
@@ -770,7 +770,7 @@ static Future<LedgerServer> start({
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `basePath` | `String` | required | Directory for ledger files |
-| `port` | `int` | `8765` | Port to listen on |
+| `port` | `int` | `19876` | Port to listen on |
 | `address` | `InternetAddress?` | loopback | Address to bind to |
 
 **Returns:** `LedgerServer` - Running server instance.
@@ -780,7 +780,7 @@ static Future<LedgerServer> start({
 ```dart
 final server = await LedgerServer.start(
   basePath: '/tmp/ledger',
-  port: 8765,
+  port: 19876,
 );
 print('Server listening on http://localhost:${server.port}');
 ```
@@ -861,7 +861,7 @@ RemoteLedgerClient({
 
 ```dart
 final client = RemoteLedgerClient(
-  serverUrl: 'http://localhost:8765',
+  serverUrl: 'http://localhost:19876',
   participantId: 'remote_worker',
 );
 ```
@@ -880,7 +880,7 @@ static Future<RemoteLedgerClient?> connect({
   int maxBackups = 20,
   Duration heartbeatInterval = const Duration(seconds: 5),
   Duration staleThreshold = const Duration(seconds: 15),
-  int port = 8765,
+  int port = 19876,
   Duration timeout = const Duration(seconds: 2),
   bool scanSubnet = true,
   void Function(String)? logger,
@@ -891,7 +891,7 @@ static Future<RemoteLedgerClient?> connect({
 |-----------|------|---------|-------------|
 | `serverUrl` | `String?` | `null` | Server URL. If null, uses auto-discovery |
 | `participantId` | `String` | required | Unique identifier for this client |
-| `port` | `int` | `8765` | Port for auto-discovery |
+| `port` | `int` | `19876` | Port for auto-discovery |
 | `timeout` | `Duration` | 2 seconds | Timeout per discovery attempt |
 | `scanSubnet` | `bool` | `true` | Whether to scan local subnet |
 | `logger` | `Function?` | `null` | Optional progress callback |
@@ -908,7 +908,7 @@ final client = await RemoteLedgerClient.connect(
 
 // With explicit server
 final client = await RemoteLedgerClient.connect(
-  serverUrl: 'http://localhost:8765',
+  serverUrl: 'http://localhost:19876',
   participantId: 'worker',
 );
 ```

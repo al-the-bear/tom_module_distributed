@@ -92,7 +92,7 @@ final client = await RemoteLedgerClient.connect(
 
 // Or connect to a known server
 final client = await RemoteLedgerClient.connect(
-  serverUrl: 'http://localhost:8765',
+  serverUrl: 'http://localhost:19876',
   participantId: 'remote_worker',
 );
 

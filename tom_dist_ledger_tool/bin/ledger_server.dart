@@ -37,20 +37,20 @@ void main(List<String> arguments) async {
   await Completer<void>().future;
 }
 
-/// Parse port from arguments, defaults to 8765.
+/// Parse port from arguments, defaults to 19876.
 int _parsePort(List<String> arguments) {
   for (final arg in arguments) {
     if (arg.startsWith('--port=')) {
-      return int.tryParse(arg.substring(7)) ?? 8765;
+      return int.tryParse(arg.substring(7)) ?? 19876;
     }
     if (arg == '--port' || arg == '-p') {
       final index = arguments.indexOf(arg);
       if (index + 1 < arguments.length) {
-        return int.tryParse(arguments[index + 1]) ?? 8765;
+        return int.tryParse(arguments[index + 1]) ?? 19876;
       }
     }
   }
-  return 8765;
+  return 19876;
 }
 
 /// Parse base path from arguments, defaults to current directory.

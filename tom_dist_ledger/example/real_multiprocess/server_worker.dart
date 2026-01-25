@@ -11,7 +11,7 @@
 /// - `--ledger-path=<path>` - Optional ledger path for joining the operation
 /// - `--operation-id=<id>` - Optional operation ID to join
 ///
-/// Run with: dart run example/real_multiprocess/server_worker.dart --port=8765
+/// Run with: dart run example/real_multiprocess/server_worker.dart --port=19876
 library;
 
 import 'dart:convert';

@@ -13,7 +13,7 @@ to perform distributed operations across machines.
 ### Starting the Server
 
 ```bash
-# Start with defaults (port 8765, current directory)
+# Start with defaults (port 19876, current directory)
 dart run bin/ledger_server.dart
 
 # Specify port
@@ -25,7 +25,7 @@ dart run bin/ledger_server.dart --path=/path/to/ledger
 dart run bin/ledger_server.dart -d /path/to/ledger
 
 # Full example
-dart run bin/ledger_server.dart --port=8765 --path=/workspace/_ai/ledger
+dart run bin/ledger_server.dart --port=19876 --path=/workspace/_ai/ledger
 ```
 
 ### Server Endpoints
@@ -45,7 +45,7 @@ explicit server URLs and auto-discovery:
 ```dart
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
-// Auto-discover server on default port 8765
+// Auto-discover server on default port 19876
 final client = await RemoteLedgerClient.connect(
   participantId: 'my_client',
 );
@@ -59,7 +59,7 @@ if (client != null) {
 
 // Or connect to a known server
 final client = await RemoteLedgerClient.connect(
-  serverUrl: 'http://192.168.1.100:8765',
+  serverUrl: 'http://192.168.1.100:19876',
   participantId: 'known_client',
 );
 ```
@@ -79,14 +79,14 @@ For synchronous construction when you already have the server URL:
 
 ```dart
 final client = RemoteLedgerClient(
-  serverUrl: 'http://192.168.1.100:8765',
+  serverUrl: 'http://192.168.1.100:19876',
   participantId: 'known_client',
 );
 ```
 
 ## Default Port
 
-The default port is **8765**. This is used by both the server and client
+The default port is **19876**. This is used by both the server and client
 auto-discovery.
 
 ## Stopping the Server

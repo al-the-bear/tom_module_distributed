@@ -11,7 +11,7 @@ part of 'ledger_api.dart';
 /// ```dart
 /// final server = await LedgerServer.start(
 ///   basePath: '/tmp/ledger',
-///   port: 8765,
+///   port: 19876,
 /// );
 /// print('Server listening on http://localhost:${server.port}');
 /// ```
@@ -43,11 +43,11 @@ class LedgerServer {
   ///
   /// Parameters:
   /// - [basePath] - Path for ledger files (default: current directory)
-  /// - [port] - Port to listen on (default: 8765)
+  /// - [port] - Port to listen on (default: 19876)
   /// - [address] - Address to bind to (default: loopback)
   static Future<LedgerServer> start({
     required String basePath,
-    int port = 8765,
+    int port = 19876,
     InternetAddress? address,
   }) async {
     // Create the ledger with server identity
