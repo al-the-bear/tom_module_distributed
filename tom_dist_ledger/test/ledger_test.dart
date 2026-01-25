@@ -235,6 +235,68 @@ void main() {
       });
     });
 
+    group('Ledger.connect factory', () {
+      test('creates LocalLedger when basePath is provided', () async {
+        final connectedLedger = await Ledger.connect(
+          basePath: tempDir.path,
+          participantId: 'factory_test',
+        );
+        
+        expect(connectedLedger, isNotNull);
+        expect(connectedLedger, isA<LocalLedger>());
+        expect(connectedLedger!.participantId, equals('factory_test'));
+        
+        connectedLedger.dispose();
+      });
+
+      test('supports callbacks via Ledger.connect', () async {
+        final backups = <String>[];
+        
+        final connectedLedger = await Ledger.connect(
+          basePath: tempDir.path,
+          participantId: 'callback_test',
+          callback: LedgerCallback(
+            onBackupCreated: (path) => backups.add(path),
+          ),
+        );
+        
+        expect(connectedLedger, isNotNull);
+        
+        // Create and complete an operation to trigger a backup
+        final operation = await connectedLedger!.createOperation();
+        await operation.complete();
+        
+        expect(backups, isNotEmpty);
+        
+        connectedLedger.dispose();
+      });
+
+      test('throws when both basePath and serverUrl are provided', () async {
+        expect(
+          () async => await Ledger.connect(
+            participantId: 'test',
+            basePath: tempDir.path,
+            serverUrl: 'http://localhost:8080',
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test('returns null when auto-discovery fails and no path/url provided', () async {
+        // Auto-discovery should fail when no server is running
+        // Use a timeout to ensure the test doesn't hang
+        final ledgerResult = await Ledger.connect(
+          participantId: 'autodiscovery_test',
+        ).timeout(
+          Duration(seconds: 5),
+          onTimeout: () => null, // Return null on timeout
+        );
+        
+        // Should return null when no server is discoverable
+        expect(ledgerResult, isNull);
+      }, timeout: Timeout(Duration(seconds: 10)));
+    });
+
     group('startOperation', () {
       test('creates operation file in ledger directory', () async {
         final operation = await ledger.createOperation();
@@ -363,7 +425,7 @@ void main() {
 
   group('Operation', () {
     late LocalLedger ledger;
-    late Operation operation;
+    late LocalOperation operation;
     final List<String> backups = [];
 
     setUp(() async {
@@ -1112,7 +1174,7 @@ void main() {
       final operation = await ledger.createOperation();
 
       HeartbeatResult? receivedResult;
-      OperationBase? receivedOperation;
+      Operation? receivedOperation;
 
       operation.startHeartbeat(
         interval: const Duration(milliseconds: 50),

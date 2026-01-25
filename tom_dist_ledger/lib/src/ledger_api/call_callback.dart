@@ -35,7 +35,7 @@ class LedgerCallback {
   ///
   /// This is for errors detected during background monitoring
   /// of all operations, not specific to a single operation.
-  final void Function(OperationBase operation, HeartbeatError error)?
+  final void Function(Operation operation, HeartbeatError error)?
   onGlobalHeartbeatError;
 
   /// Creates a ledger callback with optional handlers.
@@ -78,7 +78,7 @@ class OperationCallback {
   /// Called on each successful heartbeat.
   ///
   /// Use this for monitoring heartbeat health and call frame state.
-  final void Function(OperationBase operation, HeartbeatResult result)?
+  final void Function(Operation operation, HeartbeatResult result)?
   onHeartbeatSuccess;
 
   /// Called when a heartbeat detects a failure.
@@ -86,7 +86,7 @@ class OperationCallback {
   /// The [HeartbeatError] contains information about what failed
   /// (stale participant, missing file, etc.). Use this to trigger
   /// recovery or cleanup actions.
-  final void Function(OperationBase operation, HeartbeatError error)?
+  final void Function(Operation operation, HeartbeatError error)?
   onHeartbeatError;
 
   /// Called when the operation is aborted.
@@ -95,7 +95,7 @@ class OperationCallback {
   /// the heartbeat detects that the abort flag has been set.
   ///
   /// Alternative: Use [Operation.onAbort] future for async/await patterns.
-  final void Function(OperationBase operation)? onAbort;
+  final void Function(Operation operation)? onAbort;
 
   /// Called when the operation fails.
   ///
@@ -103,7 +103,7 @@ class OperationCallback {
   /// when the operation enters cleanup/failed state.
   ///
   /// Alternative: Use [Operation.onFailure] future for async/await patterns.
-  final void Function(OperationBase operation, OperationFailedInfo info)?
+  final void Function(Operation operation, OperationFailedInfo info)?
   onFailure;
 
   /// Creates an operation callback with optional handlers.
@@ -116,14 +116,14 @@ class OperationCallback {
 
   /// Creates a callback that only handles errors.
   factory OperationCallback.onError(
-    void Function(OperationBase operation, HeartbeatError error) onError,
+    void Function(Operation operation, HeartbeatError error) onError,
   ) {
     return OperationCallback(onHeartbeatError: onError);
   }
 
   /// Creates a callback that only handles operation failure.
   factory OperationCallback.onFailure(
-    void Function(OperationBase operation, OperationFailedInfo info) onFailure,
+    void Function(Operation operation, OperationFailedInfo info) onFailure,
   ) {
     return OperationCallback(onFailure: onFailure);
   }

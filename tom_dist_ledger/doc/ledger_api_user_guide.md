@@ -89,14 +89,19 @@ if (ledger != null) {
 
 ### Local Ledger (Same Machine)
 
-For direct local file-based coordination:
+For file-based coordination on the same machine:
 
 ```dart
-// Create a local ledger for file-based coordination
-final ledger = LocalLedger(
+// Create a local ledger using the unified factory
+final ledger = await Ledger.connect(
   basePath: '/tmp/ledger',
   participantId: 'orchestrator',
 );
+
+if (ledger == null) {
+  print('Failed to create ledger');
+  return;
+}
 
 // Create an operation (you're the initiator)
 final operation = await ledger.createOperation(
@@ -117,12 +122,12 @@ ledger.dispose();
 
 ```dart
 // Connect to a ledger server (with auto-discovery)
-final client = await RemoteLedgerClient.connect(
+final client = await Ledger.connect(
   participantId: 'remote_worker',
 );
 
 // Or connect to a known server
-final client = await RemoteLedgerClient.connect(
+final clientDirect = await Ledger.connect(
   serverUrl: 'http://localhost:19880',
   participantId: 'remote_worker',
 );
@@ -258,10 +263,12 @@ final result = await operation.sync([call1, call2]);
 One participant creates the operation and coordinates completion:
 
 ```dart
-final ledger = LocalLedger(
+final ledger = await Ledger.connect(
   basePath: '/tmp/ledger',
   participantId: 'orchestrator',
 );
+
+if (ledger == null) return;
 
 // Create operation - heartbeat auto-starts
 final operation = await ledger.createOperation(
@@ -288,10 +295,12 @@ await operation.complete();
 Other participants join existing operations:
 
 ```dart
-final ledger = LocalLedger(
+final ledger = await Ledger.connect(
   basePath: '/tmp/ledger',
   participantId: 'worker-1',
 );
+
+if (ledger == null) return;
 
 // Join existing operation - heartbeat auto-starts on first join
 final operation = await ledger.joinOperation(
@@ -506,7 +515,7 @@ if (optionalCall.isSuccess) {
 Each participant periodically updates a timestamp in the ledger. If a participant's heartbeat becomes stale (exceeds the threshold), it's considered crashed.
 
 ```dart
-final ledger = LocalLedger(
+final ledger = await Ledger.connect(
   basePath: '/tmp/ledger',
   participantId: 'worker',
   heartbeatInterval: Duration(seconds: 5),  // How often to update
@@ -708,7 +717,12 @@ final optional = operation.spawnCall<void>(
 ### 6. Dispose Ledgers and Clients
 
 ```dart
-final ledger = LocalLedger(...);
+final ledger = await Ledger.connect(
+  basePath: '/tmp/ledger',
+  participantId: 'example',
+);
+if (ledger == null) return;
+
 try {
   await doWork(ledger);
 } finally {

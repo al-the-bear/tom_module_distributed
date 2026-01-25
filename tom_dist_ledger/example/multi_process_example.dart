@@ -154,13 +154,16 @@ void main() async {
   final tempDir = Directory.systemTemp.createTempSync('multiprocess_example_');
   print('Working directory: ${tempDir.path}\n');
 
-  final ledger = LocalLedger(
+  final ledger = await Ledger.connect(
     basePath: tempDir.path,
     participantId: 'orchestrator',
-    callback: LedgerCallback(
-      onBackupCreated: (path) => print('📦 Backup created: $path'),
-    ),
   );
+
+  if (ledger == null) {
+    print('Failed to create ledger');
+    tempDir.deleteSync(recursive: true);
+    return;
+  }
 
   // Track cleanup callbacks
   ServerProcess? serverProcess;
@@ -289,7 +292,7 @@ void main() async {
       final requestId = 'request_$i';
       
       final spawnedCall = operation.spawnCall<Map<String, dynamic>>(
-        work: (_, __) async {
+        work: (call, _) async {
           return await serverProcess!.handleRequest(requestId);
         },
         callback: CallCallback(

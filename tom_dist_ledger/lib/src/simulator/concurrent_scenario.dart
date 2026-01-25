@@ -108,7 +108,7 @@ class IndependentParticipant {
   final int heartbeatIntervalMs;
   final int heartbeatTimeoutMs;
 
-  Operation? _operation;
+  LocalOperation? _operation;
   Timer? _heartbeatTimer;
   bool _isCrashed = false;
   Completer<void>? _crashCompleter;
@@ -142,11 +142,11 @@ class IndependentParticipant {
        );
 
   bool get hasOperation => _operation != null;
-  Operation get operation => _operation!;
+  LocalOperation get operation => _operation!;
   bool get isCrashed => _isCrashed;
 
   /// Start a new operation (initiator only).
-  Future<Operation> startOperation({required int depth}) async {
+  Future<LocalOperation> startOperation({required int depth}) async {
     printer.log(depth: depth, participant: name, message: 'startOperation()');
     _operation = await ledger.createOperation();
     printer.log(

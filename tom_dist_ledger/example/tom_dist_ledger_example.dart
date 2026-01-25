@@ -16,11 +16,16 @@ void main() async {
   // Create a ledger in a temp directory
   final tempDir = Directory.systemTemp.createTempSync('dpl_example_');
 
-  final ledger = LocalLedger(
+  final ledger = await Ledger.connect(
     basePath: tempDir.path,
     participantId: 'example',
-    callback: LedgerCallback(onBackupCreated: (path) => print('Backup: $path')),
   );
+
+  if (ledger == null) {
+    print('Failed to create ledger');
+    tempDir.deleteSync(recursive: true);
+    return;
+  }
 
   try {
     // Start an operation
@@ -28,16 +33,17 @@ void main() async {
 
     print('Started operation: ${operation.operationId}');
 
-    // Track a call
-    await operation.createCallFrame(callId: 'example-call-1');
+    // Start a call with typed result tracking
+    final call = await operation.startCall<String>();
     print('Started call execution');
 
     // Simulate work
     await Future.delayed(const Duration(milliseconds: 100));
+    final result = 'work completed';
 
-    // End the call
-    await operation.deleteCallFrame(callId: 'example-call-1');
-    print('Ended call execution');
+    // End the call with result
+    await call.end(result);
+    print('Ended call execution with result: $result');
 
     // Complete the operation
     await operation.complete();

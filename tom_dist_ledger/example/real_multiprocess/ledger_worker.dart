@@ -62,7 +62,7 @@ void main(List<String> args) async {
   stderr.writeln('[$participantId] Operation ID: $operationId');
 
   // Create ledger instance pointing to the same directory
-  final ledger = LocalLedger(
+  final ledger = (await Ledger.connect(
     basePath: ledgerPath,
     participantId: participantId,
     callback: LedgerCallback(
@@ -70,14 +70,15 @@ void main(List<String> args) async {
         stderr.writeln('[$participantId] 📦 Backup: ${path.split('/').last}');
       },
     ),
-  );
+  ))!;
 
   try {
     // Join the existing operation
+    // Cast to LocalOperation for access to low-level methods
     stderr.writeln('[$participantId] Joining operation...');
     final operation = await ledger.joinOperation(
       operationId: operationId,
-    );
+    ) as LocalOperation;
 
     stderr.writeln('[$participantId] ✅ Joined operation');
     await operation.log('Worker joined', level: LogLevel.info);

@@ -41,20 +41,32 @@ export 'package:tom_dist_ledger/src/ledger_api/ledger_types.dart';
 /// This callback receives the operation and the error that occurred.
 /// Used by both local and remote ledger implementations.
 typedef HeartbeatErrorCallback =
-    void Function(OperationBase operation, HeartbeatError error);
+    void Function(Operation operation, HeartbeatError error);
 
 /// Callback for successful heartbeat.
 ///
 /// This callback receives the operation and the heartbeat result.
 /// Used by both local and remote ledger implementations.
 typedef HeartbeatSuccessCallback =
-    void Function(OperationBase operation, HeartbeatResult result);
+    void Function(Operation operation, HeartbeatResult result);
 
 /// Abstract base class for operation handles.
 ///
-/// Both [Operation] (local) and [RemoteOperation] extend this class, providing
-/// a common type for callbacks and polymorphic code.
-abstract class OperationBase {
+/// Both [LocalOperation] (local) and [RemoteOperation] extend this class,
+/// providing a common type for callbacks and polymorphic code.
+///
+/// ## Common Operations
+///
+/// All operation types support:
+/// - Starting and tracking calls with [startCall]
+/// - Syncing multiple spawned calls with [sync]
+/// - Awaiting specific calls with [awaitCall]
+/// - Waiting for call completion with [waitForCompletion]
+/// - Abort handling with [setAbortFlag], [checkAbort], [triggerAbort]
+/// - Logging with [log]
+/// - Completing the operation with [complete] (initiator only)
+/// - Leaving with [leave]
+abstract class Operation {
   /// The operation ID.
   String get operationId;
 
@@ -76,6 +88,76 @@ abstract class OperationBase {
   /// Future that completes when abort is signaled.
   Future<void> get onAbort;
 
+  /// Future that completes when operation fails.
+  Future<OperationFailedInfo> get onFailure;
+
+  /// Elapsed time formatted as "SSS.mmm" (seconds.milliseconds).
+  String get elapsedFormatted;
+
+  /// Elapsed duration since operation start.
+  Duration get elapsedDuration;
+
+  /// Start time as ISO 8601 string.
+  String get startTimeIso;
+
+  /// Start time as milliseconds since epoch.
+  int get startTimeMs;
+
+  /// Number of pending calls for this session.
+  int get pendingCallCount;
+
+  /// Start a new call with typed result.
+  ///
+  /// Returns a [Call] object that must be ended with [Call.end].
+  /// Optionally provide a [callback] for completion handling.
+  ///
+  /// Parameters:
+  /// - [callback] - Optional callbacks for completion, crash, cleanup
+  /// - [description] - Optional description for logging
+  /// - [failOnCrash] - Whether crash should fail entire operation (default: true)
+  Future<Call<T>> startCall<T>({
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  });
+
+  /// Check if this session has any pending calls.
+  bool hasPendingCalls();
+
+  /// Spawn a call that runs asynchronously and is tracked by this session.
+  ///
+  /// The [work] function receives the [SpawnedCall] and this [Operation].
+  /// The call is tracked in this session's pending calls.
+  SpawnedCall<T> spawnCall<T>({
+    required Future<T> Function(SpawnedCall<T> call, Operation operation) work,
+    CallCallback<T>? callback,
+    String? description,
+    bool failOnCrash = true,
+  });
+
+  /// Sync multiple spawned calls, waiting for all to complete.
+  ///
+  /// Returns a [SyncResult] with success and failure counts.
+  Future<SyncResult> sync(
+    List<SpawnedCall<dynamic>> calls, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<void> Function()? onCompletion,
+  });
+
+  /// Wait for a specific spawned call to complete.
+  Future<SyncResult> awaitCall<T>(
+    SpawnedCall<T> call, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<void> Function()? onCompletion,
+  });
+
+  /// Wait for work while monitoring for operation failure.
+  Future<T> waitForCompletion<T>(
+    Future<T> Function() work, {
+    Future<void> Function(OperationFailedInfo info)? onOperationFailed,
+    Future<T> Function(Object error, StackTrace stackTrace)? onError,
+  });
+
   /// Leave this session of the operation.
   ///
   /// For local operations, this is synchronous.
@@ -96,7 +178,17 @@ abstract class OperationBase {
 
   /// Trigger local abort for this participant.
   void triggerAbort();
+
+  /// Start heartbeat monitoring for this operation.
+  void startHeartbeat({
+    HeartbeatErrorCallback? onError,
+    HeartbeatSuccessCallback? onSuccess,
+  });
 }
+
+/// Backwards compatibility alias for [Operation].
+@Deprecated('Use Operation instead')
+typedef OperationBase = Operation;
 
 /// Abstract base class for ledger implementations.
 ///
@@ -147,25 +239,25 @@ abstract class Ledger {
 
   /// Create a new operation (for the initiator).
   ///
-  /// Creates a new operation and returns an [OperationBase] handle.
+  /// Creates a new operation and returns an [Operation] handle.
   /// The operation ID is auto-generated based on timestamp and participantId.
   ///
   /// **Automatic heartbeat management:** The heartbeat is automatically
   /// started when the operation is created.
-  Future<OperationBase> createOperation({
+  Future<Operation> createOperation({
     String? description,
     OperationCallback? callback,
   });
 
   /// Join an existing operation.
   ///
-  /// Returns an [OperationBase] handle for the participant to interact with.
+  /// Returns an [Operation] handle for the participant to interact with.
   /// Each call returns a new handle with its own session, even if joining
   /// the same operation multiple times.
   ///
   /// **Automatic heartbeat management:** The heartbeat is automatically
   /// started on first join and stopped when the last session leaves.
-  Future<OperationBase> joinOperation({
+  Future<Operation> joinOperation({
     required String operationId,
     OperationCallback? callback,
   });
@@ -211,6 +303,7 @@ abstract class Ledger {
     String? basePath,
     String? serverUrl,
     int? participantPid,
+    LedgerCallback? callback,
     int maxBackups = 20,
     Duration heartbeatInterval = const Duration(seconds: 5),
     Duration staleThreshold = const Duration(seconds: 15),
@@ -229,6 +322,7 @@ abstract class Ledger {
         basePath: basePath,
         participantId: participantId,
         participantPid: participantPid,
+        callback: callback,
         maxBackups: maxBackups,
         heartbeatInterval: heartbeatInterval,
         staleThreshold: staleThreshold,

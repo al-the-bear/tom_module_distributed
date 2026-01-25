@@ -544,7 +544,7 @@ class _SimulatedParticipant {
   final AsyncSimulationPrinter printer;
   final bool isInitiator;
 
-  Operation? _operation;
+  LocalOperation? _operation;
   Timer? _heartbeatTimer;
 
   _SimulatedParticipant({

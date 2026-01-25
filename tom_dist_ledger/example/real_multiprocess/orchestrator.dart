@@ -27,7 +27,7 @@ void main() async {
   // Track all backups for validation
   final backups = <String>[];
   
-  final ledger = LocalLedger(
+  final ledger = (await Ledger.connect(
     basePath: tempDir.path,
     participantId: 'orchestrator',
     callback: LedgerCallback(
@@ -36,7 +36,7 @@ void main() async {
         print('📦 Backup created: ${path.split('/').last}');
       },
     ),
-  );
+  ))!;
 
   // Track max call frame count observed
   int maxCallFrameCount = 0;
@@ -44,9 +44,10 @@ void main() async {
 
   try {
     // Start the operation
+    // Cast to LocalOperation for access to low-level methods
     final operation = await ledger.createOperation(
       description: 'True distributed multi-process demo',
-    );
+    ) as LocalOperation;
 
     print('✅ Started operation: ${operation.operationId}');
     print('   Start time: ${operation.startTimeIso}');
@@ -54,7 +55,7 @@ void main() async {
 
     await operation.log('Operation started by orchestrator', level: LogLevel.info);
 
-    // Push orchestrator's call frame
+    // Push orchestrator's call frame (low-level method on LocalOperation)
     await operation.createCallFrame(callId: 'orchestrator-main');
     print('📌 Orchestrator pushed call frame\n');
 

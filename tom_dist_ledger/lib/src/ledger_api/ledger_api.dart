@@ -81,7 +81,7 @@ class _ActiveCall {
 /// handle1.leave(cancelPendingCalls: true);
 /// handle2.leave(cancelPendingCalls: true);
 /// ```
-class Operation implements OperationBase {
+class LocalOperation implements Operation {
   /// The underlying ledger operation (internal).
   final _LedgerOperation _operation;
 
@@ -89,7 +89,7 @@ class Operation implements OperationBase {
   @override
   final int sessionId;
 
-  Operation._(this._operation, this.sessionId);
+  LocalOperation._(this._operation, this.sessionId);
 
   // ─────────────────────────────────────────────────────────────
   // Delegated properties from Operation
@@ -129,18 +129,23 @@ class Operation implements OperationBase {
   Future<void> get onAbort => _operation.onAbort;
 
   /// Future that completes when operation fails.
+  @override
   Future<OperationFailedInfo> get onFailure => _operation.onFailure;
 
   /// Elapsed time formatted as "SSS.mmm".
+  @override
   String get elapsedFormatted => _operation.elapsedFormatted;
 
   /// Elapsed duration since operation start.
+  @override
   Duration get elapsedDuration => _operation.elapsedDuration;
 
   /// Start time as ISO 8601 string.
+  @override
   String get startTimeIso => _operation.startTimeIso;
 
   /// Start time as milliseconds since epoch.
+  @override
   int get startTimeMs => _operation.startTimeMs;
 
   /// Staleness threshold in milliseconds.
@@ -155,6 +160,7 @@ class Operation implements OperationBase {
   /// Start a call tracked to this session.
   ///
   /// See [Operation.startCall] for details.
+  @override
   Future<Call<T>> startCall<T>({
     CallCallback<T>? callback,
     String? description,
@@ -171,6 +177,7 @@ class Operation implements OperationBase {
   /// Spawn a call tracked to this session.
   ///
   /// See [Operation.spawnCall] for details.
+  @override
   SpawnedCall<T> spawnCall<T>({
     required Future<T> Function(SpawnedCall<T> call, Operation operation) work,
     CallCallback<T>? callback,
@@ -195,6 +202,7 @@ class Operation implements OperationBase {
   ///
   /// Returns true if there are any calls (regular or spawned) that were
   /// started through this handle and have not yet completed.
+  @override
   bool hasPendingCalls() {
     return _operation._hasPendingCallsForSession(sessionId);
   }
@@ -224,6 +232,7 @@ class Operation implements OperationBase {
   ///
   /// Returns the count of all calls (regular and spawned) that were
   /// started through this handle and have not yet completed.
+  @override
   int get pendingCallCount {
     return _operation._getPendingCallCountForSession(sessionId);
   }
@@ -271,6 +280,7 @@ class Operation implements OperationBase {
   void triggerAbort() => _operation.triggerAbort();
 
   /// Wait for work while monitoring for operation failure.
+  @override
   Future<T> waitForCompletion<T>(
     Future<T> Function() work, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
@@ -282,6 +292,7 @@ class Operation implements OperationBase {
   );
 
   /// Start the heartbeat.
+  @override
   void startHeartbeat({
     Duration interval = const Duration(milliseconds: 4500),
     int jitterMs = 500,
@@ -311,6 +322,7 @@ class Operation implements OperationBase {
   void stopHeartbeat() => _operation.stopHeartbeat();
 
   /// Sync operation state with callbacks.
+  @override
   Future<SyncResult> sync(
     List<SpawnedCall> calls, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
@@ -384,6 +396,7 @@ class Operation implements OperationBase {
   // ─────────────────────────────────────────────────────────────
 
   /// Wait for a spawned call to complete.
+  @override
   Future<SyncResult> awaitCall<T>(
     SpawnedCall<T> call, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
@@ -2689,7 +2702,7 @@ class LocalLedger extends Ledger {
   /// An operation ID will be auto-generated based on timestamp and
   /// participantId.
   @override
-  Future<Operation> createOperation({
+  Future<LocalOperation> createOperation({
     String? description,
     OperationCallback? callback,
   }) async {
@@ -2703,7 +2716,7 @@ class LocalLedger extends Ledger {
     );
   }
 
-  Future<Operation> _startOperationWithId({
+  Future<LocalOperation> _startOperationWithId({
     required String operationId,
     required String participantId,
     required int participantPid,
@@ -2749,7 +2762,7 @@ class LocalLedger extends Ledger {
 
       // Create session and wrap in Operation
       final sessionId = ledgerOp._createSession();
-      final operation = Operation._(ledgerOp, sessionId);
+      final operation = LocalOperation._(ledgerOp, sessionId);
 
       // Auto-start heartbeat for initiator with optional callbacks
       operation.startHeartbeat(
@@ -2811,7 +2824,7 @@ class LocalLedger extends Ledger {
   /// op.leave(); // Stops heartbeat when no sessions remain
   /// ```
   @override
-  Future<Operation> joinOperation({
+  Future<LocalOperation> joinOperation({
     required String operationId,
     OperationCallback? callback,
   }) async {
@@ -2844,7 +2857,7 @@ class LocalLedger extends Ledger {
 
     // Create a new session and wrap in Operation
     final sessionId = ledgerOp._createSession();
-    final operation = Operation._(ledgerOp, sessionId);
+    final operation = LocalOperation._(ledgerOp, sessionId);
 
     // Start heartbeat on first join with optional callbacks
     if (isFirstJoin) {
@@ -3092,7 +3105,7 @@ class LocalLedger extends Ledger {
 
       // Create a temporary session-less Operation for the callback
       // Uses session ID 0 to indicate this is a global monitoring context
-      final operation = Operation._(ledgerOp, 0);
+      final operation = LocalOperation._(ledgerOp, 0);
 
       if (lastChange == null) {
         _globalHeartbeatCallback?.call(
@@ -3130,7 +3143,7 @@ class LocalLedger extends Ledger {
   ///
   /// The [participantId] should be the remote client's identifier.
   /// The [participantPid] is optional; defaults to -1 for remote clients.
-  Future<Operation> _createOperationForClient({
+  Future<LocalOperation> _createOperationForClient({
     required String participantId,
     int participantPid = -1,
     String? description,
@@ -3155,7 +3168,7 @@ class LocalLedger extends Ledger {
   /// The [participantPid] is optional; defaults to -1 for remote clients.
   ///
   /// Throws [StateError] if the operation does not exist.
-  Future<Operation> _joinOperationForClient({
+  Future<LocalOperation> _joinOperationForClient({
     required String operationId,
     required String participantId,
     int participantPid = -1,
@@ -3193,7 +3206,7 @@ class LocalLedger extends Ledger {
 
     // Create a new session and wrap in Operation
     final sessionId = ledgerOp._createSession();
-    final operation = Operation._(ledgerOp, sessionId);
+    final operation = LocalOperation._(ledgerOp, sessionId);
 
     // Start heartbeat on first join with optional callbacks
     if (isFirstJoin) {
@@ -3225,13 +3238,13 @@ class LocalLedger extends Ledger {
 
   /// Get an operation by ID (for server use).
   ///
-  /// **Server use only:** Returns the internal [Operation] for the given
+  /// **Server use only:** Returns the internal [LocalOperation] for the given
   /// operation ID, or null if not found.
-  Operation? _getOperationForServer(String operationId) {
+  LocalOperation? _getOperationForServer(String operationId) {
     final ledgerOp = _operations[operationId];
     if (ledgerOp == null) return null;
     // Create an Operation with session 0 (server context)
-    return Operation._(ledgerOp, 0);
+    return LocalOperation._(ledgerOp, 0);
   }
 
   /// Get the internal ledger operation for direct access.

@@ -221,7 +221,7 @@ Future<void> _participantIsolateEntry(IsolateParticipantConfig config) async {
 class _IsolateRunner {
   final IsolateParticipantConfig config;
   late final LocalLedger _ledger;
-  Operation? _operation;
+  LocalOperation? _operation;
   bool _crashed = false;
   bool _hasError = false;
   String? _errorMessage;

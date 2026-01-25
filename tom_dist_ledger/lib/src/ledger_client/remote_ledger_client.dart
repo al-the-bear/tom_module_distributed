@@ -696,10 +696,10 @@ class _RemoteOperation {
 
 /// A remote operation handle with session tracking.
 ///
-/// This provides the same interface as [Operation] but communicates
+/// This provides the same interface as [LocalOperation] but communicates
 /// with a remote server for ledger access. Callbacks and work execution
 /// happen client-side.
-class RemoteOperation implements OperationBase, CallLifecycle {
+class RemoteOperation implements Operation, CallLifecycle {
   final _RemoteOperation _operation;
 
   @override
@@ -733,21 +733,27 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   Future<void> get onAbort => _operation.onAbort;
 
   /// Future that completes when operation fails.
+  @override
   Future<OperationFailedInfo> get onFailure => _operation.onFailure;
 
   /// Elapsed time formatted as "SSS.mmm".
+  @override
   String get elapsedFormatted => _operation.elapsedFormatted;
 
   /// Elapsed duration since operation start.
+  @override
   Duration get elapsedDuration => _operation.elapsedDuration;
 
   /// Start time as ISO 8601 string.
+  @override
   String get startTimeIso => _operation.startTimeIso;
 
   /// Start time as milliseconds since epoch.
+  @override
   int get startTimeMs => _operation.startTimeMs;
 
   /// Number of pending calls for this session.
+  @override
   int get pendingCallCount => _operation.pendingCallCountForSession(sessionId);
 
   // ─────────────────────────────────────────────────────────────
@@ -758,6 +764,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   ///
   /// Returns a [Call<T>] object for lifecycle management.
   /// Callbacks execute client-side; call frame is registered on server.
+  @override
   Future<Call<T>> startCall<T>({
     CallCallback<T>? callback,
     String? description,
@@ -803,9 +810,10 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   /// Returns immediately with a [SpawnedCall<T>].
   ///
   /// The [work] function receives both the [SpawnedCall] (for cancellation checks)
-  /// and this [RemoteOperation] (for logging, abort checks, etc.).
+  /// and this [Operation] (for logging, abort checks, etc.).
+  @override
   SpawnedCall<T> spawnCall<T>({
-    required Future<T> Function(SpawnedCall<T> call, RemoteOperation operation)
+    required Future<T> Function(SpawnedCall<T> call, Operation operation)
     work,
     CallCallback<T>? callback,
     String? description,
@@ -1019,6 +1027,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   // ─────────────────────────────────────────────────────────────
 
   /// Check if this session has any pending calls.
+  @override
   bool hasPendingCalls() => _operation.hasPendingCallsForSession(sessionId);
 
   /// Get pending spawned calls for this session.
@@ -1034,6 +1043,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   // ─────────────────────────────────────────────────────────────
 
   /// Wait for spawned calls to complete.
+  @override
   Future<SyncResult> sync(
     List<SpawnedCall> calls, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
@@ -1083,6 +1093,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   }
 
   /// Wait for a single spawned call to complete.
+  @override
   Future<SyncResult> awaitCall<T>(
     SpawnedCall<T> call, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
@@ -1096,6 +1107,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   }
 
   /// Execute work while monitoring operation state.
+  @override
   Future<T> waitForCompletion<T>(
     Future<T> Function() work, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
@@ -1188,6 +1200,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   // ─────────────────────────────────────────────────────────────
 
   /// Start the heartbeat.
+  @override
   void startHeartbeat({
     Duration interval = const Duration(milliseconds: 4500),
     int jitterMs = 500,
