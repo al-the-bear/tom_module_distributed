@@ -235,10 +235,6 @@ abstract class Operation {
   Future<void> unregisterTempResource({required String path});
 }
 
-/// Backwards compatibility alias for [Operation].
-@Deprecated('Use Operation instead')
-typedef OperationBase = Operation;
-
 /// Abstract base class for ledger implementations.
 ///
 /// Both [LocalLedger] (file-based) and [RemoteLedgerClient] (HTTP) extend
@@ -390,6 +386,3 @@ abstract class Ledger {
   }
 }
 
-/// Backwards compatibility alias for [Ledger].
-@Deprecated('Use Ledger instead')
-typedef LedgerBase = Ledger;

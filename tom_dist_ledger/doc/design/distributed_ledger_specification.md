@@ -133,13 +133,13 @@ The remote API is **identical** to the local API, with the only difference being
 ### Class Hierarchy
 
 ```
-LedgerBase (abstract)
-├── Ledger           # Local file-based ledger
-└── RemoteLedgerClient  # HTTP client for remote access
+Ledger (abstract)
+├── LocalLedger        # Local file-based ledger
+└── RemoteLedgerClient # HTTP client for remote access
 
-OperationBase (abstract)
-├── Operation        # Local operation handle
-└── RemoteOperation  # Remote operation handle (same API as Operation)
+Operation (abstract)
+├── LocalOperation     # Local operation handle
+└── RemoteOperation    # Remote operation handle (same API)
 ```
 
 ### LedgerServer
@@ -201,6 +201,8 @@ final client = RemoteLedgerClient(
 | `/call/start` | POST | Start a call |
 | `/call/end` | POST | End call successfully |
 | `/call/fail` | POST | Fail call with error |
+| `/callframe/create` | POST | Create call frame directly |
+| `/callframe/delete` | POST | Delete call frame directly |
 
 ### Request/Response Format
 

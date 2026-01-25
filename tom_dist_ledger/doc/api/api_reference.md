@@ -8,7 +8,8 @@ Comprehensive API reference for the `tom_dist_ledger` package.
 
 1. [Abstract Base Classes](#abstract-base-classes)
    - [Ledger](#ledger-abstract)
-   - [OperationBase](#operationbase)
+   - [Operation](#operation-abstract-base)
+   - [CleanupHandler](#cleanuphandler)
 2. [Local Ledger Classes](#local-ledger-classes)
    - [LocalLedger Class](#localledger-class)
    - [Operation Class](#operation-class)
@@ -115,16 +116,16 @@ final remote = await Ledger.connect(
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `createOperation({...})` | `Future<OperationBase>` | Create a new operation (initiator) |
-| `joinOperation({...})` | `Future<OperationBase>` | Join an existing operation |
+| `createOperation({...})` | `Future<Operation>` | Create a new operation (initiator) |
+| `joinOperation({...})` | `Future<Operation>` | Join an existing operation |
 | `dispose()` | `Future<void>` | Dispose of the ledger and stop all heartbeats |
 
-### OperationBase
+### Operation (Abstract Base)
 
-Abstract base class for operation handles. Both `Operation` (local) and `RemoteOperation` (remote) implement this interface.
+Abstract base class for operation handles. Both `LocalOperation` (local) and `RemoteOperation` (remote) implement this interface, providing full API parity.
 
 ```dart
-abstract class OperationBase
+abstract class Operation
 ```
 
 #### Properties
@@ -138,8 +139,9 @@ abstract class OperationBase
 | `startTime` | `DateTime` | When this operation was started |
 | `isAborted` | `bool` | Whether this participant is aborted |
 | `onAbort` | `Future<void>` | Future that completes when abort is signaled |
+| `cachedData` | `LedgerData?` | Cached operation data (updated after each modification) |
 
-#### Methods
+#### High-Level Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -149,6 +151,52 @@ abstract class OperationBase
 | `setAbortFlag(bool value)` | `Future<void>` | Set abort flag |
 | `checkAbort()` | `Future<bool>` | Check if operation is aborted |
 | `triggerAbort()` | `void` | Trigger local abort |
+
+#### Low-Level Methods
+
+These methods provide direct access to the ledger data structures. Both `LocalOperation` and `RemoteOperation` implement these identically.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `createCallFrame({required String callId})` | `Future<void>` | Create a call frame directly |
+| `deleteCallFrame({required String callId})` | `Future<void>` | Delete a call frame directly |
+| `registerTempResource({required String path})` | `Future<void>` | Register a temporary resource |
+| `unregisterTempResource({required String path})` | `Future<void>` | Unregister a temporary resource |
+
+### CleanupHandler
+
+Singleton utility for SIGINT/SIGTERM signal handling. Both `LocalOperation` and `RemoteOperation` automatically register with `CleanupHandler` to clean up temporary resources on process termination.
+
+```dart
+class CleanupHandler
+```
+
+#### Static Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `instance` | `CleanupHandler` | Singleton instance |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `register(CleanupCallback callback)` | `int` | Register a cleanup callback, returns ID |
+| `unregister(int id)` | `void` | Unregister a cleanup callback by ID |
+| `cleanup()` | `Future<void>` | Run all cleanup callbacks (idempotent) |
+
+**Example:**
+```dart
+// Register a cleanup callback
+final id = CleanupHandler.instance.register(() async {
+  await cleanupTemporaryFiles();
+});
+
+// Later, unregister when no longer needed
+CleanupHandler.instance.unregister(id);
+```
+
+**Note:** Operations automatically register/unregister with `CleanupHandler`. You typically don't need to use this directly unless you have custom cleanup requirements.
 
 ---
 

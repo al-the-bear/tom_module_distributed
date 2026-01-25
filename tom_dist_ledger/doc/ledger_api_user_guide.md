@@ -27,6 +27,7 @@ The Distributed Ledger provides coordination for long-running operations that sp
 - **Call lifecycle** - Start, track, and complete individual work units
 - **Crash detection** - Automatic detection of crashed participants via heartbeats
 - **Cleanup coordination** - Orderly cleanup when crashes are detected
+- **Signal-based cleanup** - Automatic cleanup on SIGINT/SIGTERM (Ctrl+C, kill)
 - **Operation logging** - Centralized logging for debugging
 
 ### Use Cases
@@ -555,7 +556,7 @@ final operation = await ledger.createOperation(
 Check for abort in long-running work:
 
 ```dart
-Future<void> processItems(OperationBase operation, List<Item> items) async {
+Future<void> processItems(Operation operation, List<Item> items) async {
   for (final item in items) {
     // Check if we should abort
     if (await operation.checkAbort()) {
@@ -659,6 +660,8 @@ try {
 
 ### 2. Register Cleanup for Resources
 
+Temporary resources are automatically tracked locally for signal-based cleanup (SIGINT/SIGTERM). Even if your process is killed, registered temp resources will be cleaned up:
+
 ```dart
 final tempFile = File('temp.txt');
 await operation.registerTempResource(path: tempFile.path);
@@ -666,10 +669,31 @@ await operation.registerTempResource(path: tempFile.path);
 try {
   await tempFile.writeAsString(data);
   // ... use file ...
+  // If process is killed here, temp file will be cleaned up automatically
 } finally {
   await operation.unregisterTempResource(path: tempFile.path);
   await tempFile.delete();
 }
+```
+
+### 3. Signal-Based Cleanup
+
+Both local and remote operations automatically register with `CleanupHandler` for graceful shutdown. When your process receives SIGINT (Ctrl+C) or SIGTERM (kill), all registered temporary resources are cleaned up.
+
+This happens automatically - you don't need to do anything special. The cleanup:
+- Runs all registered cleanup callbacks
+- Deletes all registered temporary files and directories  
+- Silently ignores missing files (may have been cleaned by other participants)
+
+For custom cleanup needs, you can register your own callbacks:
+
+```dart
+final id = CleanupHandler.instance.register(() async {
+  await releaseExternalResources();
+});
+
+// Later, when no longer needed:
+CleanupHandler.instance.unregister(id);
 ```
 
 ### 3. Use Descriptions for Debugging
