@@ -158,6 +158,14 @@ class LedgerServer {
         await _handleFailCall(request, body);
         break;
 
+      case '/callframe/create':
+        await _handleCreateCallFrame(request, body);
+        break;
+
+      case '/callframe/delete':
+        await _handleDeleteCallFrame(request, body);
+        break;
+
       default:
         _sendError(request.response, 404, 'Not found: $path');
     }
@@ -558,6 +566,85 @@ class LedgerServer {
       _sendJson(request.response, {'success': true});
     } catch (e) {
       _sendError(request.response, 500, 'Failed to fail call: $e');
+    }
+  }
+
+  /// Handle POST /callframe/create
+  ///
+  /// Low-level API to create a call frame directly.
+  Future<void> _handleCreateCallFrame(
+    HttpRequest request,
+    Map<String, dynamic>? body,
+  ) async {
+    final operationId = body?['operationId'] as String?;
+    final callId = body?['callId'] as String?;
+
+    if (operationId == null) {
+      _sendError(request.response, 400, 'Missing operationId');
+      return;
+    }
+    if (callId == null) {
+      _sendError(request.response, 400, 'Missing callId');
+      return;
+    }
+
+    try {
+      final internalOp = _ledger._getInternalOperation(operationId);
+      if (internalOp == null) {
+        _sendError(request.response, 404, 'Operation not found');
+        return;
+      }
+
+      await internalOp.createCallFrame(callId: callId);
+
+      // Return updated cached data
+      final cachedData = internalOp.cachedData;
+      _sendJson(request.response, {
+        'success': true,
+        'callId': callId,
+        'data': cachedData?.toJson(),
+      });
+    } catch (e) {
+      _sendError(request.response, 500, 'Failed to create call frame: $e');
+    }
+  }
+
+  /// Handle POST /callframe/delete
+  ///
+  /// Low-level API to delete a call frame directly.
+  Future<void> _handleDeleteCallFrame(
+    HttpRequest request,
+    Map<String, dynamic>? body,
+  ) async {
+    final operationId = body?['operationId'] as String?;
+    final callId = body?['callId'] as String?;
+
+    if (operationId == null) {
+      _sendError(request.response, 400, 'Missing operationId');
+      return;
+    }
+    if (callId == null) {
+      _sendError(request.response, 400, 'Missing callId');
+      return;
+    }
+
+    try {
+      final internalOp = _ledger._getInternalOperation(operationId);
+      if (internalOp == null) {
+        _sendError(request.response, 404, 'Operation not found');
+        return;
+      }
+
+      await internalOp.deleteCallFrame(callId: callId);
+
+      // Return updated cached data
+      final cachedData = internalOp.cachedData;
+      _sendJson(request.response, {
+        'success': true,
+        'data': cachedData?.toJson(),
+      });
+    } catch (e) {
+      _sendError(request.response, 500, 'Failed to delete call frame: $e');
     }
   }
 

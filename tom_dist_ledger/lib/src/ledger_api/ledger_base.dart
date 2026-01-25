@@ -32,6 +32,7 @@ import 'dart:async';
 
 import 'package:tom_dist_ledger/src/ledger_api/ledger_api.dart';
 import 'package:tom_dist_ledger/src/ledger_client/remote_ledger_client.dart';
+import 'package:tom_dist_ledger/src/ledger_local/file_ledger.dart';
 
 // Re-export types for convenience
 export 'package:tom_dist_ledger/src/ledger_api/ledger_types.dart';
@@ -184,6 +185,54 @@ abstract class Operation {
     HeartbeatErrorCallback? onError,
     HeartbeatSuccessCallback? onSuccess,
   });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Low-level call frame operations
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// Cached operation data from the last ledger read.
+  ///
+  /// For local operations, this is updated after each ledger modification.
+  /// For remote operations, this is updated from server responses.
+  LedgerData? get cachedData;
+
+  /// Create a call frame directly (low-level operation).
+  ///
+  /// This is a lower-level method that directly manipulates call frames.
+  /// For most use cases, prefer [startCall] which provides structured
+  /// call tracking with callbacks.
+  ///
+  /// Use this method when:
+  /// - You need direct control over call frame management
+  /// - Testing call frame behavior without callback overhead
+  /// - Implementing custom call patterns
+  Future<void> createCallFrame({required String callId});
+
+  /// Delete a call frame directly (low-level operation).
+  ///
+  /// This is a lower-level method that directly manipulates call frames.
+  /// For most use cases, prefer [Call.end] which provides structured
+  /// call completion with callbacks.
+  Future<void> deleteCallFrame({required String callId});
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Temporary resource management
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// Register a temporary resource for cleanup tracking.
+  ///
+  /// For local operations, this registers the resource in the ledger file.
+  /// For remote operations, this tracks the resource locally for cleanup
+  /// on process exit or signal interruption.
+  ///
+  /// Registered resources should be cleaned up when the operation completes
+  /// or if the process crashes/is interrupted.
+  Future<void> registerTempResource({required String path});
+
+  /// Unregister a temporary resource.
+  ///
+  /// Call this after successfully cleaning up a temporary resource.
+  Future<void> unregisterTempResource({required String path});
 }
 
 /// Backwards compatibility alias for [Operation].

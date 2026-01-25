@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../ledger_api/ledger_api.dart';
+import '../ledger_local/file_ledger.dart';
 
 /// HTTP client for remote ledger access.
 ///
@@ -554,6 +555,15 @@ class _RemoteOperation {
   /// Calls tracked per session.
   final Map<int, Set<String>> _sessionCalls = {};
 
+  /// Cached operation data from server responses.
+  LedgerData? _cachedData;
+
+  /// Locally tracked temporary resources for cleanup on exit.
+  final Set<String> _localTempResources = {};
+
+  /// Cleanup handler registration ID for signal handling.
+  int? _cleanupHandlerId;
+
   final Completer<void> _abortCompleter = Completer<void>();
   final Completer<OperationFailedInfo> _failureCompleter =
       Completer<OperationFailedInfo>();
@@ -565,7 +575,38 @@ class _RemoteOperation {
     required this.pid,
     required this.isInitiator,
     required this.startTime,
-  });
+  }) {
+    // Register cleanup handler for graceful shutdown
+    _cleanupHandlerId = CleanupHandler.instance.register(_cleanupTempResources);
+  }
+
+  /// Cleanup temp resources (called by CleanupHandler on signal).
+  Future<void> _cleanupTempResources() async {
+    for (final path in _localTempResources.toList()) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        } else {
+          final dir = Directory(path);
+          if (await dir.exists()) {
+            await dir.delete(recursive: true);
+          }
+        }
+      } catch (e) {
+        stderr.writeln('Failed to cleanup temp resource $path: $e');
+      }
+    }
+    _localTempResources.clear();
+  }
+
+  /// Unregister from cleanup handler.
+  void _unregisterCleanup() {
+    if (_cleanupHandlerId != null) {
+      CleanupHandler.instance.unregister(_cleanupHandlerId!);
+      _cleanupHandlerId = null;
+    }
+  }
 
   bool get isAborted => _isAborted;
   Future<void> get onAbort => _abortCompleter.future;
@@ -625,6 +666,7 @@ class _RemoteOperation {
 
     if (_joinCount == 0) {
       stopHeartbeat();
+      _unregisterCleanup();
       client._unregisterOperation(operationId);
     }
   }
@@ -1194,6 +1236,103 @@ class RemoteOperation implements Operation, CallLifecycle {
 
   @override
   void triggerAbort() => _operation.triggerAbort();
+
+  // ─────────────────────────────────────────────────────────────
+  // Low-level call frame operations
+  // ─────────────────────────────────────────────────────────────
+
+  /// Cached operation data from server responses.
+  ///
+  /// Updated after server calls that return operation state.
+  @override
+  LedgerData? get cachedData => _operation._cachedData;
+
+  /// Create a call frame directly (low-level operation).
+  ///
+  /// This calls the server to create a call frame in the ledger.
+  @override
+  Future<void> createCallFrame({required String callId}) async {
+    final response = await _operation.client._post('/callframe/create', {
+      'operationId': operationId,
+      'callId': callId,
+      'participantId': participantId,
+    });
+
+    // Update cached data if returned
+    if (response['data'] != null) {
+      _operation._cachedData = LedgerData.fromJson(
+        response['data'] as Map<String, dynamic>,
+      );
+    }
+  }
+
+  /// Delete a call frame directly (low-level operation).
+  ///
+  /// This calls the server to delete a call frame from the ledger.
+  @override
+  Future<void> deleteCallFrame({required String callId}) async {
+    final response = await _operation.client._post('/callframe/delete', {
+      'operationId': operationId,
+      'callId': callId,
+    });
+
+    // Update cached data if returned
+    if (response['data'] != null) {
+      _operation._cachedData = LedgerData.fromJson(
+        response['data'] as Map<String, dynamic>,
+      );
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Temporary resource management (local tracking)
+  // ─────────────────────────────────────────────────────────────
+
+  /// Register a temporary resource for local cleanup tracking.
+  ///
+  /// For remote operations, temp resources are tracked locally and cleaned
+  /// up on process exit, signal interruption, or operation completion.
+  /// This does NOT register the resource on the server ledger.
+  @override
+  Future<void> registerTempResource({required String path}) async {
+    _operation._localTempResources.add(path);
+  }
+
+  /// Unregister a temporary resource.
+  ///
+  /// Call this after successfully cleaning up a temporary resource.
+  @override
+  Future<void> unregisterTempResource({required String path}) async {
+    _operation._localTempResources.remove(path);
+  }
+
+  /// Get locally registered temp resources (for cleanup).
+  Set<String> get localTempResources =>
+      Set.unmodifiable(_operation._localTempResources);
+
+  /// Clean up all locally registered temp resources.
+  ///
+  /// Attempts to delete all registered temp files/directories.
+  /// Errors are logged but don't stop cleanup of remaining resources.
+  Future<void> cleanupLocalTempResources() async {
+    for (final path in _operation._localTempResources.toList()) {
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        } else {
+          final dir = Directory(path);
+          if (await dir.exists()) {
+            await dir.delete(recursive: true);
+          }
+        }
+        _operation._localTempResources.remove(path);
+      } catch (e) {
+        // Log but continue cleanup
+        stderr.writeln('Failed to cleanup temp resource $path: $e');
+      }
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────
   // Heartbeat Management

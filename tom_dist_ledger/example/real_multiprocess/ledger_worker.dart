@@ -74,11 +74,10 @@ void main(List<String> args) async {
 
   try {
     // Join the existing operation
-    // Cast to LocalOperation for access to low-level methods
     stderr.writeln('[$participantId] Joining operation...');
     final operation = await ledger.joinOperation(
       operationId: operationId,
-    ) as LocalOperation;
+    );
 
     stderr.writeln('[$participantId] ✅ Joined operation');
     await operation.log('Worker joined', level: LogLevel.info);

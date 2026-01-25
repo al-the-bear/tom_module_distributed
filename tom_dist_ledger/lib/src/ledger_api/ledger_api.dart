@@ -9,6 +9,7 @@ import '../ledger_local/file_ledger.dart';
 import 'ledger_base.dart';
 
 // Re-export types
+export 'cleanup_handler.dart';
 export 'ledger_base.dart';
 export 'ledger_types.dart';
 
@@ -115,6 +116,7 @@ class LocalOperation implements Operation {
   DateTime get startTime => _operation.startTime;
 
   /// Cached operation data.
+  @override
   LedgerData? get cachedData => _operation.cachedData;
 
   /// Last change timestamp.
@@ -425,18 +427,22 @@ class LocalOperation implements Operation {
       _operation.logMessage(depth: depth, message: message);
 
   /// Create a call frame (low-level API).
+  @override
   Future<void> createCallFrame({required String callId}) =>
       _operation.createCallFrame(callId: callId);
 
   /// Delete a call frame (low-level API).
+  @override
   Future<void> deleteCallFrame({required String callId}) =>
       _operation.deleteCallFrame(callId: callId);
 
   /// Register temporary resource.
+  @override
   Future<void> registerTempResource({required String path}) =>
       _operation.registerTempResource(path: path);
 
   /// Unregister temporary resource.
+  @override
   Future<void> unregisterTempResource({required String path}) =>
       _operation.unregisterTempResource(path: path);
 
