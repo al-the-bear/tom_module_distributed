@@ -37,15 +37,16 @@ dart run bin/ledger_server.dart --port=8765 --path=/workspace/_ai/ledger
 | `/operations/:id` | GET | Get operation state |
 | `/operations/:id` | POST | Operation actions (startCall, endCall, heartbeat, etc.) |
 
-### Client Auto-Discovery
+### Connecting a Client
 
-Clients can automatically discover the server using the `/status` endpoint:
+The recommended way to connect is using `connect()`, which supports both
+explicit server URLs and auto-discovery:
 
 ```dart
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
 // Auto-discover server on default port 8765
-final client = await RemoteLedgerClient.discover(
+final client = await RemoteLedgerClient.connect(
   participantId: 'my_client',
 );
 
@@ -55,16 +56,26 @@ if (client != null) {
   // ... use operation
   client.dispose();
 }
+
+// Or connect to a known server
+final client = await RemoteLedgerClient.connect(
+  serverUrl: 'http://192.168.1.100:8765',
+  participantId: 'known_client',
+);
 ```
 
-Discovery scans:
+### Auto-Discovery
+
+When `serverUrl` is not provided, clients automatically discover running
+ledger servers by scanning:
+
 1. localhost / 127.0.0.1
-2. 0.0.0.0
-3. All subnet IPs (xxx.xxx.xxx.1-255)
+2. Local machine's IP addresses
+3. All IPs in the local subnet (e.g., 192.168.1.1-255)
 
-### Direct Connection
+### Direct Construction
 
-If you know the server address:
+For synchronous construction when you already have the server URL:
 
 ```dart
 final client = RemoteLedgerClient(

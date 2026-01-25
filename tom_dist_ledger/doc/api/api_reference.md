@@ -866,6 +866,59 @@ final client = RemoteLedgerClient(
 );
 ```
 
+#### Static Methods
+
+##### connect
+
+Connect to a ledger server with optional auto-discovery.
+
+```dart
+static Future<RemoteLedgerClient?> connect({
+  String? serverUrl,
+  required String participantId,
+  int? participantPid,
+  int maxBackups = 20,
+  Duration heartbeatInterval = const Duration(seconds: 5),
+  Duration staleThreshold = const Duration(seconds: 15),
+  int port = 8765,
+  Duration timeout = const Duration(seconds: 2),
+  bool scanSubnet = true,
+  void Function(String)? logger,
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `serverUrl` | `String?` | `null` | Server URL. If null, uses auto-discovery |
+| `participantId` | `String` | required | Unique identifier for this client |
+| `port` | `int` | `8765` | Port for auto-discovery |
+| `timeout` | `Duration` | 2 seconds | Timeout per discovery attempt |
+| `scanSubnet` | `bool` | `true` | Whether to scan local subnet |
+| `logger` | `Function?` | `null` | Optional progress callback |
+
+**Returns:** `RemoteLedgerClient?` - Client if connected, `null` if discovery failed.
+
+**Example:**
+
+```dart
+// With auto-discovery
+final client = await RemoteLedgerClient.connect(
+  participantId: 'worker',
+);
+
+// With explicit server
+final client = await RemoteLedgerClient.connect(
+  serverUrl: 'http://localhost:8765',
+  participantId: 'worker',
+);
+```
+
+##### discover (Deprecated)
+
+> **Deprecated:** Use `connect()` instead.
+
+Discover a ledger server on the network. Same as `connect()` without `serverUrl`.
+
 #### Properties
 
 | Property | Type | Description |

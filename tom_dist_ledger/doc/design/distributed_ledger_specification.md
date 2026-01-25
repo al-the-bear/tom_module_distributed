@@ -158,10 +158,16 @@ The server is stateless - each request reads/writes files directly. Remote clien
 
 ### RemoteLedgerClient
 
-Clients connect using `RemoteLedgerClient`:
+Clients connect using `RemoteLedgerClient.connect()`:
 
 ```dart
-final client = RemoteLedgerClient(
+// Auto-discover a server on the network
+final client = await RemoteLedgerClient.connect(
+  participantId: 'remote_worker',
+);
+
+// Or connect to a specific server
+final client = await RemoteLedgerClient.connect(
   serverUrl: 'http://localhost:8765',
   participantId: 'remote_worker',
   heartbeatInterval: Duration(seconds: 5),
@@ -169,10 +175,20 @@ final client = RemoteLedgerClient(
 );
 ```
 
+If auto-discovery is not needed, direct construction is also available:
+
+```dart
+final client = RemoteLedgerClient(
+  serverUrl: 'http://localhost:8765',
+  participantId: 'remote_worker',
+);
+```
+
 ### HTTP Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/status` | GET | Server status and discovery |
 | `/health` | GET | Server health check |
 | `/operation/create` | POST | Create new operation |
 | `/operation/join` | POST | Join existing operation |

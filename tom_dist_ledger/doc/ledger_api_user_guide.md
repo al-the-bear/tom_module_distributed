@@ -85,11 +85,21 @@ ledger.dispose();
 ### Remote Ledger (Network Access)
 
 ```dart
-// Connect to a ledger server
-final client = RemoteLedgerClient(
+// Connect to a ledger server (with auto-discovery)
+final client = await RemoteLedgerClient.connect(
+  participantId: 'remote_worker',
+);
+
+// Or connect to a known server
+final client = await RemoteLedgerClient.connect(
   serverUrl: 'http://localhost:8765',
   participantId: 'remote_worker',
 );
+
+if (client == null) {
+  print('Could not find server');
+  return;
+}
 
 // Join an existing operation
 final operation = await client.joinOperation(
