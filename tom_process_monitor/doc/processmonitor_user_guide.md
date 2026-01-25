@@ -124,9 +124,37 @@ ProcessMonitor determines the home directory using:
 2. `USERPROFILE` environment variable (Windows)
 3. Current directory `.` (fallback)
 
-## Using the Local API
+## Using the Client API
 
-The local API uses the `ProcessMonitorClient` class to interact with ProcessMonitor via the file-based registry.
+The `ProcessMonitorClient` abstract class provides a unified interface for interacting with ProcessMonitor. Use the `connect()` factory method to create the appropriate implementation based on your needs.
+
+### Creating a Client
+
+```dart
+import 'package:tom_process_monitor/tom_process_monitor.dart';
+
+void main() async {
+  // Create a local client (file-based registry)
+  final localClient = ProcessMonitorClient.connect(
+    directory: '~/.tom/process_monitor',
+  );
+  
+  // Create a remote client (HTTP API)
+  final remoteClient = ProcessMonitorClient.connect(
+    baseUrl: 'http://localhost:19881',
+  );
+  
+  // You can also create specific implementations directly:
+  final local = LocalProcessMonitorClient(
+    directory: '~/.tom/process_monitor',
+    instanceId: 'default',
+  );
+  
+  final remote = RemoteProcessMonitorClient(
+    baseUrl: 'http://192.168.1.100:19881',
+  );
+}
+```
 
 ### Registering a Process
 
@@ -134,7 +162,9 @@ The local API uses the `ProcessMonitorClient` class to interact with ProcessMoni
 import 'package:tom_process_monitor/tom_process_monitor.dart';
 
 void main() async {
-  final client = ProcessMonitorClient();
+  final client = ProcessMonitorClient.connect(
+    directory: '~/.tom/process_monitor',
+  );
   
   final config = ProcessConfig(
     id: 'my-server',
@@ -189,9 +219,9 @@ await client.disable('my-server');
 await client.deregister('my-server');
 ```
 
-## Using the Remote API
+## Using the Remote API Directly
 
-The remote API uses HTTP to communicate with ProcessMonitor. This is useful for remote management or when you don't have file system access.
+For advanced use cases, you can use the `RemoteProcessMonitorClient` class directly, which provides additional features like auto-discovery.
 
 ### Using RemoteProcessMonitorClient
 
@@ -199,9 +229,13 @@ The remote API uses HTTP to communicate with ProcessMonitor. This is useful for 
 import 'package:tom_process_monitor/tom_process_monitor.dart';
 
 void main() async {
+  // Create directly with a known URL
   final client = RemoteProcessMonitorClient(
     baseUrl: 'http://localhost:19881',
   );
+  
+  // Or use auto-discovery to find a ProcessMonitor instance
+  final discovered = await RemoteProcessMonitorClient.discover();
   
   // Get monitor status
   final status = await client.getMonitorStatus();

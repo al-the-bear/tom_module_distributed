@@ -801,18 +801,91 @@ ProcessMonitor.stop()
 
 ---
 
-## Local Client API
+## Client API
 
-The local client API allows applications on the same machine to interact with the ProcessMonitor via the file-based registry.
+The client API provides a unified interface for interacting with ProcessMonitor, supporting both local file-based and remote HTTP-based access.
 
-### ProcessMonitorClient Class
+### ProcessMonitorClient Abstract Class
+
+```dart
+/// Abstract base class for process monitor clients.
+///
+/// Provides a unified interface for managing processes through both local
+/// file-based and remote HTTP-based clients. Use the [connect] factory method
+/// to create an appropriate implementation based on your configuration.
+abstract class ProcessMonitorClient {
+  /// Creates a ProcessMonitorClient instance based on the provided parameters.
+  ///
+  /// Exactly one of [directory] or [baseUrl] must be specified.
+  ///
+  /// - If [directory] is provided, creates a local [LocalProcessMonitorClient]
+  ///   that communicates via file-based registry.
+  /// - If [baseUrl] is provided, creates a [RemoteProcessMonitorClient]
+  ///   that communicates via HTTP.
+  ///
+  /// Throws [ArgumentError] if both or neither parameters are specified.
+  factory ProcessMonitorClient.connect({
+    String? directory,
+    String? instanceId,
+    String? baseUrl,
+  });
+  
+  // --- Registration ---
+  Future<void> register(ProcessConfig config);
+  Future<void> deregister(String processId);
+  
+  // --- Enable/Disable ---
+  Future<void> enable(String processId);
+  Future<void> disable(String processId);
+  
+  // --- Autostart ---
+  Future<void> setAutostart(String processId, bool autostart);
+  
+  // --- Process Control ---
+  Future<void> start(String processId);
+  Future<void> stop(String processId);
+  Future<void> restart(String processId);
+  
+  // --- Status ---
+  Future<ProcessStatus> getStatus(String processId);
+  Future<Map<String, ProcessStatus>> getAllStatus();
+  Future<MonitorStatus> getMonitorStatus();
+  
+  // --- Remote Access Configuration ---
+  Future<void> setRemoteAccess(bool enabled);
+  Future<RemoteAccessConfig> getRemoteAccessConfig();
+  Future<void> setRemoteAccessPermissions({...});
+  Future<void> setTrustedHosts(List<String> hosts);
+  Future<List<String>> getTrustedHosts();
+  
+  // --- Executable Filtering ---
+  Future<List<String>> getRemoteExecutableWhitelist();
+  Future<void> setRemoteExecutableWhitelist(List<String> patterns);
+  Future<List<String>> getRemoteExecutableBlacklist();
+  Future<void> setRemoteExecutableBlacklist(List<String> patterns);
+  
+  // --- Standalone / Partner Configuration ---
+  Future<void> setStandaloneMode(bool enabled);
+  Future<bool> isStandaloneMode();
+  Future<PartnerDiscoveryConfig> getPartnerDiscoveryConfig();
+  Future<void> setPartnerDiscoveryConfig(PartnerDiscoveryConfig config);
+  
+  // --- Monitor Control ---
+  Future<void> restartMonitor();
+  void dispose();
+}
+```
+
+### LocalProcessMonitorClient Class
+
+The local client implementation communicates via file-based registry.
 
 ```dart
 /// Local client API for interacting with ProcessMonitor.
 /// 
 /// This client communicates via the file-based registry and does not
 /// require direct connection to the ProcessMonitor daemon.
-class ProcessMonitorClient {
+class LocalProcessMonitorClient implements ProcessMonitorClient {
   /// Directory containing registry and lock files.
   final String directory;
   
@@ -820,7 +893,7 @@ class ProcessMonitorClient {
   final String instanceId;
   
   /// Default: .tom/process_monitor, instanceId: "default"
-  ProcessMonitorClient({
+  LocalProcessMonitorClient({
     String? directory,
     String instanceId = 'default',
   })  : directory = directory ?? _resolveDefaultDirectory(),
@@ -1517,15 +1590,13 @@ Content-Type: application/json
 
 ---
 
-## Remote Client API
-
-The remote client provides a Dart API for interacting with the HTTP remote API.
-
 ### RemoteProcessMonitorClient Class
+
+The remote client implementation communicates via HTTP.
 
 ```dart
 /// Remote client API for interacting with ProcessMonitor via HTTP.
-class RemoteProcessMonitorClient {
+class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Base URL of the ProcessMonitor HTTP API.
   final String baseUrl;
   
@@ -2816,11 +2887,16 @@ await aliveness.start();
 ### Basic Local Usage
 
 ```dart
-// Create local client (default instance)
-final client = ProcessMonitorClient();
+// Create local client using factory method
+final client = ProcessMonitorClient.connect(
+  directory: '~/.tom/process_monitor',
+);
 
-// Or specify instance ID
-final watcherClient = ProcessMonitorClient(instanceId: 'watcher');
+// Or create directly with instance ID
+final watcherClient = LocalProcessMonitorClient(
+  directory: '~/.tom/process_monitor',
+  instanceId: 'watcher',
+);
 
 // Register a new local process
 await client.register(ProcessConfig(
@@ -2864,10 +2940,18 @@ await client.deregister('my-api');
 ### Remote Client Usage
 
 ```dart
-// Create remote client
-final remote = RemoteProcessMonitorClient(
+// Create remote client using factory method
+final remote = ProcessMonitorClient.connect(
   baseUrl: 'http://192.168.1.100:19881',
 );
+
+// Or create directly
+final remoteClient = RemoteProcessMonitorClient(
+  baseUrl: 'http://192.168.1.100:19881',
+);
+
+// Auto-discover a ProcessMonitor instance on the network
+final discovered = await RemoteProcessMonitorClient.discover();
 
 // Register a remote process
 await remote.register(ProcessConfig(
