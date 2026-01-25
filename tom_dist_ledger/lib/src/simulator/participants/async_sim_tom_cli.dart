@@ -7,16 +7,10 @@ class AsyncSimTomCLI extends AsyncSimParticipant {
     required super.printer,
     required super.config,
     super.onBackupCreated,
-  }) : super(
-          name: 'CLI',
-          pid: 111,
-        );
+  }) : super(name: 'CLI', pid: 111);
 
   /// Simulate CLI exit.
-  void exit({
-    required int depth,
-    required int code,
-  }) {
+  void exit({required int depth, required int code}) {
     log(depth: depth, message: 'exit($code)');
   }
 

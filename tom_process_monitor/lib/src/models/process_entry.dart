@@ -86,21 +86,25 @@ class ProcessEntry {
       id: json['id'] as String,
       name: json['name'] as String,
       command: json['command'] as String,
-      args: (json['args'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
+      args:
+          (json['args'] as List<dynamic>?)?.map((e) => e as String).toList() ??
           const [],
       workingDirectory: json['workingDirectory'] as String?,
-      environment: (json['environment'] as Map<String, dynamic>?)
-          ?.map((k, v) => MapEntry(k, v as String)),
+      environment: (json['environment'] as Map<String, dynamic>?)?.map(
+        (k, v) => MapEntry(k, v as String),
+      ),
       autostart: json['autostart'] as bool? ?? true,
       enabled: json['enabled'] as bool? ?? true,
       isRemote: json['isRemote'] as bool? ?? false,
       restartPolicy: json['restartPolicy'] != null
-          ? RestartPolicy.fromJson(json['restartPolicy'] as Map<String, dynamic>)
+          ? RestartPolicy.fromJson(
+              json['restartPolicy'] as Map<String, dynamic>,
+            )
           : null,
       alivenessCheck: json['alivenessCheck'] != null
-          ? AlivenessCheck.fromJson(json['alivenessCheck'] as Map<String, dynamic>)
+          ? AlivenessCheck.fromJson(
+              json['alivenessCheck'] as Map<String, dynamic>,
+            )
           : null,
       registeredAt: json['registeredAt'] != null
           ? DateTime.parse(json['registeredAt'] as String)
@@ -112,7 +116,9 @@ class ProcessEntry {
           ? DateTime.parse(json['lastStoppedAt'] as String)
           : null,
       pid: json['pid'] as int?,
-      state: ProcessStateExtension.fromJson(json['state'] as String? ?? 'stopped'),
+      state: ProcessStateExtension.fromJson(
+        json['state'] as String? ?? 'stopped',
+      ),
       restartAttempts: json['restartAttempts'] as int? ?? 0,
       consecutiveFailures: json['consecutiveFailures'] as int? ?? 0,
     );

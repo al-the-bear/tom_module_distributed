@@ -128,10 +128,9 @@ void main() {
       await logManager.close();
 
       // Should have at most maxLogFiles
-      final files = await Directory(logDir)
-          .list()
-          .where((e) => e is File && e.path.endsWith('.log'))
-          .toList();
+      final files = await Directory(
+        logDir,
+      ).list().where((e) => e is File && e.path.endsWith('.log')).toList();
       expect(files.length, lessThanOrEqualTo(3));
     });
 

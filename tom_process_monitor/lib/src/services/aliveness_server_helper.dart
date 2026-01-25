@@ -12,10 +12,7 @@ class AlivenessCallback {
   final Future<Map<String, dynamic>> Function()? onStatusRequest;
 
   /// Creates an aliveness callback.
-  const AlivenessCallback({
-    this.onHealthCheck,
-    this.onStatusRequest,
-  });
+  const AlivenessCallback({this.onHealthCheck, this.onStatusRequest});
 }
 
 /// Helper class for managed processes to expose aliveness endpoints.
@@ -131,10 +128,12 @@ class AlivenessServerHelper {
     request.response
       ..statusCode = isHealthy ? HttpStatus.ok : HttpStatus.serviceUnavailable
       ..headers.contentType = ContentType.json
-      ..write(jsonEncode({
-            'healthy': isHealthy,
-            'timestamp': DateTime.now().toUtc().toIso8601String(),
-          }));
+      ..write(
+        jsonEncode({
+          'healthy': isHealthy,
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+        }),
+      );
   }
 
   Future<void> _handleStatusRequest(HttpRequest request) async {

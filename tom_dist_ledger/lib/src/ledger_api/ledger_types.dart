@@ -37,11 +37,7 @@ class HeartbeatError {
   /// Optional underlying cause.
   final Object? cause;
 
-  const HeartbeatError({
-    required this.type,
-    required this.message,
-    this.cause,
-  });
+  const HeartbeatError({required this.type, required this.message, this.cause});
 
   @override
   String toString() => 'HeartbeatError($type): $message';

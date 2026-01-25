@@ -6,7 +6,7 @@ import '../../ledger_api/ledger_api.dart';
 import '../simulation_config.dart';
 
 /// Async simulated Copilot Chat (external) using Ledger API.
-/// 
+///
 /// Copilot runs as its own process:
 /// 1. Receives request, starts processing
 /// 2. Outputs "... Copilot is processing" every 2 seconds
@@ -26,12 +26,12 @@ class AsyncSimCopilotChat {
     required this.config,
     void Function(String)? onBackupCreated,
   }) : ledger = Ledger(
-          basePath: basePath,
-          participantId: 'copilot',
-          callback: onBackupCreated != null
-              ? LedgerCallback(onBackupCreated: onBackupCreated)
-              : null,
-        );
+         basePath: basePath,
+         participantId: 'copilot',
+         callback: onBackupCreated != null
+             ? LedgerCallback(onBackupCreated: onBackupCreated)
+             : null,
+       );
 
   /// Get the response file path for an operation.
   String _responseFilePath(String operationId) =>
@@ -69,9 +69,7 @@ class AsyncSimCopilotChat {
     required String prompt,
   }) async {
     // Wait for processing time
-    await Future.delayed(
-      Duration(milliseconds: config.externalCallResponseMs),
-    );
+    await Future.delayed(Duration(milliseconds: config.externalCallResponseMs));
 
     // Write response file
     final responseFile = File(_responseFilePath(operationId));

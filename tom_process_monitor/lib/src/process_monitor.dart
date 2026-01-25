@@ -63,7 +63,7 @@ class ProcessMonitor {
       baseDirectory: this.directory,
       instanceId: instanceId,
     );
-    _alivenessChecker = AlivenessChecker();
+    _alivenessChecker = AlivenessChecker(logger: _log);
   }
 
   /// Whether the monitor is running.
@@ -142,28 +142,30 @@ class ProcessMonitor {
     _running = false;
     _monitorTimer?.cancel();
 
-    // Stop all managed processes
-    final registry = await _registryService.load();
-    for (final process in registry.processes.values) {
-      if (process.pid != null && process.state == ProcessState.running) {
-        _log('Stopping ${process.id}...');
-        await _processControl.stopProcessGracefully(process.pid!);
-        process.pid = null;
-        process.state = ProcessState.stopped;
-        process.lastStoppedAt = DateTime.now();
+    try {
+      // Stop all managed processes
+      final registry = await _registryService.load();
+      for (final process in registry.processes.values) {
+        if (process.pid != null && process.state == ProcessState.running) {
+          _log('Stopping ${process.id}...');
+          await _processControl.stopProcessGracefully(process.pid!);
+          process.pid = null;
+          process.state = ProcessState.stopped;
+          process.lastStoppedAt = DateTime.now();
+        }
       }
+      await _registryService.save(registry);
+
+      // Stop servers
+      await _remoteApiServer?.stop();
+      await _alivenessServer?.stop();
+
+      _log('ProcessMonitor stopped');
+    } finally {
+      // Always dispose resources even if stop fails
+      _alivenessChecker.dispose();
+      await _logManager.close();
     }
-    await _registryService.save(registry);
-
-    // Stop servers
-    await _remoteApiServer?.stop();
-    await _alivenessServer?.stop();
-
-    // Close log
-    _log('ProcessMonitor stopped');
-    await _logManager.close();
-
-    _alivenessChecker.dispose();
   }
 
   /// Restarts the ProcessMonitor.
@@ -183,11 +185,7 @@ class ProcessMonitor {
 
     _log('Spawning new instance: $executable ${args.join(' ')}');
 
-    await Process.start(
-      executable,
-      args,
-      mode: ProcessStartMode.detached,
-    );
+    await Process.start(executable, args, mode: ProcessStartMode.detached);
 
     // 4. Give new instance time to start
     await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -216,7 +214,9 @@ class ProcessMonitor {
     for (final process in registry.processes.values) {
       if (process.state == ProcessState.running && process.pid != null) {
         if (!await _processControl.isProcessAlive(process.pid!)) {
-          _log('Detected crashed process: ${process.id} (PID ${process.pid} no longer alive)');
+          _log(
+            'Detected crashed process: ${process.id} (PID ${process.pid} no longer alive)',
+          );
           process.state = ProcessState.crashed;
           process.pid = null;
           process.lastStoppedAt = DateTime.now();
@@ -348,7 +348,9 @@ class ProcessMonitor {
           if (process.alivenessCheck?.enabled == true) {
             final alive = await _alivenessChecker.checkAlive(
               process.alivenessCheck!.url,
-              timeout: Duration(milliseconds: process.alivenessCheck!.timeoutMs),
+              timeout: Duration(
+                milliseconds: process.alivenessCheck!.timeoutMs,
+              ),
             );
 
             if (!alive) {
@@ -369,10 +371,14 @@ class ProcessMonitor {
 
           // Check for restart counter reset
           if (process.restartAttempts > 0 && process.lastStartedAt != null) {
-            final stableTime = DateTime.now().difference(process.lastStartedAt!);
+            final stableTime = DateTime.now().difference(
+              process.lastStartedAt!,
+            );
             if (stableTime.inMilliseconds > policy.resetAfterMs) {
               process.restartAttempts = 0;
-              _log('Reset restart counter for ${process.id} after stable running');
+              _log(
+                'Reset restart counter for ${process.id} after stable running',
+              );
             }
           }
         }
@@ -444,7 +450,9 @@ class ProcessMonitor {
         timeout: Duration(milliseconds: process.alivenessCheck!.timeoutMs),
       )) {
         process.state = ProcessState.running;
-        _log('Process ${process.id} started successfully after ${attempt + 1} checks');
+        _log(
+          'Process ${process.id} started successfully after ${attempt + 1} checks',
+        );
 
         // Fetch PID from statusUrl if configured
         await _fetchProcessPid(process);
@@ -476,7 +484,10 @@ class ProcessMonitor {
     }
   }
 
-  Future<void> _attemptRestart(ProcessEntry process, RestartPolicy policy) async {
+  Future<void> _attemptRestart(
+    ProcessEntry process,
+    RestartPolicy policy,
+  ) async {
     // Check if max attempts exceeded
     if (process.restartAttempts >= policy.maxAttempts) {
       if (policy.retryIndefinitely) {
@@ -612,11 +623,7 @@ class ProcessMonitor {
     _log('Starting partner: $executable ${args.join(' ')}');
 
     try {
-      await Process.start(
-        executable,
-        args,
-        mode: ProcessStartMode.detached,
-      );
+      await Process.start(executable, args, mode: ProcessStartMode.detached);
 
       // Wait for partner to start
       await Future<void>.delayed(const Duration(seconds: 2));
@@ -677,9 +684,5 @@ String _resolveHomeDirectory() {
 /// Uses the user's home directory (~/.tom/process_monitor/).
 /// Override with the --directory command-line option.
 String _resolveDefaultDirectory() {
-  return path.join(
-    _resolveHomeDirectory(),
-    '.tom',
-    'process_monitor',
-  );
+  return path.join(_resolveHomeDirectory(), '.tom', 'process_monitor');
 }

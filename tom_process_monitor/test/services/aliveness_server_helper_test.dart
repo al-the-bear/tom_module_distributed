@@ -13,24 +13,27 @@ void main() {
       await helper.stop();
     });
 
-    test('starts and responds to /health endpoint with default callback', () async {
-      helper = AlivenessServerHelper(port: testPort);
-      await helper.start();
+    test(
+      'starts and responds to /health endpoint with default callback',
+      () async {
+        helper = AlivenessServerHelper(port: testPort);
+        await helper.start();
 
-      expect(helper.isRunning, isTrue);
+        expect(helper.isRunning, isTrue);
 
-      final response = await HttpClient()
-          .getUrl(Uri.parse('http://localhost:$testPort/health'))
-          .then((req) => req.close());
+        final response = await HttpClient()
+            .getUrl(Uri.parse('http://localhost:$testPort/health'))
+            .then((req) => req.close());
 
-      expect(response.statusCode, HttpStatus.ok);
+        expect(response.statusCode, HttpStatus.ok);
 
-      final body = await response.transform(utf8.decoder).join();
-      final json = jsonDecode(body);
+        final body = await response.transform(utf8.decoder).join();
+        final json = jsonDecode(body);
 
-      expect(json['healthy'], isTrue);
-      expect(json['timestamp'], isNotNull);
-    });
+        expect(json['healthy'], isTrue);
+        expect(json['timestamp'], isNotNull);
+      },
+    );
 
     test('responds to /status endpoint with default callback', () async {
       helper = AlivenessServerHelper(port: testPort);
@@ -54,9 +57,7 @@ void main() {
 
       helper = AlivenessServerHelper(
         port: testPort,
-        callback: AlivenessCallback(
-          onHealthCheck: () async => isHealthy,
-        ),
+        callback: AlivenessCallback(onHealthCheck: () async => isHealthy),
       );
       await helper.start();
 
@@ -80,10 +81,7 @@ void main() {
       helper = AlivenessServerHelper(
         port: testPort,
         callback: AlivenessCallback(
-          onStatusRequest: () async => {
-                'version': '1.0.0',
-                'connections': 42,
-              },
+          onStatusRequest: () async => {'version': '1.0.0', 'connections': 42},
         ),
       );
       await helper.start();
@@ -139,8 +137,9 @@ void main() {
       await helper.start();
 
       final client = HttpClient();
-      final request =
-          await client.postUrl(Uri.parse('http://localhost:$testPort/health'));
+      final request = await client.postUrl(
+        Uri.parse('http://localhost:$testPort/health'),
+      );
       final response = await request.close();
 
       expect(response.statusCode, HttpStatus.methodNotAllowed);

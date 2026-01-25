@@ -11,10 +11,7 @@ class AlivenessServerConfig {
   final int port;
 
   /// Creates an aliveness server configuration.
-  const AlivenessServerConfig({
-    this.enabled = true,
-    this.port = 5681,
-  });
+  const AlivenessServerConfig({this.enabled = true, this.port = 5681});
 
   /// Creates an AlivenessServerConfig from JSON.
   factory AlivenessServerConfig.fromJson(Map<String, dynamic> json) {
@@ -26,10 +23,7 @@ class AlivenessServerConfig {
 
   /// Converts to JSON.
   Map<String, dynamic> toJson() {
-    return {
-      'enabled': enabled,
-      'port': port,
-    };
+    return {'enabled': enabled, 'port': port};
   }
 }
 
@@ -114,15 +108,15 @@ class ProcessRegistry {
     AlivenessServerConfig? alivenessServer,
     this.watcherInfo,
     Map<String, ProcessEntry>? processes,
-  })  : lastModified = lastModified ?? DateTime.now(),
-        partnerDiscovery = partnerDiscovery ??
-            PartnerDiscoveryConfig.defaultForInstance(instanceId),
-        remoteAccess = remoteAccess ?? RemoteAccessConfig.defaultConfig,
-        alivenessServer = alivenessServer ??
-            AlivenessServerConfig(
-              port: instanceId == 'watcher' ? 5682 : 5681,
-            ),
-        processes = processes ?? {};
+  }) : lastModified = lastModified ?? DateTime.now(),
+       partnerDiscovery =
+           partnerDiscovery ??
+           PartnerDiscoveryConfig.defaultForInstance(instanceId),
+       remoteAccess = remoteAccess ?? RemoteAccessConfig.defaultConfig,
+       alivenessServer =
+           alivenessServer ??
+           AlivenessServerConfig(port: instanceId == 'watcher' ? 5682 : 5681),
+       processes = processes ?? {};
 
   /// Creates a ProcessRegistry from JSON.
   factory ProcessRegistry.fromJson(Map<String, dynamic> json) {
@@ -149,14 +143,14 @@ class ProcessRegistry {
           ? AlivenessServerConfig.fromJson(
               json['alivenessServer'] as Map<String, dynamic>,
             )
-          : AlivenessServerConfig(
-              port: instanceId == 'watcher' ? 5682 : 5681,
-            ),
+          : AlivenessServerConfig(port: instanceId == 'watcher' ? 5682 : 5681),
       watcherInfo: json['watcherInfo'] != null
           ? WatcherInfo.fromJson(json['watcherInfo'] as Map<String, dynamic>)
           : null,
-      processes: (json['processes'] as Map<String, dynamic>?)?.map(
-            (k, v) => MapEntry(k, ProcessEntry.fromJson(v as Map<String, dynamic>)),
+      processes:
+          (json['processes'] as Map<String, dynamic>?)?.map(
+            (k, v) =>
+                MapEntry(k, ProcessEntry.fromJson(v as Map<String, dynamic>)),
           ) ??
           {},
     );

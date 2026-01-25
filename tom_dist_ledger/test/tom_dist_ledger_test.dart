@@ -10,10 +10,7 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('dpl_test_');
-      ledger = Ledger(
-        basePath: tempDir.path,
-        participantId: 'test',
-      );
+      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {

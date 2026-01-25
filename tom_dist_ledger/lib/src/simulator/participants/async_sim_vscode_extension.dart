@@ -8,9 +8,9 @@ class AsyncSimVSCodeExtension extends AsyncSimParticipant {
     required super.config,
     super.onBackupCreated,
   }) : super(
-          name: 'VSCode',
-          pid: 222, // Same PID as Bridge (same process)
-        );
+         name: 'VSCode',
+         pid: 222, // Same PID as Bridge (same process)
+       );
 
   /// Cancel chat polling.
   void cancelChatPolling({required int depth}) {

@@ -103,7 +103,11 @@ class RemoteApiServer {
       } else if (request.method == 'POST') {
         await _registerProcess(request, registry, isTrusted);
       } else {
-        await _sendError(request, HttpStatus.methodNotAllowed, 'Method Not Allowed');
+        await _sendError(
+          request,
+          HttpStatus.methodNotAllowed,
+          'Method Not Allowed',
+        );
       }
     } else if (pathParts.length == 2) {
       // /processes/{id}
@@ -113,13 +117,23 @@ class RemoteApiServer {
       } else if (request.method == 'DELETE') {
         await _deregisterProcess(request, registry, processId, isTrusted);
       } else {
-        await _sendError(request, HttpStatus.methodNotAllowed, 'Method Not Allowed');
+        await _sendError(
+          request,
+          HttpStatus.methodNotAllowed,
+          'Method Not Allowed',
+        );
       }
     } else if (pathParts.length == 3) {
       // /processes/{id}/{action}
       final processId = pathParts[1];
       final action = pathParts[2];
-      await _handleProcessAction(request, registry, processId, action, isTrusted);
+      await _handleProcessAction(
+        request,
+        registry,
+        processId,
+        action,
+        isTrusted,
+      );
     } else {
       await _sendError(request, HttpStatus.notFound, 'Not Found');
     }
@@ -157,12 +171,34 @@ class RemoteApiServer {
     bool isTrusted,
   ) async {
     if (!isTrusted && !registry.remoteAccess.allowRemoteRegister) {
-      await _sendError(request, HttpStatus.forbidden, 'Remote registration not allowed');
+      await _sendError(
+        request,
+        HttpStatus.forbidden,
+        'Remote registration not allowed',
+      );
       return;
     }
 
-    final body = await _readJsonBody(request);
-    final config = ProcessConfig.fromJson(body);
+    // Parse and validate request body
+    final ProcessConfig config;
+    try {
+      final body = await _readJsonBody(request);
+      config = ProcessConfig.fromJson(body);
+    } on FormatException catch (e) {
+      await _sendError(
+        request,
+        HttpStatus.badRequest,
+        'Invalid JSON: ${e.message}',
+      );
+      return;
+    } on TypeError catch (e) {
+      await _sendError(
+        request,
+        HttpStatus.badRequest,
+        'Missing or invalid field: $e',
+      );
+      return;
+    }
 
     // Check executable against whitelist/blacklist
     if (!isTrusted && !_isExecutableAllowed(config.command, registry)) {
@@ -225,11 +261,19 @@ class RemoteApiServer {
 
     if (!isTrusted) {
       if (!registry.remoteAccess.allowRemoteDeregister) {
-        await _sendError(request, HttpStatus.forbidden, 'Remote deregistration not allowed');
+        await _sendError(
+          request,
+          HttpStatus.forbidden,
+          'Remote deregistration not allowed',
+        );
         return;
       }
       if (!process.isRemote) {
-        await _sendError(request, HttpStatus.forbidden, 'Cannot modify local process');
+        await _sendError(
+          request,
+          HttpStatus.forbidden,
+          'Cannot modify local process',
+        );
         return;
       }
     }
@@ -265,18 +309,30 @@ class RemoteApiServer {
 
     // Check permissions for non-trusted hosts
     if (!isTrusted && !process.isRemote) {
-      await _sendError(request, HttpStatus.forbidden, 'Cannot modify local process');
+      await _sendError(
+        request,
+        HttpStatus.forbidden,
+        'Cannot modify local process',
+      );
       return;
     }
 
     switch (action) {
       case 'start':
         if (!isTrusted && !registry.remoteAccess.allowRemoteStart) {
-          await _sendError(request, HttpStatus.forbidden, 'Remote start not allowed');
+          await _sendError(
+            request,
+            HttpStatus.forbidden,
+            'Remote start not allowed',
+          );
           return;
         }
         if (!process.enabled) {
-          await _sendError(request, HttpStatus.badRequest, 'Process is disabled');
+          await _sendError(
+            request,
+            HttpStatus.badRequest,
+            'Process is disabled',
+          );
           return;
         }
         process.state = ProcessState.starting;
@@ -285,7 +341,11 @@ class RemoteApiServer {
 
       case 'stop':
         if (!isTrusted && !registry.remoteAccess.allowRemoteStop) {
-          await _sendError(request, HttpStatus.forbidden, 'Remote stop not allowed');
+          await _sendError(
+            request,
+            HttpStatus.forbidden,
+            'Remote stop not allowed',
+          );
           return;
         }
         if (process.pid != null) {
@@ -300,7 +360,11 @@ class RemoteApiServer {
 
       case 'restart':
         if (!isTrusted && !registry.remoteAccess.allowRemoteStart) {
-          await _sendError(request, HttpStatus.forbidden, 'Remote restart not allowed');
+          await _sendError(
+            request,
+            HttpStatus.forbidden,
+            'Remote restart not allowed',
+          );
           return;
         }
         // Stop then start
@@ -315,7 +379,11 @@ class RemoteApiServer {
 
       case 'enable':
         if (!isTrusted && !registry.remoteAccess.allowRemoteDisable) {
-          await _sendError(request, HttpStatus.forbidden, 'Remote enable not allowed');
+          await _sendError(
+            request,
+            HttpStatus.forbidden,
+            'Remote enable not allowed',
+          );
           return;
         }
         process.enabled = true;
@@ -327,7 +395,11 @@ class RemoteApiServer {
 
       case 'disable':
         if (!isTrusted && !registry.remoteAccess.allowRemoteDisable) {
-          await _sendError(request, HttpStatus.forbidden, 'Remote disable not allowed');
+          await _sendError(
+            request,
+            HttpStatus.forbidden,
+            'Remote disable not allowed',
+          );
           return;
         }
         if (process.pid != null && process.state == ProcessState.running) {
@@ -346,7 +418,11 @@ class RemoteApiServer {
           return;
         }
         if (!isTrusted && !registry.remoteAccess.allowRemoteAutostart) {
-          await _sendError(request, HttpStatus.forbidden, 'Remote autostart not allowed');
+          await _sendError(
+            request,
+            HttpStatus.forbidden,
+            'Remote autostart not allowed',
+          );
           return;
         }
         final body = await _readJsonBody(request);
@@ -355,7 +431,11 @@ class RemoteApiServer {
         await _sendJson(request, {'success': true});
 
       default:
-        await _sendError(request, HttpStatus.notFound, 'Unknown action: $action');
+        await _sendError(
+          request,
+          HttpStatus.notFound,
+          'Unknown action: $action',
+        );
     }
   }
 
@@ -385,7 +465,11 @@ class RemoteApiServer {
       case 'restart':
         if (request.method == 'POST') {
           if (!isTrusted && !registry.remoteAccess.allowRemoteMonitorRestart) {
-            await _sendError(request, HttpStatus.forbidden, 'Monitor restart not allowed');
+            await _sendError(
+              request,
+              HttpStatus.forbidden,
+              'Monitor restart not allowed',
+            );
             return;
           }
           await _sendJson(request, {
@@ -417,7 +501,11 @@ class RemoteApiServer {
 
     // All config endpoints require trusted host for write operations
     if (request.method == 'PUT' && !isTrusted) {
-      await _sendError(request, HttpStatus.forbidden, 'Configuration changes require trusted host');
+      await _sendError(
+        request,
+        HttpStatus.forbidden,
+        'Configuration changes require trusted host',
+      );
       return;
     }
 
@@ -436,7 +524,8 @@ class RemoteApiServer {
             allowRemoteStop: body['allowRemoteStop'] as bool?,
             allowRemoteDisable: body['allowRemoteDisable'] as bool?,
             allowRemoteAutostart: body['allowRemoteAutostart'] as bool?,
-            allowRemoteMonitorRestart: body['allowRemoteMonitorRestart'] as bool?,
+            allowRemoteMonitorRestart:
+                body['allowRemoteMonitorRestart'] as bool?,
           );
           await registryService.save(registry);
           await _sendJson(request, registry.remoteAccess.toJson());
@@ -444,7 +533,9 @@ class RemoteApiServer {
 
       case 'trusted-hosts':
         if (request.method == 'GET') {
-          await _sendJson(request, {'trustedHosts': registry.remoteAccess.trustedHosts});
+          await _sendJson(request, {
+            'trustedHosts': registry.remoteAccess.trustedHosts,
+          });
         } else if (request.method == 'PUT') {
           final body = await _readJsonBody(request);
           final hosts = (body['trustedHosts'] as List<dynamic>)
@@ -459,7 +550,9 @@ class RemoteApiServer {
 
       case 'executable-whitelist':
         if (request.method == 'GET') {
-          await _sendJson(request, {'patterns': registry.remoteAccess.executableWhitelist});
+          await _sendJson(request, {
+            'patterns': registry.remoteAccess.executableWhitelist,
+          });
         } else if (request.method == 'PUT') {
           final body = await _readJsonBody(request);
           final patterns = (body['patterns'] as List<dynamic>)
@@ -474,7 +567,9 @@ class RemoteApiServer {
 
       case 'executable-blacklist':
         if (request.method == 'GET') {
-          await _sendJson(request, {'patterns': registry.remoteAccess.executableBlacklist});
+          await _sendJson(request, {
+            'patterns': registry.remoteAccess.executableBlacklist,
+          });
         } else if (request.method == 'PUT') {
           final body = await _readJsonBody(request);
           final patterns = (body['patterns'] as List<dynamic>)
@@ -581,7 +676,9 @@ class RemoteApiServer {
 
     // If blacklist is non-empty, command must not match any pattern
     if (blacklist.isNotEmpty) {
-      final blocked = blacklist.any((pattern) => Glob(pattern).matches(command));
+      final blocked = blacklist.any(
+        (pattern) => Glob(pattern).matches(command),
+      );
       if (blocked) return false;
     }
 

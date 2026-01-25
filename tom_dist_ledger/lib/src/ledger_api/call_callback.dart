@@ -35,7 +35,8 @@ class LedgerCallback {
   ///
   /// This is for errors detected during background monitoring
   /// of all operations, not specific to a single operation.
-  final void Function(OperationBase operation, HeartbeatError error)? onGlobalHeartbeatError;
+  final void Function(OperationBase operation, HeartbeatError error)?
+  onGlobalHeartbeatError;
 
   /// Creates a ledger callback with optional handlers.
   const LedgerCallback({
@@ -77,14 +78,16 @@ class OperationCallback {
   /// Called on each successful heartbeat.
   ///
   /// Use this for monitoring heartbeat health and call frame state.
-  final void Function(OperationBase operation, HeartbeatResult result)? onHeartbeatSuccess;
+  final void Function(OperationBase operation, HeartbeatResult result)?
+  onHeartbeatSuccess;
 
   /// Called when a heartbeat detects a failure.
   ///
   /// The [HeartbeatError] contains information about what failed
   /// (stale participant, missing file, etc.). Use this to trigger
   /// recovery or cleanup actions.
-  final void Function(OperationBase operation, HeartbeatError error)? onHeartbeatError;
+  final void Function(OperationBase operation, HeartbeatError error)?
+  onHeartbeatError;
 
   /// Called when the operation is aborted.
   ///
@@ -100,7 +103,8 @@ class OperationCallback {
   /// when the operation enters cleanup/failed state.
   ///
   /// Alternative: Use [Operation.onFailure] future for async/await patterns.
-  final void Function(OperationBase operation, OperationFailedInfo info)? onFailure;
+  final void Function(OperationBase operation, OperationFailedInfo info)?
+  onFailure;
 
   /// Creates an operation callback with optional handlers.
   const OperationCallback({
@@ -196,25 +200,21 @@ class OperationFailedException implements Exception {
   OperationFailedException(this.info);
 
   @override
-  String toString() => 'OperationFailedException: ${info.reason ?? info.operationId}';
+  String toString() =>
+      'OperationFailedException: ${info.reason ?? info.operationId}';
 }
 
 /// Log levels for operation logging.
-enum LogLevel {
-  debug,
-  info,
-  warning,
-  error,
-}
+enum LogLevel { debug, info, warning, error }
 
 /// Extension to convert LogLevel to string.
 extension LogLevelExtension on LogLevel {
   String get name => switch (this) {
-        LogLevel.debug => 'DEBUG',
-        LogLevel.info => 'INFO',
-        LogLevel.warning => 'WARNING',
-        LogLevel.error => 'ERROR',
-      };
+    LogLevel.debug => 'DEBUG',
+    LogLevel.info => 'INFO',
+    LogLevel.warning => 'WARNING',
+    LogLevel.error => 'ERROR',
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -229,10 +229,7 @@ extension LogLevelExtension on LogLevel {
 /// **Note:** This is for internal use by the ledger API.
 abstract interface class CallLifecycle {
   /// End a call successfully with an optional result.
-  Future<void> endCallInternal<T>({
-    required String callId,
-    T? result,
-  });
+  Future<void> endCallInternal<T>({required String callId, T? result});
 
   /// Fail a call with an error.
   Future<void> failCallInternal({
@@ -281,7 +278,7 @@ class Call<T> {
   bool _isCompleted = false;
 
   /// Creates a Call instance.
-  /// 
+  ///
   /// This constructor is for internal use by the ledger API.
   Call.internal({
     required this.callId,
@@ -339,7 +336,7 @@ class Call<T> {
 /// control methods to cancel or kill the call.
 ///
 /// ## Control Methods
-/// 
+///
 /// - [cancel] - Signals cancellation to cooperative work (sets [isCancelled])
 /// - [kill] - Forcefully terminates associated process
 /// - [await] - Waits for the call to complete and returns the result
@@ -391,10 +388,7 @@ class SpawnedCall<T> {
   /// Callback to be invoked when cancel() is called.
   Future<void> Function()? _onCancel;
 
-  SpawnedCall({
-    required this.callId,
-    this.description,
-  });
+  SpawnedCall({required this.callId, this.description});
 
   /// Whether the call has completed (successfully or failed).
   bool get isCompleted => _completer.isCompleted;
@@ -406,7 +400,7 @@ class SpawnedCall<T> {
   bool get isFailed => !_isSuccess && isCompleted;
 
   /// Whether cancellation has been requested.
-  /// 
+  ///
   /// Work functions should check this periodically and exit gracefully
   /// when true.
   bool get isCancelled => _isCancelled;
@@ -425,7 +419,8 @@ class SpawnedCall<T> {
 
   /// The result if successful, or the provided default value.
   /// Does not throw - returns defaultValue if not completed or failed.
-  T resultOr(T defaultValue) => isSuccess ? (_result ?? defaultValue) : defaultValue;
+  T resultOr(T defaultValue) =>
+      isSuccess ? (_result ?? defaultValue) : defaultValue;
 
   /// Wait for this call to complete.
   Future<void> get future => _completer.future;
@@ -437,7 +432,7 @@ class SpawnedCall<T> {
   StackTrace? get stackTrace => _stackTrace;
 
   /// Request cancellation of this call.
-  /// 
+  ///
   /// This sets [isCancelled] to true and invokes the cancellation callback
   /// if one was registered. Work functions should check [isCancelled]
   /// periodically and exit gracefully.
@@ -488,14 +483,14 @@ class SpawnedCall<T> {
   }
 
   /// Set the process reference for process-based workers.
-  /// 
+  ///
   /// **Note:** This is for internal use by the ledger API.
   void _setProcess(Process process) {
     _process = process;
   }
 
   /// Set the cancellation callback.
-  /// 
+  ///
   /// **Note:** This is for internal use by the ledger API.
   // ignore: unused_element
   void _setOnCancel(Future<void> Function() onCancel) {
@@ -503,7 +498,8 @@ class SpawnedCall<T> {
   }
 
   @override
-  String toString() => 'SpawnedCall<$T>(callId: $callId, completed: $isCompleted, success: $isSuccess, cancelled: $_isCancelled)';
+  String toString() =>
+      'SpawnedCall<$T>(callId: $callId, completed: $isCompleted, success: $isSuccess, cancelled: $_isCancelled)';
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -535,7 +531,8 @@ class SyncResult {
   });
 
   /// Whether all calls completed successfully (no failures, no unknowns).
-  bool get allSucceeded => failedCalls.isEmpty && unknownCalls.isEmpty && !operationFailed;
+  bool get allSucceeded =>
+      failedCalls.isEmpty && unknownCalls.isEmpty && !operationFailed;
 
   /// Whether any calls failed.
   bool get hasFailed => failedCalls.isNotEmpty;
@@ -605,7 +602,9 @@ class OperationHelper {
           return content as T;
         }
 
-        if (stopwatch != null && timeout != null && stopwatch.elapsed > timeout) {
+        if (stopwatch != null &&
+            timeout != null &&
+            stopwatch.elapsed > timeout) {
           throw TimeoutException('File $path did not appear within $timeout');
         }
 
@@ -634,7 +633,9 @@ class OperationHelper {
           return result;
         }
 
-        if (stopwatch != null && timeout != null && stopwatch.elapsed > timeout) {
+        if (stopwatch != null &&
+            timeout != null &&
+            stopwatch.elapsed > timeout) {
           throw TimeoutException('Condition not met within $timeout');
         }
 
@@ -689,9 +690,15 @@ class OperationHelper {
         }
 
         if (results.length < paths.length) {
-          if (stopwatch != null && timeout != null && stopwatch.elapsed > timeout) {
-            final missing = paths.where((p) => !results.containsKey(p)).toList();
-            throw TimeoutException('Files did not appear within $timeout: $missing');
+          if (stopwatch != null &&
+              timeout != null &&
+              stopwatch.elapsed > timeout) {
+            final missing = paths
+                .where((p) => !results.containsKey(p))
+                .toList();
+            throw TimeoutException(
+              'Files did not appear within $timeout: $missing',
+            );
           }
           await Future.delayed(pollInterval);
         }

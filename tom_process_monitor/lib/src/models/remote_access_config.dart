@@ -60,7 +60,8 @@ class RemoteAccessConfig {
     return RemoteAccessConfig(
       startRemoteAccess: json['startRemoteAccess'] as bool? ?? false,
       remotePort: json['remotePort'] as int? ?? 5679,
-      trustedHosts: (json['trustedHosts'] as List<dynamic>?)
+      trustedHosts:
+          (json['trustedHosts'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           const ['localhost', '127.0.0.1', '::1'],
@@ -72,11 +73,13 @@ class RemoteAccessConfig {
       allowRemoteAutostart: json['allowRemoteAutostart'] as bool? ?? true,
       allowRemoteMonitorRestart:
           json['allowRemoteMonitorRestart'] as bool? ?? false,
-      executableWhitelist: (json['executableWhitelist'] as List<dynamic>?)
+      executableWhitelist:
+          (json['executableWhitelist'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           const [],
-      executableBlacklist: (json['executableBlacklist'] as List<dynamic>?)
+      executableBlacklist:
+          (json['executableBlacklist'] as List<dynamic>?)
               ?.map((e) => e as String)
               .toList() ??
           const [],

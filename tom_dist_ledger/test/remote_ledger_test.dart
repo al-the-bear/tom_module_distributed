@@ -114,7 +114,9 @@ void main() {
         expect(operation.startTime, isNotNull);
 
         // Verify file was created on server
-        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
+        final opFile = File(
+          '${tempDir.path}/${operation.operationId}.operation.json',
+        );
         expect(opFile.existsSync(), isTrue);
 
         await operation.complete();
@@ -125,8 +127,11 @@ void main() {
           description: 'Data test',
         );
 
-        final opFile = File('${tempDir.path}/${operation.operationId}.operation.json');
-        final content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+        final opFile = File(
+          '${tempDir.path}/${operation.operationId}.operation.json',
+        );
+        final content =
+            jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
 
         expect(content['operationId'], equals(operation.operationId));
         expect(content['initiatorId'], equals('test_client'));
@@ -207,8 +212,16 @@ void main() {
         final operation = await client.createOperation();
         final after = DateTime.now();
 
-        expect(operation.startTime.isAfter(before.subtract(const Duration(seconds: 1))), isTrue);
-        expect(operation.startTime.isBefore(after.add(const Duration(seconds: 1))), isTrue);
+        expect(
+          operation.startTime.isAfter(
+            before.subtract(const Duration(seconds: 1)),
+          ),
+          isTrue,
+        );
+        expect(
+          operation.startTime.isBefore(after.add(const Duration(seconds: 1))),
+          isTrue,
+        );
         await operation.complete();
       });
 
@@ -229,9 +242,7 @@ void main() {
       test('returns Call<T> with callId', () async {
         final operation = await client.createOperation();
 
-        final call = await operation.startCall<int>(
-          description: 'Test call',
-        );
+        final call = await operation.startCall<int>(description: 'Test call');
 
         expect(call.callId, isNotEmpty);
         expect(call.startedAt, isNotNull);
@@ -251,7 +262,8 @@ void main() {
 
         // Verify call frame exists on server
         final opFile = File('${tempDir.path}/$operationId.operation.json');
-        final content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+        final content =
+            jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
         final callFrames = content['callFrames'] as List;
 
         expect(callFrames.length, equals(1));
@@ -311,7 +323,8 @@ void main() {
 
         // Verify call frame exists
         var opFile = File('${tempDir.path}/$operationId.operation.json');
-        var content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+        var content =
+            jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
         expect((content['callFrames'] as List).length, equals(1));
 
         await call.end();
@@ -340,13 +353,12 @@ void main() {
         final operation = await client.createOperation();
         final operationId = operation.operationId;
 
-        final call = await operation.startCall<void>(
-          failOnCrash: false,
-        );
+        final call = await operation.startCall<void>(failOnCrash: false);
 
         // Verify call frame exists
         var opFile = File('${tempDir.path}/$operationId.operation.json');
-        var content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+        var content =
+            jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
         expect((content['callFrames'] as List).length, equals(1));
 
         await call.fail('Test error');
@@ -388,9 +400,7 @@ void main() {
           failedInfo = info;
         });
 
-        final call = await operation.startCall<void>(
-          failOnCrash: true,
-        );
+        final call = await operation.startCall<void>(failOnCrash: true);
 
         await call.fail('Crash!');
         await Future.delayed(const Duration(milliseconds: 10));
@@ -483,9 +493,7 @@ void main() {
           work: (_, __) async {
             throw Exception('Work failed');
           },
-          callback: CallCallback<String>(
-            onCallCrashed: () async => 'fallback',
-          ),
+          callback: CallCallback<String>(onCallCrashed: () async => 'fallback'),
           failOnCrash: false,
         );
 
@@ -673,7 +681,9 @@ void main() {
       test('waits for single spawned call', () async {
         final operation = await client.createOperation();
 
-        final call = operation.spawnCall<String>(work: (_, __) async => 'result');
+        final call = operation.spawnCall<String>(
+          work: (_, __) async => 'result',
+        );
 
         final result = await operation.awaitCall(call);
 
@@ -688,9 +698,7 @@ void main() {
       test('executes work and returns result', () async {
         final operation = await client.createOperation();
 
-        final result = await operation.waitForCompletion<int>(
-          () async => 42,
-        );
+        final result = await operation.waitForCompletion<int>(() async => 42);
 
         expect(result, equals(42));
 
@@ -715,7 +723,9 @@ void main() {
         await joiner.leave();
 
         // Operation should still exist since initiator is still active
-        final opFile = File('${tempDir.path}/${initiator.operationId}.operation.json');
+        final opFile = File(
+          '${tempDir.path}/${initiator.operationId}.operation.json',
+        );
         expect(opFile.existsSync(), isTrue);
 
         // Initiator completes the operation
@@ -723,19 +733,19 @@ void main() {
         client2.dispose();
       });
 
-      test('throws with pending calls unless cancelPendingCalls=true', () async {
-        final operation = await client.createOperation();
+      test(
+        'throws with pending calls unless cancelPendingCalls=true',
+        () async {
+          final operation = await client.createOperation();
 
-        final call = await operation.startCall<void>();
+          final call = await operation.startCall<void>();
 
-        expect(
-          () => operation.leave(),
-          throwsStateError,
-        );
+          expect(() => operation.leave(), throwsStateError);
 
-        await call.end();
-        await operation.complete();
-      });
+          await call.end();
+          await operation.complete();
+        },
+      );
 
       test('cancels pending calls when cancelPendingCalls=true', () async {
         final client2 = RemoteLedgerClient(
@@ -769,7 +779,7 @@ void main() {
 
         // Wait for call to complete (work should detect cancellation and fail)
         await spawned.future;
-        
+
         // Call should have failed because it detected cancellation
         expect(spawned.isFailed, isTrue);
 
@@ -841,7 +851,8 @@ void main() {
         await operation.setAbortFlag(true);
 
         final opFile = File('${tempDir.path}/$operationId.operation.json');
-        final content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+        final content =
+            jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
         expect(content['aborted'], isTrue);
 
         await operation.complete();
@@ -875,9 +886,11 @@ void main() {
         final operation = await client.createOperation();
 
         var abortTriggered = false;
-        unawaited(operation.onAbort.then((_) {
-          abortTriggered = true;
-        }));
+        unawaited(
+          operation.onAbort.then((_) {
+            abortTriggered = true;
+          }),
+        );
 
         operation.triggerAbort();
         await Future.delayed(const Duration(milliseconds: 10));
@@ -895,8 +908,11 @@ void main() {
 
         // Get initial heartbeat time
         var opFile = File('${tempDir.path}/$operationId.operation.json');
-        var content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
-        final initialHeartbeat = DateTime.parse(content['lastHeartbeat'] as String);
+        var content =
+            jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+        final initialHeartbeat = DateTime.parse(
+          content['lastHeartbeat'] as String,
+        );
 
         // Start heartbeat with short interval
         operation.startHeartbeat(
@@ -911,7 +927,9 @@ void main() {
 
         // Verify heartbeat was updated
         content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
-        final updatedHeartbeat = DateTime.parse(content['lastHeartbeat'] as String);
+        final updatedHeartbeat = DateTime.parse(
+          content['lastHeartbeat'] as String,
+        );
 
         expect(updatedHeartbeat.isAfter(initialHeartbeat), isTrue);
 
@@ -984,20 +1002,14 @@ void main() {
 
   group('RemoteLedgerException', () {
     test('stores message and statusCode', () {
-      final exception = RemoteLedgerException(
-        'Test error',
-        statusCode: 404,
-      );
+      final exception = RemoteLedgerException('Test error', statusCode: 404);
 
       expect(exception.message, equals('Test error'));
       expect(exception.statusCode, equals(404));
     });
 
     test('toString includes message and status', () {
-      final exception = RemoteLedgerException(
-        'Not found',
-        statusCode: 404,
-      );
+      final exception = RemoteLedgerException('Not found', statusCode: 404);
 
       expect(exception.toString(), contains('Not found'));
       expect(exception.toString(), contains('404'));
@@ -1025,9 +1037,7 @@ void main() {
       );
 
       // Client2 joins
-      final op2 = await client2.joinOperation(
-        operationId: op1.operationId,
-      );
+      final op2 = await client2.joinOperation(operationId: op1.operationId);
 
       // Both clients start calls
       final call1 = await op1.startCall<String>(description: 'Client1 work');
@@ -1035,7 +1045,8 @@ void main() {
 
       // Verify both calls are tracked
       final opFile = File('${tempDir.path}/${op1.operationId}.operation.json');
-      final content = jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
+      final content =
+          jsonDecode(opFile.readAsStringSync()) as Map<String, dynamic>;
       final callFrames = content['callFrames'] as List;
 
       expect(callFrames.length, equals(2));
@@ -1173,6 +1184,86 @@ void main() {
 
       expect(result.allSucceeded, isTrue);
       await remoteOp.complete();
+      client.dispose();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // NETWORK FAILURE TESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  group('Network Failure Scenarios', () {
+    test('handles connection refused when server is down', () async {
+      // Connect to a port where no server is running
+      final badClient = RemoteLedgerClient(
+        serverUrl: 'http://localhost:59999', // Unlikely to be used
+        participantId: 'offline_client',
+      );
+
+      // Creating an operation should fail gracefully
+      expect(
+        () => badClient.createOperation(),
+        throwsA(isA<SocketException>()),
+      );
+
+      badClient.dispose();
+    });
+
+    test('handles server stopping mid-operation', () async {
+      // Start a dedicated server for this test
+      final testDir = Directory.systemTemp.createTempSync('network_fail_test_');
+      final testServer = await LedgerServer.start(
+        basePath: testDir.path,
+        port: 0,
+      );
+      final testUrl = 'http://localhost:${testServer.port}';
+
+      final client = RemoteLedgerClient(
+        serverUrl: testUrl,
+        participantId: 'shutdown_client',
+      );
+
+      // Create an operation successfully
+      final op = await client.createOperation();
+      expect(op, isNotNull);
+
+      // Stop the server
+      await testServer.stop();
+
+      // Try to complete - should fail with network error
+      expect(
+        () => op.complete(),
+        throwsA(anyOf(isA<SocketException>(), isA<HttpException>())),
+      );
+
+      client.dispose();
+      if (testDir.existsSync()) {
+        testDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('validates operationId in joinOperation', () async {
+      final client = RemoteLedgerClient(
+        serverUrl: serverUrl,
+        participantId: 'validation_client',
+      );
+
+      // Path traversal attempts should be rejected
+      expect(
+        () => client.joinOperation(operationId: '../../../etc/passwd'),
+        throwsA(isA<ArgumentError>()),
+      );
+
+      expect(
+        () => client.joinOperation(operationId: 'test/with/slashes'),
+        throwsA(isA<ArgumentError>()),
+      );
+
+      expect(
+        () => client.joinOperation(operationId: ''),
+        throwsA(isA<ArgumentError>()),
+      );
+
       client.dispose();
     });
   });

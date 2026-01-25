@@ -23,7 +23,10 @@ void main() {
   group('Trusted Host Pattern Matching', () {
     group('exact match', () {
       test('matches exact IP', () {
-        expect(matchesTrustedHostPattern('192.168.1.100', '192.168.1.100'), isTrue);
+        expect(
+          matchesTrustedHostPattern('192.168.1.100', '192.168.1.100'),
+          isTrue,
+        );
         expect(matchesTrustedHostPattern('10.0.0.1', '10.0.0.1'), isTrue);
       });
 
@@ -34,7 +37,10 @@ void main() {
       });
 
       test('rejects non-matching exact', () {
-        expect(matchesTrustedHostPattern('192.168.1.100', '192.168.1.101'), isFalse);
+        expect(
+          matchesTrustedHostPattern('192.168.1.100', '192.168.1.101'),
+          isFalse,
+        );
         expect(matchesTrustedHostPattern('10.0.0.1', '10.0.0.2'), isFalse);
       });
     });
@@ -42,12 +48,21 @@ void main() {
     group('IP wildcard patterns', () {
       test('matches single octet wildcard', () {
         expect(matchesTrustedHostPattern('192.168.1.0', '192.168.1.*'), isTrue);
-        expect(matchesTrustedHostPattern('192.168.1.100', '192.168.1.*'), isTrue);
-        expect(matchesTrustedHostPattern('192.168.1.255', '192.168.1.*'), isTrue);
+        expect(
+          matchesTrustedHostPattern('192.168.1.100', '192.168.1.*'),
+          isTrue,
+        );
+        expect(
+          matchesTrustedHostPattern('192.168.1.255', '192.168.1.*'),
+          isTrue,
+        );
       });
 
       test('rejects non-matching single octet wildcard', () {
-        expect(matchesTrustedHostPattern('192.168.2.100', '192.168.1.*'), isFalse);
+        expect(
+          matchesTrustedHostPattern('192.168.2.100', '192.168.1.*'),
+          isFalse,
+        );
         expect(matchesTrustedHostPattern('10.0.0.1', '192.168.1.*'), isFalse);
       });
 
@@ -70,29 +85,56 @@ void main() {
 
     group('hostname wildcard patterns', () {
       test('matches subdomain wildcard', () {
-        expect(matchesTrustedHostPattern('api.mydomain.com', '*.mydomain.com'), isTrue);
-        expect(matchesTrustedHostPattern('www.mydomain.com', '*.mydomain.com'), isTrue);
-        expect(matchesTrustedHostPattern('internal.mydomain.com', '*.mydomain.com'), isTrue);
+        expect(
+          matchesTrustedHostPattern('api.mydomain.com', '*.mydomain.com'),
+          isTrue,
+        );
+        expect(
+          matchesTrustedHostPattern('www.mydomain.com', '*.mydomain.com'),
+          isTrue,
+        );
+        expect(
+          matchesTrustedHostPattern('internal.mydomain.com', '*.mydomain.com'),
+          isTrue,
+        );
       });
 
       test('does not match deep subdomains with single wildcard', () {
         // *.mydomain.com should NOT match api.internal.mydomain.com
         // because * only matches chars except dots
         expect(
-          matchesTrustedHostPattern('api.internal.mydomain.com', '*.mydomain.com'),
+          matchesTrustedHostPattern(
+            'api.internal.mydomain.com',
+            '*.mydomain.com',
+          ),
           isFalse,
         );
       });
 
       test('matches hostname prefix wildcard', () {
-        expect(matchesTrustedHostPattern('server-1.local', 'server-*.local'), isTrue);
-        expect(matchesTrustedHostPattern('server-2.local', 'server-*.local'), isTrue);
-        expect(matchesTrustedHostPattern('server-100.local', 'server-*.local'), isTrue);
+        expect(
+          matchesTrustedHostPattern('server-1.local', 'server-*.local'),
+          isTrue,
+        );
+        expect(
+          matchesTrustedHostPattern('server-2.local', 'server-*.local'),
+          isTrue,
+        );
+        expect(
+          matchesTrustedHostPattern('server-100.local', 'server-*.local'),
+          isTrue,
+        );
       });
 
       test('rejects non-matching hostname patterns', () {
-        expect(matchesTrustedHostPattern('api.otherdomain.com', '*.mydomain.com'), isFalse);
-        expect(matchesTrustedHostPattern('client-1.local', 'server-*.local'), isFalse);
+        expect(
+          matchesTrustedHostPattern('api.otherdomain.com', '*.mydomain.com'),
+          isFalse,
+        );
+        expect(
+          matchesTrustedHostPattern('client-1.local', 'server-*.local'),
+          isFalse,
+        );
       });
     });
 
@@ -105,7 +147,10 @@ void main() {
 
       test('special characters in pattern', () {
         // Dots should be escaped properly
-        expect(matchesTrustedHostPattern('192x168x1x1', '192.168.1.1'), isFalse);
+        expect(
+          matchesTrustedHostPattern('192x168x1x1', '192.168.1.1'),
+          isFalse,
+        );
       });
 
       test('IPv6 addresses', () {

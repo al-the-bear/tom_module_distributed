@@ -6,8 +6,14 @@ import 'package:http/http.dart' as http;
 class AlivenessChecker {
   final http.Client _client;
 
+  /// Optional logger for debugging failed health checks.
+  final void Function(String message)? logger;
+
   /// Creates an aliveness checker.
-  AlivenessChecker() : _client = http.Client();
+  ///
+  /// If [logger] is provided, failed aliveness checks will be logged
+  /// for debugging purposes.
+  AlivenessChecker({this.logger}) : _client = http.Client();
 
   /// Disposes the checker.
   void dispose() {
@@ -22,6 +28,7 @@ class AlivenessChecker {
           .timeout(timeout ?? const Duration(milliseconds: 2000));
       return response.statusCode == 200 && response.body.trim() == 'OK';
     } catch (e) {
+      logger?.call('Aliveness check failed for $url: $e');
       return false;
     }
   }
@@ -32,13 +39,13 @@ class AlivenessChecker {
       final response = await _client
           .get(Uri.parse(url))
           .timeout(timeout ?? const Duration(seconds: 2));
-      
+
       if (response.statusCode == 200) {
         final json = jsonDecode(response.body) as Map<String, dynamic>;
         return json['pid'] as int?;
       }
     } catch (e) {
-      // Ignore errors
+      logger?.call('Failed to fetch PID from $url: $e');
     }
     return null;
   }
@@ -57,7 +64,7 @@ class AlivenessChecker {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
     } catch (e) {
-      // Ignore errors
+      logger?.call('Failed to fetch status from $url: $e');
     }
     return null;
   }

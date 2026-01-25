@@ -28,8 +28,8 @@ class RemoteProcessMonitorClient {
 
   /// Creates a remote process monitor client.
   RemoteProcessMonitorClient({String? baseUrl})
-      : baseUrl = baseUrl ?? 'http://localhost:5679',
-        _client = http.Client();
+    : baseUrl = baseUrl ?? 'http://localhost:5679',
+      _client = http.Client();
 
   /// Auto-discover a ProcessMonitor instance.
   ///
@@ -251,9 +251,7 @@ class RemoteProcessMonitorClient {
 
   /// Get status of all processes.
   Future<Map<String, ProcessStatus>> getAllStatus() async {
-    final response = await _client.get(
-      Uri.parse('$baseUrl/processes'),
-    );
+    final response = await _client.get(Uri.parse('$baseUrl/processes'));
 
     _checkResponse(response);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -261,16 +259,13 @@ class RemoteProcessMonitorClient {
 
     return {
       for (final p in processes)
-        (p as Map<String, dynamic>)['id'] as String:
-            ProcessStatus.fromJson(p),
+        (p as Map<String, dynamic>)['id'] as String: ProcessStatus.fromJson(p),
     };
   }
 
   /// Get ProcessMonitor instance status.
   Future<MonitorStatus> getMonitorStatus() async {
-    final response = await _client.get(
-      Uri.parse('$baseUrl/monitor/status'),
-    );
+    final response = await _client.get(Uri.parse('$baseUrl/monitor/status'));
 
     _checkResponse(response);
     return MonitorStatus.fromJson(
@@ -292,7 +287,8 @@ class RemoteProcessMonitorClient {
   }) async {
     final body = <String, dynamic>{};
     if (allowRegister != null) body['allowRemoteRegister'] = allowRegister;
-    if (allowDeregister != null) body['allowRemoteDeregister'] = allowDeregister;
+    if (allowDeregister != null)
+      body['allowRemoteDeregister'] = allowDeregister;
     if (allowStart != null) body['allowRemoteStart'] = allowStart;
     if (allowStop != null) body['allowRemoteStop'] = allowStop;
     if (allowDisable != null) body['allowRemoteDisable'] = allowDisable;
@@ -344,9 +340,7 @@ class RemoteProcessMonitorClient {
 
     _checkResponse(response);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return (data['patterns'] as List<dynamic>)
-        .map((e) => e as String)
-        .toList();
+    return (data['patterns'] as List<dynamic>).map((e) => e as String).toList();
   }
 
   /// Set the executable whitelist.
@@ -368,9 +362,7 @@ class RemoteProcessMonitorClient {
 
     _checkResponse(response);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return (data['patterns'] as List<dynamic>)
-        .map((e) => e as String)
-        .toList();
+    return (data['patterns'] as List<dynamic>).map((e) => e as String).toList();
   }
 
   /// Set the executable blacklist.
@@ -435,9 +427,7 @@ class RemoteProcessMonitorClient {
 
   /// Restart the ProcessMonitor itself.
   Future<void> restartMonitor() async {
-    final response = await _client.post(
-      Uri.parse('$baseUrl/monitor/restart'),
-    );
+    final response = await _client.post(Uri.parse('$baseUrl/monitor/restart'));
 
     _checkResponse(response);
   }

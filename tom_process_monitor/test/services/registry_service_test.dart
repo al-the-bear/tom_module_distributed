@@ -140,14 +140,8 @@ void main() {
             'registeredAt': DateTime.now().toIso8601String(),
           },
         },
-        'alivenessServer': {
-          'enabled': true,
-          'port': 5681,
-        },
-        'remoteAccess': {
-          'startRemoteAccess': false,
-          'remotePort': 5679,
-        },
+        'alivenessServer': {'enabled': true, 'port': 5681},
+        'remoteAccess': {'startRemoteAccess': false, 'remotePort': 5679},
       };
 
       final registry = ProcessRegistry.fromJson(json);

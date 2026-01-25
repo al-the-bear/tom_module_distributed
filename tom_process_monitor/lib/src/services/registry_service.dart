@@ -16,10 +16,7 @@ class RegistryService {
   late final RegistryLock _lock;
 
   /// Creates a registry service.
-  RegistryService({
-    required this.directory,
-    required this.instanceId,
-  }) {
+  RegistryService({required this.directory, required this.instanceId}) {
     _lock = RegistryLock(
       lockPath: '$directory/processes_$instanceId.lock',
       instanceId: instanceId,
@@ -61,13 +58,15 @@ class RegistryService {
     registry.lastModified = DateTime.now();
     final file = File(registryPath);
     await file.parent.create(recursive: true);
-    
+
     const encoder = JsonEncoder.withIndent('  ');
     await file.writeAsString(encoder.convert(registry.toJson()));
   }
 
   /// Executes an operation while holding the lock.
-  Future<T> withLock<T>(Future<T> Function(ProcessRegistry registry) operation) async {
+  Future<T> withLock<T>(
+    Future<T> Function(ProcessRegistry registry) operation,
+  ) async {
     return _lock.withLock(() async {
       final registry = await _loadWithoutLock();
       final result = await operation(registry);

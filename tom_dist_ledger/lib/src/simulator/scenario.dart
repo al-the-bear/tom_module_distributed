@@ -22,12 +22,7 @@ enum FailurePhase {
 }
 
 /// Defines which participant should fail.
-enum FailingParticipant {
-  cli,
-  bridge,
-  vscode,
-  copilot,
-}
+enum FailingParticipant { cli, bridge, vscode, copilot }
 
 /// Defines the type of failure.
 enum FailureType {
@@ -219,14 +214,11 @@ class ScenarioRunner {
   bool _isAborted = false;
   bool _isCrashed = false;
   _CrashException? _crashException;
-  
+
   /// The current operation ID (set by initiator).
   String? _currentOperationId;
 
-  ScenarioRunner({
-    required this.ledgerPath,
-    this.onLog,
-  });
+  ScenarioRunner({required this.ledgerPath, this.onLog});
 
   /// Initialize the runner for a scenario.
   void _initialize(SimulationScenario scenario) {
@@ -415,11 +407,7 @@ class ScenarioRunner {
     required SimulationConfig config,
   }) async {
     for (final call in calls) {
-      await _executeCall(
-        call: call,
-        depth: depth,
-        config: config,
-      );
+      await _executeCall(call: call, depth: depth, config: config);
     }
   }
 
@@ -441,7 +429,10 @@ class ScenarioRunner {
       final operation = await participant.startOperation(depth: depth);
       _currentOperationId = operation.operationId;
     } else if (!participant.hasOperation) {
-      await participant.joinOperation(operationId: _currentOperationId!, depth: depth);
+      await participant.joinOperation(
+        operationId: _currentOperationId!,
+        depth: depth,
+      );
     }
 
     // Start call execution
@@ -469,11 +460,7 @@ class ScenarioRunner {
 
     // Handle external calls (like Copilot)
     if (call.isExternal && call.callee == FailingParticipant.copilot) {
-      await _executeCopilotCall(
-        call: call,
-        depth: depth,
-        config: config,
-      );
+      await _executeCopilotCall(call: call, depth: depth, config: config);
     }
 
     // End call execution
@@ -503,7 +490,9 @@ class ScenarioRunner {
 
     // Simulate Copilot processing
     for (var i = 0; i < 3; i++) {
-      await Future.delayed(Duration(milliseconds: config.copilotProcessingIntervalMs));
+      await Future.delayed(
+        Duration(milliseconds: config.copilotProcessingIntervalMs),
+      );
       _checkCrash();
       if (_isAborted) break;
       _printer.log(
@@ -538,7 +527,7 @@ class ScenarioRunner {
       }
     }
   }
-  
+
   /// Dispose all participant ledgers.
   void dispose() {
     for (final participant in _participants.values) {
@@ -566,23 +555,25 @@ class _SimulatedParticipant {
     this.isInitiator = false,
     void Function(String)? onBackupCreated,
   }) : ledger = Ledger(
-          basePath: basePath,
-          participantId: name.toLowerCase(),
-          participantPid: pid,
-          callback: onBackupCreated != null
-              ? LedgerCallback(onBackupCreated: onBackupCreated)
-              : null,
-        );
+         basePath: basePath,
+         participantId: name.toLowerCase(),
+         participantPid: pid,
+         callback: onBackupCreated != null
+             ? LedgerCallback(onBackupCreated: onBackupCreated)
+             : null,
+       );
 
   bool get hasOperation => _operation != null;
   Operation get operation => _operation!;
 
-  Future<Operation> startOperation({
-    required int depth,
-  }) async {
+  Future<Operation> startOperation({required int depth}) async {
     printer.log(depth: depth, participant: name, message: 'startOperation()');
     _operation = await ledger.createOperation();
-    printer.log(depth: depth, participant: name, message: '  → operationId: "${_operation!.operationId}"');
+    printer.log(
+      depth: depth,
+      participant: name,
+      message: '  → operationId: "${_operation!.operationId}"',
+    );
     return _operation!;
   }
 
@@ -590,17 +581,23 @@ class _SimulatedParticipant {
     required String operationId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'joinOperation($operationId)');
-    _operation = await ledger.joinOperation(
-      operationId: operationId,
+    printer.log(
+      depth: depth,
+      participant: name,
+      message: 'joinOperation($operationId)',
     );
+    _operation = await ledger.joinOperation(operationId: operationId);
   }
 
   Future<void> createCallFrame({
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'createCallFrame($callId)');
+    printer.log(
+      depth: depth,
+      participant: name,
+      message: 'createCallFrame($callId)',
+    );
     await _operation?.createCallFrame(callId: callId);
   }
 
@@ -608,12 +605,20 @@ class _SimulatedParticipant {
     required String callId,
     required int depth,
   }) async {
-    printer.log(depth: depth, participant: name, message: 'deleteCallFrame($callId)');
+    printer.log(
+      depth: depth,
+      participant: name,
+      message: 'deleteCallFrame($callId)',
+    );
     await _operation?.deleteCallFrame(callId: callId);
   }
 
   Future<void> completeOperation({required int depth}) async {
-    printer.log(depth: depth, participant: name, message: 'completeOperation()');
+    printer.log(
+      depth: depth,
+      participant: name,
+      message: 'completeOperation()',
+    );
     await _operation?.complete();
     _operation = null;
   }
@@ -633,7 +638,7 @@ class _SimulatedParticipant {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
   }
-  
+
   void dispose() {
     ledger.dispose();
   }

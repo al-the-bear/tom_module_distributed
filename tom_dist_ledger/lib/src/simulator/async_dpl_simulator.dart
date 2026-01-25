@@ -9,7 +9,7 @@ import 'participants/async_sim_vscode_extension.dart';
 import 'simulation_config.dart';
 
 /// Async DPL Simulator - uses the Ledger API.
-/// 
+///
 /// Each participant has its own Ledger instance with its own participantId.
 class AsyncDPLSimulator {
   final SimulationConfig config;
@@ -25,7 +25,9 @@ class AsyncDPLSimulator {
   void Function(String)? _onBackupCreated(String participantName) {
     return (path) {
       final relativePath = path.replaceFirst('${config.ledgerPath}/', '');
-      print('${printer.elapsedFormatted} | [$participantName] backup → $relativePath');
+      print(
+        '${printer.elapsedFormatted} | [$participantName] backup → $relativePath',
+      );
     };
   }
 
@@ -120,7 +122,10 @@ class AsyncDPLSimulator {
       // Phase 3: VSCode calls Copilot - but we'll abort during this
       await _vscodeCallsCopilotWithAbortPhase();
 
-      printer.printPhaseComplete('SUCCESS', 'Abort flow completed - cleanup done');
+      printer.printPhaseComplete(
+        'SUCCESS',
+        'Abort flow completed - cleanup done',
+      );
 
       // Save the log
       await saveLog();
@@ -218,7 +223,11 @@ class AsyncDPLSimulator {
         abortSignal: abortCompleter,
       );
     } on AbortedException {
-      printer.log(depth: 3, participant: 'VSCode', message: 'Caught AbortedException');
+      printer.log(
+        depth: 3,
+        participant: 'VSCode',
+        message: 'Caught AbortedException',
+      );
       await _handleAbortCleanup();
     }
   }

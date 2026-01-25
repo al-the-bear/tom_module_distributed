@@ -143,10 +143,11 @@ class RegistryLock {
 
   Future<bool> _isProcessAlive(int targetPid) async {
     if (Platform.isWindows) {
-      final result = await Process.run(
-        'tasklist',
-        ['/FI', 'PID eq $targetPid', '/NH'],
-      );
+      final result = await Process.run('tasklist', [
+        '/FI',
+        'PID eq $targetPid',
+        '/NH',
+      ]);
       return result.stdout.toString().contains('$targetPid');
     } else {
       try {

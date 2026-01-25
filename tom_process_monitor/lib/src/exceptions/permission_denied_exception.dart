@@ -7,7 +7,7 @@ class PermissionDeniedException extends ProcessMonitorException {
 
   /// Creates a PermissionDeniedException.
   PermissionDeniedException(this.operation)
-      : super('Permission denied: $operation');
+    : super('Permission denied: $operation');
 
   @override
   String toString() => 'PermissionDeniedException: $operation';

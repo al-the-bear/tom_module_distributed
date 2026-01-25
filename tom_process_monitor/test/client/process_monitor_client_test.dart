@@ -11,10 +11,7 @@ void main() {
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('pm_client_test_').path;
-      client = ProcessMonitorClient(
-        directory: tempDir,
-        instanceId: 'test',
-      );
+      client = ProcessMonitorClient(directory: tempDir, instanceId: 'test');
     });
 
     tearDown(() async {
@@ -173,16 +170,12 @@ void main() {
     });
 
     test('getAllStatus returns all processes', () async {
-      await client.register(ProcessConfig(
-        id: 'process-1',
-        name: 'Process 1',
-        command: '/bin/echo',
-      ));
-      await client.register(ProcessConfig(
-        id: 'process-2',
-        name: 'Process 2',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'process-1', name: 'Process 1', command: '/bin/echo'),
+      );
+      await client.register(
+        ProcessConfig(id: 'process-2', name: 'Process 2', command: '/bin/echo'),
+      );
 
       final allStatus = await client.getAllStatus();
       expect(allStatus.length, equals(2));
@@ -192,11 +185,9 @@ void main() {
 
     test('setRemoteAccess updates remote access setting', () async {
       // Ensure registry exists
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.setRemoteAccess(true);
       var config = await client.getRemoteAccessConfig();
@@ -208,11 +199,9 @@ void main() {
     });
 
     test('setRemoteAccessPermissions updates permissions', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.setRemoteAccessPermissions(
         allowRegister: false,
@@ -225,11 +214,9 @@ void main() {
     });
 
     test('setTrustedHosts updates trusted hosts', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.setTrustedHosts(['10.0.0.1', '192.168.1.1']);
 
@@ -239,11 +226,9 @@ void main() {
     });
 
     test('setRemoteExecutableWhitelist updates whitelist', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.setRemoteExecutableWhitelist(['/opt/bin/*', '/usr/local/*']);
 
@@ -253,11 +238,9 @@ void main() {
     });
 
     test('setRemoteExecutableBlacklist updates blacklist', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.setRemoteExecutableBlacklist(['/bin/rm', '**/*.sh']);
 
@@ -267,11 +250,9 @@ void main() {
     });
 
     test('setStandaloneMode updates standalone mode', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.setStandaloneMode(true);
       expect(await client.isStandaloneMode(), isTrue);
@@ -281,11 +262,9 @@ void main() {
     });
 
     test('setPartnerDiscoveryConfig updates partner config', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       final newConfig = PartnerDiscoveryConfig(
         partnerInstanceId: 'custom-watcher',
@@ -302,11 +281,9 @@ void main() {
     });
 
     test('restartMonitor creates restart signal file', () async {
-      await client.register(ProcessConfig(
-        id: 'dummy',
-        name: 'Dummy',
-        command: '/bin/echo',
-      ));
+      await client.register(
+        ProcessConfig(id: 'dummy', name: 'Dummy', command: '/bin/echo'),
+      );
 
       await client.restartMonitor();
 

@@ -1,5 +1,5 @@
 /// Scenario tests with realistic timing to ensure heartbeats occur.
-/// 
+///
 /// These tests run with extended timeouts because scenarios use realistic
 /// 2-second call delays and 10-second external call processing times
 /// to properly exercise heartbeat behavior (heartbeat interval is 4.5s).
@@ -36,19 +36,21 @@ void main() {
     // ═══════════════════════════════════════════════════════════════════
 
     group('Success Scenarios', () {
-      test('Scenario 1: Happy path - all participants complete successfully',
-          () async {
-        final result = await runner.run(Scenarios.happyPath);
+      test(
+        'Scenario 1: Happy path - all participants complete successfully',
+        () async {
+          final result = await runner.run(Scenarios.happyPath);
 
-        expect(result.success, isTrue);
-        expect(result.exitCode, equals(0));
-        expect(result.log, isNotEmpty);
-        expect(
-          result.log.any((line) => line.contains('completeOperation')),
-          isTrue,
-          reason: 'Should complete the operation',
-        );
-      });
+          expect(result.success, isTrue);
+          expect(result.exitCode, equals(0));
+          expect(result.log, isNotEmpty);
+          expect(
+            result.log.any((line) => line.contains('completeOperation')),
+            isTrue,
+            reason: 'Should complete the operation',
+          );
+        },
+      );
     });
 
     // ═══════════════════════════════════════════════════════════════════
@@ -70,7 +72,9 @@ void main() {
       });
 
       test('Scenario 3: CLI crashes while Bridge is processing', () async {
-        final result = await runner.run(Scenarios.cliCrashDuringBridgeProcessing);
+        final result = await runner.run(
+          Scenarios.cliCrashDuringBridgeProcessing,
+        );
 
         expect(result.success, isFalse);
         expect(result.errorMessage, contains('Crash'));
@@ -145,10 +149,7 @@ void main() {
         final result = await runner.run(Scenarios.copilotError);
 
         expect(result.log, isNotEmpty);
-        expect(
-          result.log.any((line) => line.contains('Copilot')),
-          isTrue,
-        );
+        expect(result.log.any((line) => line.contains('Copilot')), isTrue);
       });
     });
 
@@ -245,8 +246,12 @@ void main() {
     test('Scenario categories are mutually exclusive', () {
       final success = Scenarios.successScenarios.map((s) => s.name).toSet();
       final initiator = Scenarios.initiatorFailures.map((s) => s.name).toSet();
-      final supervisor = Scenarios.supervisorFailures.map((s) => s.name).toSet();
-      final external = Scenarios.externalCallFailures.map((s) => s.name).toSet();
+      final supervisor = Scenarios.supervisorFailures
+          .map((s) => s.name)
+          .toSet();
+      final external = Scenarios.externalCallFailures
+          .map((s) => s.name)
+          .toSet();
       final abort = Scenarios.userAbortScenarios.map((s) => s.name).toSet();
       // ignore: unused_local_variable
       final complex = Scenarios.complexScenarios.map((s) => s.name).toSet();
@@ -258,12 +263,15 @@ void main() {
       expect(abort.intersection(external), isEmpty);
     });
 
-    test('SimulationScenario.isHappyPath returns true for success scenarios', () {
-      expect(Scenarios.happyPath.isHappyPath, isTrue);
-      expect(Scenarios.directCallNoSupervisor.isHappyPath, isTrue);
-      expect(Scenarios.cliCrashDuringInit.isHappyPath, isFalse);
-      expect(Scenarios.userAbortDuringBridge.isHappyPath, isFalse);
-    });
+    test(
+      'SimulationScenario.isHappyPath returns true for success scenarios',
+      () {
+        expect(Scenarios.happyPath.isHappyPath, isTrue);
+        expect(Scenarios.directCallNoSupervisor.isHappyPath, isTrue);
+        expect(Scenarios.cliCrashDuringInit.isHappyPath, isFalse);
+        expect(Scenarios.userAbortDuringBridge.isHappyPath, isFalse);
+      },
+    );
 
     test('ScenarioResult toString formats correctly', () {
       final successResult = ScenarioResult(
@@ -298,14 +306,8 @@ void main() {
         phase: FailurePhase.initialization,
       );
 
-      expect(
-        failure.toString(),
-        contains('cli'),
-      );
-      expect(
-        failure.toString(),
-        contains('crash'),
-      );
+      expect(failure.toString(), contains('cli'));
+      expect(failure.toString(), contains('crash'));
     });
   });
 
@@ -314,22 +316,24 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('Custom Scenarios', () {
-    test('Can create custom scenario with SimulationScenario.happyPath()',
-        () async {
-      final customScenario = SimulationScenario.happyPath(
-        name: 'custom_happy',
-        description: 'Custom happy path scenario',
-      );
+    test(
+      'Can create custom scenario with SimulationScenario.happyPath()',
+      () async {
+        final customScenario = SimulationScenario.happyPath(
+          name: 'custom_happy',
+          description: 'Custom happy path scenario',
+        );
 
-      expect(customScenario.name, equals('custom_happy'));
-      expect(customScenario.isHappyPath, isTrue);
-      expect(customScenario.callTree, isNotEmpty);
+        expect(customScenario.name, equals('custom_happy'));
+        expect(customScenario.isHappyPath, isTrue);
+        expect(customScenario.callTree, isNotEmpty);
 
-      final runner = ScenarioRunner(ledgerPath: tempDir.path);
-      final result = await runner.run(customScenario);
+        final runner = ScenarioRunner(ledgerPath: tempDir.path);
+        final result = await runner.run(customScenario);
 
-      expect(result.success, isTrue);
-    });
+        expect(result.success, isTrue);
+      },
+    );
 
     test('Can build scenario with custom call tree', () async {
       final customScenario = SimulationScenario(

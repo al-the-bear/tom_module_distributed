@@ -17,16 +17,12 @@ part 'call_callback.dart';
 part 'ledger_server.dart';
 
 /// Internal callback for heartbeat errors (uses _LedgerOperation).
-typedef _InternalHeartbeatErrorCallback = void Function(
-  _LedgerOperation operation,
-  HeartbeatError error,
-);
+typedef _InternalHeartbeatErrorCallback =
+    void Function(_LedgerOperation operation, HeartbeatError error);
 
 /// Internal callback for successful heartbeat (uses _LedgerOperation).
-typedef _InternalHeartbeatSuccessCallback = void Function(
-  _LedgerOperation operation,
-  HeartbeatResult result,
-);
+typedef _InternalHeartbeatSuccessCallback =
+    void Function(_LedgerOperation operation, HeartbeatResult result);
 
 /// Tracks a call in progress with its callback.
 class _ActiveCall {
@@ -149,7 +145,8 @@ class Operation implements OperationBase {
 
   /// Staleness threshold in milliseconds.
   int get stalenessThresholdMs => _operation.stalenessThresholdMs;
-  set stalenessThresholdMs(int value) => _operation.stalenessThresholdMs = value;
+  set stalenessThresholdMs(int value) =>
+      _operation.stalenessThresholdMs = value;
 
   // ─────────────────────────────────────────────────────────────
   // Call management (delegated with session tracking)
@@ -206,7 +203,7 @@ class Operation implements OperationBase {
   ///
   /// Returns a list of [SpawnedCall] objects that were started through
   /// this handle and have not yet completed.
-  /// 
+  ///
   /// For checking if there are any pending calls (including regular calls),
   /// use [hasPendingCalls].
   List<SpawnedCall> getPendingSpawnedCalls() {
@@ -217,7 +214,7 @@ class Operation implements OperationBase {
   ///
   /// Returns a list of [Call] objects that were started through
   /// this handle via [startCall] and have not yet completed.
-  /// 
+  ///
   /// For spawned calls, use [getPendingSpawnedCalls].
   List<Call<dynamic>> getPendingCalls() {
     return _operation._getPendingCallsForSession(sessionId);
@@ -278,9 +275,11 @@ class Operation implements OperationBase {
     Future<T> Function() work, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
     Future<T> Function(Object error, StackTrace stackTrace)? onError,
-  }) =>
-      _operation.waitForCompletion(work,
-          onOperationFailed: onOperationFailed, onError: onError);
+  }) => _operation.waitForCompletion(
+    work,
+    onOperationFailed: onOperationFailed,
+    onError: onError,
+  );
 
   /// Start the heartbeat.
   void startHeartbeat({
@@ -292,19 +291,20 @@ class Operation implements OperationBase {
     // Wrap public callbacks to internal callbacks that pass this Operation
     _InternalHeartbeatErrorCallback? internalOnError;
     _InternalHeartbeatSuccessCallback? internalOnSuccess;
-    
+
     if (onError != null) {
       internalOnError = (_, error) => onError(this, error);
     }
     if (onSuccess != null) {
       internalOnSuccess = (_, result) => onSuccess(this, result);
     }
-    
+
     _operation.startHeartbeat(
-        interval: interval,
-        jitterMs: jitterMs,
-        onError: internalOnError,
-        onSuccess: internalOnSuccess);
+      interval: interval,
+      jitterMs: jitterMs,
+      onError: internalOnError,
+      onSuccess: internalOnSuccess,
+    );
   }
 
   /// Stop the heartbeat.
@@ -315,9 +315,11 @@ class Operation implements OperationBase {
     List<SpawnedCall> calls, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
     Future<void> Function()? onCompletion,
-  }) =>
-      _operation.sync(calls,
-          onOperationFailed: onOperationFailed, onCompletion: onCompletion);
+  }) => _operation.sync(
+    calls,
+    onOperationFailed: onOperationFailed,
+    onCompletion: onCompletion,
+  );
 
   /// Execute a worker that writes result to a file.
   SpawnedCall<T> execFileResultWorker<T>({
@@ -335,22 +337,22 @@ class Operation implements OperationBase {
     void Function(int exitCode)? onExit,
     bool failOnCrash = true,
     CallCallback<T>? callback,
-  }) =>
-      _operation.execFileResultWorker(
-          executable: executable,
-          arguments: arguments,
-          resultFilePath: resultFilePath,
-          workingDirectory: workingDirectory,
-          description: description,
-          deserializer: deserializer,
-          deleteResultFile: deleteResultFile,
-          pollInterval: pollInterval,
-          timeout: timeout,
-          onStdout: onStdout,
-          onStderr: onStderr,
-          onExit: onExit,
-          failOnCrash: failOnCrash,
-          callback: callback);
+  }) => _operation.execFileResultWorker(
+    executable: executable,
+    arguments: arguments,
+    resultFilePath: resultFilePath,
+    workingDirectory: workingDirectory,
+    description: description,
+    deserializer: deserializer,
+    deleteResultFile: deleteResultFile,
+    pollInterval: pollInterval,
+    timeout: timeout,
+    onStdout: onStdout,
+    onStderr: onStderr,
+    onExit: onExit,
+    failOnCrash: failOnCrash,
+    callback: callback,
+  );
 
   /// Execute a worker that outputs to stdout.
   SpawnedCall<T> execStdioWorker<T>({
@@ -364,18 +366,18 @@ class Operation implements OperationBase {
     Duration? timeout,
     bool failOnCrash = true,
     CallCallback<T>? callback,
-  }) =>
-      _operation.execStdioWorker(
-          executable: executable,
-          arguments: arguments,
-          workingDirectory: workingDirectory,
-          description: description,
-          deserializer: deserializer,
-          onStderr: onStderr,
-          onExit: onExit,
-          timeout: timeout,
-          failOnCrash: failOnCrash,
-          callback: callback);
+  }) => _operation.execStdioWorker(
+    executable: executable,
+    arguments: arguments,
+    workingDirectory: workingDirectory,
+    description: description,
+    deserializer: deserializer,
+    onStderr: onStderr,
+    onExit: onExit,
+    timeout: timeout,
+    failOnCrash: failOnCrash,
+    callback: callback,
+  );
 
   // ─────────────────────────────────────────────────────────────
   // Additional delegated methods (for backward compatibility)
@@ -386,16 +388,17 @@ class Operation implements OperationBase {
     SpawnedCall<T> call, {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
     Future<void> Function()? onCompletion,
-  }) =>
-      _operation.awaitCall(call,
-          onOperationFailed: onOperationFailed, onCompletion: onCompletion);
+  }) => _operation.awaitCall(
+    call,
+    onOperationFailed: onOperationFailed,
+    onCompletion: onCompletion,
+  );
 
   /// Write debug log entry.
   Future<void> debugLog(String message) => _operation.debugLog(message);
 
   /// Get operation state.
-  Future<OperationState?> getOperationState() =>
-      _operation.getOperationState();
+  Future<OperationState?> getOperationState() => _operation.getOperationState();
 
   /// Set operation state.
   Future<void> setOperationState(OperationState state) =>
@@ -405,10 +408,7 @@ class Operation implements OperationBase {
   Future<HeartbeatResult?> heartbeat() => _operation.heartbeat();
 
   /// Log a formatted message with timestamp and participant.
-  Future<void> logMessage({
-    required int depth,
-    required String message,
-  }) =>
+  Future<void> logMessage({required int depth, required String message}) =>
       _operation.logMessage(depth: depth, message: message);
 
   /// Create a call frame (low-level API).
@@ -445,13 +445,13 @@ class Operation implements OperationBase {
     Duration? timeout,
     bool failOnCrash = true,
     CallCallback<T>? callback,
-  }) =>
-      _operation.execServerRequest(
-          work: work,
-          description: description,
-          timeout: timeout,
-          failOnCrash: failOnCrash,
-          callback: callback);
+  }) => _operation.execServerRequest(
+    work: work,
+    description: description,
+    timeout: timeout,
+    failOnCrash: failOnCrash,
+    callback: callback,
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -530,7 +530,7 @@ class _LedgerOperation implements CallLifecycle {
   }) : _ledger = ledger;
 
   /// Number of times this operation has been joined.
-  /// 
+  ///
   /// A participant may join the same operation multiple times (e.g., handling
   /// multiple calls for the same operation). Heartbeat is started on first
   /// join and stopped when join count reaches 0 via [leave].
@@ -584,8 +584,10 @@ class _LedgerOperation implements CallLifecycle {
   /// Generate a unique call ID.
   String _generateCallId() {
     _callCounter++;
-    final randomPart =
-        _random.nextInt(0xFFFF).toRadixString(16).padLeft(4, '0');
+    final randomPart = _random
+        .nextInt(0xFFFF)
+        .toRadixString(16)
+        .padLeft(4, '0');
     return 'call_${participantId}_${_callCounter}_$randomPart';
   }
 
@@ -627,15 +629,17 @@ class _LedgerOperation implements CallLifecycle {
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.callFrames.add(CallFrame(
-          participantId: participantId,
-          callId: callId,
-          pid: pid,
-          startTime: now,
-          lastHeartbeat: now,
-          description: description,
-          failOnCrash: failOnCrash,
-        ));
+        data.callFrames.add(
+          CallFrame(
+            participantId: participantId,
+            callId: callId,
+            pid: pid,
+            startTime: now,
+            lastHeartbeat: now,
+            description: description,
+            failOnCrash: failOnCrash,
+          ),
+        );
         data.lastHeartbeat = now;
         return data;
       },
@@ -702,8 +706,7 @@ class _LedgerOperation implements CallLifecycle {
 
   /// Check if a session has any pending calls.
   bool _hasPendingCallsForSession(int sessionId) {
-    return _activeCalls.entries
-        .any((e) => e.value.sessionId == sessionId);
+    return _activeCalls.entries.any((e) => e.value.sessionId == sessionId);
   }
 
   /// Get count of pending calls for a specific session.
@@ -719,7 +722,7 @@ class _LedgerOperation implements CallLifecycle {
         .where((e) => e.value.sessionId == sessionId && e.value.isSpawned)
         .map((e) => e.key)
         .toList();
-    
+
     return pendingCallIds
         .map((id) => _spawnedCalls[id])
         .whereType<SpawnedCall>()
@@ -733,7 +736,7 @@ class _LedgerOperation implements CallLifecycle {
         .where((e) => e.value.sessionId == sessionId && !e.value.isSpawned)
         .map((e) => e.key)
         .toList();
-    
+
     return pendingCallIds
         .map((id) => _calls[id])
         .whereType<Call<dynamic>>()
@@ -749,7 +752,7 @@ class _LedgerOperation implements CallLifecycle {
 
     // Get pending spawned calls for this session
     final pendingCalls = _getPendingSpawnedCallsForSession(sessionId);
-    
+
     if (pendingCalls.isNotEmpty) {
       if (cancelPendingCalls) {
         // Cancel all pending calls
@@ -769,7 +772,7 @@ class _LedgerOperation implements CallLifecycle {
     // Remove session
     _activeSessions.remove(sessionId);
     _joinCount--;
-    
+
     if (_joinCount == 0) {
       stopHeartbeat();
       _ledger._unregisterOperation(operationId);
@@ -814,10 +817,7 @@ class _LedgerOperation implements CallLifecycle {
   }
 
   /// Log a formatted message with timestamp and participant.
-  Future<void> logMessage({
-    required int depth,
-    required String message,
-  }) async {
+  Future<void> logMessage({required int depth, required String message}) async {
     final indent = '    ' * depth;
     final line = '$elapsedFormatted | $indent[$participantId] $message';
     await log(line);
@@ -872,15 +872,17 @@ class _LedgerOperation implements CallLifecycle {
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.callFrames.add(CallFrame(
-          participantId: participantId,
-          callId: callId,
-          pid: pid,
-          startTime: now,
-          lastHeartbeat: now,
-          description: description,
-          failOnCrash: failOnCrash,
-        ));
+        data.callFrames.add(
+          CallFrame(
+            participantId: participantId,
+            callId: callId,
+            pid: pid,
+            startTime: now,
+            lastHeartbeat: now,
+            description: description,
+            failOnCrash: failOnCrash,
+          ),
+        );
         data.lastHeartbeat = now;
         return data;
       },
@@ -899,14 +901,11 @@ class _LedgerOperation implements CallLifecycle {
   }
 
   /// Internal method to end a call, called by Call.end().
-  /// 
+  ///
   /// **Note:** This method is for internal use by the ledger API.
   /// Users should call [Call.end] instead.
   @override
-  Future<void> endCallInternal<T>({
-    required String callId,
-    T? result,
-  }) async {
+  Future<void> endCallInternal<T>({required String callId, T? result}) async {
     final activeCall = _activeCalls.remove(callId);
     if (activeCall == null) {
       throw StateError('No active call with ID: $callId');
@@ -933,7 +932,8 @@ class _LedgerOperation implements CallLifecycle {
     // Log the call end
     final duration = now.difference(activeCall.startedAt);
     await log(
-        'CALL_ENDED callId=$callId duration=${duration.inMilliseconds}ms');
+      'CALL_ENDED callId=$callId duration=${duration.inMilliseconds}ms',
+    );
 
     // Call onCompletion callback if result provided
     if (result != null && activeCall.callback is CallCallback<T>) {
@@ -948,7 +948,7 @@ class _LedgerOperation implements CallLifecycle {
   }
 
   /// Internal method to fail a call, called by Call.fail().
-  /// 
+  ///
   /// **Note:** This method is for internal use by the ledger API.
   /// Users should call [Call.fail] instead.
   @override
@@ -983,20 +983,23 @@ class _LedgerOperation implements CallLifecycle {
     // Log the call failure
     final duration = now.difference(activeCall.startedAt);
     await log(
-        'CALL_FAILED callId=$callId duration=${duration.inMilliseconds}ms error=$error',
-        level: LogLevel.error);
+      'CALL_FAILED callId=$callId duration=${duration.inMilliseconds}ms error=$error',
+      level: LogLevel.error,
+    );
 
     // Call cleanup callback
     await activeCall.callback.onCleanup?.call();
 
     // If this call had failOnCrash=true, signal operation failure
     if (activeCall.failOnCrash) {
-      _signalFailure(OperationFailedInfo(
-        operationId: operationId,
-        failedAt: now,
-        reason: 'Call $callId failed: $error',
-        crashedCallIds: [callId],
-      ));
+      _signalFailure(
+        OperationFailedInfo(
+          operationId: operationId,
+          failedAt: now,
+          reason: 'Call $callId failed: $error',
+          crashedCallIds: [callId],
+        ),
+      );
     }
 
     // Complete the completer
@@ -1167,15 +1170,17 @@ class _LedgerOperation implements CallLifecycle {
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.callFrames.add(CallFrame(
-          participantId: participantId,
-          callId: callId,
-          pid: pid,
-          startTime: now,
-          lastHeartbeat: now,
-          description: spawnedCall.description,
-          failOnCrash: failOnCrash,
-        ));
+        data.callFrames.add(
+          CallFrame(
+            participantId: participantId,
+            callId: callId,
+            pid: pid,
+            startTime: now,
+            lastHeartbeat: now,
+            description: spawnedCall.description,
+            failOnCrash: failOnCrash,
+          ),
+        );
         data.lastHeartbeat = now;
         return data;
       },
@@ -1201,7 +1206,9 @@ class _LedgerOperation implements CallLifecycle {
         operationId: operationId,
         elapsedFormatted: elapsedFormatted,
         updater: (data) {
-          final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
+          final index = data.callFrames.lastIndexWhere(
+            (f) => f.callId == callId,
+          );
           if (index >= 0) data.callFrames.removeAt(index);
           data.lastHeartbeat = DateTime.now();
           return data;
@@ -1242,7 +1249,9 @@ class _LedgerOperation implements CallLifecycle {
         operationId: operationId,
         elapsedFormatted: elapsedFormatted,
         updater: (data) {
-          final index = data.callFrames.lastIndexWhere((f) => f.callId == callId);
+          final index = data.callFrames.lastIndexWhere(
+            (f) => f.callId == callId,
+          );
           if (index >= 0) data.callFrames.removeAt(index);
           data.lastHeartbeat = DateTime.now();
           return data;
@@ -1259,12 +1268,14 @@ class _LedgerOperation implements CallLifecycle {
 
       // If failOnCrash is true and we didn't get a fallback, signal operation failure
       if (failOnCrash && fallbackResult == null) {
-        _signalFailure(OperationFailedInfo(
-          operationId: operationId,
-          failedAt: DateTime.now(),
-          reason: 'Call $callId failed: $e',
-          crashedCallIds: [callId],
-        ));
+        _signalFailure(
+          OperationFailedInfo(
+            operationId: operationId,
+            failedAt: DateTime.now(),
+            reason: 'Call $callId failed: $e',
+            crashedCallIds: [callId],
+          ),
+        );
       }
     }
   }
@@ -1272,7 +1283,7 @@ class _LedgerOperation implements CallLifecycle {
   /// Wait for spawned calls to complete and get a SyncResult.
   ///
   /// Waits for all specified calls to complete and returns status.
-  /// 
+  ///
   /// Note: Individual call crash handling is done via the onCallCrashed callback
   /// provided to spawnCall() at spawn time. This method only notifies about
   /// operation-level failures.
@@ -1340,21 +1351,21 @@ class _LedgerOperation implements CallLifecycle {
   /// Note: Individual call crash handling is done via the onCallCrashed callback
   /// provided to spawnTyped() at spawn time. This method only notifies about
   /// operation-level failures.
-  /// 
+  ///
   /// For direct result access, use [SpawnedCall.await_] which returns `T`
   /// directly or throws on failure.
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// final call = operation.spawnCall<int>(
   ///   work: () async => 42,
   /// );
-  /// 
+  ///
   /// final result = await operation.awaitCall(call);
   /// if (result.allSucceeded) {
   ///   print('Result: ${call.result}');
   /// }
-  /// 
+  ///
   /// // Or use the direct await pattern:
   /// try {
   ///   final value = await call.await_();
@@ -1405,7 +1416,7 @@ class _LedgerOperation implements CallLifecycle {
   ///
   /// Returns a [SpawnedCall<T>] immediately. The call executes asynchronously.
   /// Access `callId` immediately, await `future` for results.
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// final worker = operation.execFileResultWorker<Map>(
@@ -1444,7 +1455,7 @@ class _LedgerOperation implements CallLifecycle {
           arguments,
           workingDirectory: workingDirectory ?? Directory.current.path,
         );
-        
+
         // Attach process to SpawnedCall for kill/cancel support
         call._setProcess(process);
 
@@ -1507,17 +1518,17 @@ class _LedgerOperation implements CallLifecycle {
   /// void main(List<String> args) async {
   ///   // Parse parameters from args
   ///   final param1 = args.firstWhere((a) => a.startsWith('--param1=')).split('=')[1];
-  ///   
+  ///
   ///   // All status messages go to stderr
   ///   stderr.writeln('Processing with param: $param1');
-  ///   
+  ///
   ///   // Do work...
   ///   await Future.delayed(Duration(seconds: 2));
-  ///   
+  ///
   ///   // ONLY the result goes to stdout (as JSON)
   ///   final result = {'status': 'success', 'value': param1};
   ///   stdout.write(jsonEncode(result));  // No newline needed
-  ///   
+  ///
   ///   stderr.writeln('Done!');
   /// }
   /// ```
@@ -1536,7 +1547,7 @@ class _LedgerOperation implements CallLifecycle {
   ///
   /// Returns a [SpawnedCall<T>] immediately. The call executes asynchronously.
   /// Access `callId` immediately, await `future` for results.
-  /// 
+  ///
   /// ## Example
   /// ```dart
   /// final worker = operation.execStdioWorker<Map<String, dynamic>>(
@@ -1574,7 +1585,7 @@ class _LedgerOperation implements CallLifecycle {
           arguments,
           workingDirectory: workingDirectory ?? Directory.current.path,
         );
-        
+
         // Attach process to SpawnedCall for kill/cancel support
         call._setProcess(process);
 
@@ -1596,7 +1607,7 @@ class _LedgerOperation implements CallLifecycle {
         // Wait for process to exit
         final exitCode = await process.exitCode;
         onExit?.call(exitCode);
-        
+
         if (exitCode != 0) {
           throw ProcessException(
             executable,
@@ -1649,7 +1660,7 @@ class _LedgerOperation implements CallLifecycle {
   ///
   /// Returns a [SpawnedCall<T>] immediately. The call executes asynchronously.
   /// Access `callId` immediately, await `future` for results.
-  /// 
+  ///
   /// Example:
   /// ```dart
   /// // Write request file, poll for response
@@ -1658,7 +1669,7 @@ class _LedgerOperation implements CallLifecycle {
   ///     // Write request
   ///     final requestPath = '${ledger.basePath}/request_${callId}.json';
   ///     await File(requestPath).writeAsString(jsonEncode({'action': 'process'}));
-  ///     
+  ///
   ///     // Poll for response
   ///     return await OperationHelper.pollFile<Map>(
   ///       path: '${ledger.basePath}/response_${callId}.json',
@@ -1716,13 +1727,15 @@ class _LedgerOperation implements CallLifecycle {
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.callFrames.add(CallFrame(
-          participantId: participantId,
-          callId: callId,
-          pid: pid,
-          startTime: now,
-          lastHeartbeat: now,
-        ));
+        data.callFrames.add(
+          CallFrame(
+            participantId: participantId,
+            callId: callId,
+            pid: pid,
+            startTime: now,
+            lastHeartbeat: now,
+          ),
+        );
         data.lastHeartbeat = now;
         return data;
       },
@@ -1769,11 +1782,9 @@ class _LedgerOperation implements CallLifecycle {
       operationId: operationId,
       elapsedFormatted: elapsedFormatted,
       updater: (data) {
-        data.tempResources.add(TempResource(
-          path: path,
-          owner: pid,
-          registeredAt: DateTime.now(),
-        ));
+        data.tempResources.add(
+          TempResource(path: path, owner: pid, registeredAt: DateTime.now()),
+        );
         data.lastHeartbeat = DateTime.now();
         return data;
       },
@@ -1863,7 +1874,7 @@ class _LedgerOperation implements CallLifecycle {
   }) {
     // Cancel any existing heartbeat timer
     stopHeartbeat();
-    
+
     _onHeartbeatError = onError;
     _onHeartbeatSuccess = onSuccess;
     _scheduleNextHeartbeat(interval: interval, jitterMs: jitterMs);
@@ -1922,13 +1933,14 @@ class _LedgerOperation implements CallLifecycle {
       if (result.hasStaleChildren) {
         // Detected crash - invoke callbacks for affected calls
         await _handleDetectedCrash(result.staleParticipants);
-        
+
         // Signal error - stale heartbeat detected
         _onHeartbeatError?.call(
           this,
           HeartbeatError(
             type: HeartbeatErrorType.heartbeatStale,
-            message: 'Stale heartbeat detected from: ${result.staleParticipants.join(", ")}',
+            message:
+                'Stale heartbeat detected from: ${result.staleParticipants.join(", ")}',
           ),
         );
         return;
@@ -1938,12 +1950,14 @@ class _LedgerOperation implements CallLifecycle {
       await _refreshCache();
       if (_cachedData?.operationState == OperationState.cleanup ||
           _cachedData?.operationState == OperationState.failed) {
-        _signalFailure(OperationFailedInfo(
-          operationId: operationId,
-          failedAt: DateTime.now(),
-          reason: 'Operation entered ${_cachedData?.operationState} state',
-          crashedCallIds: result.staleParticipants,
-        ));
+        _signalFailure(
+          OperationFailedInfo(
+            operationId: operationId,
+            failedAt: DateTime.now(),
+            reason: 'Operation entered ${_cachedData?.operationState} state',
+            crashedCallIds: result.staleParticipants,
+          ),
+        );
       }
 
       // Success callback
@@ -1973,15 +1987,17 @@ class _LedgerOperation implements CallLifecycle {
         );
       }
     }
-    
+
     // Signal operation failure if there were crashes
     if (crashedCallIds.isNotEmpty) {
-      _signalFailure(OperationFailedInfo(
-        operationId: operationId,
-        failedAt: DateTime.now(),
-        reason: 'Stale heartbeat detected for ${crashedCallIds.length} calls',
-        crashedCallIds: crashedCallIds,
-      ));
+      _signalFailure(
+        OperationFailedInfo(
+          operationId: operationId,
+          failedAt: DateTime.now(),
+          reason: 'Stale heartbeat detected for ${crashedCallIds.length} calls',
+          crashedCallIds: crashedCallIds,
+        ),
+      );
     }
   }
 
@@ -1998,15 +2014,17 @@ class _LedgerOperation implements CallLifecycle {
 
       // Read current state
       final content = await file.readAsString();
-      final data =
-          LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
-      
+      final data = LedgerData.fromJson(
+        json.decode(content) as Map<String, dynamic>,
+      );
+
       // Copy the data before modification for the result
       final dataBefore = LedgerData.fromJson(data.toJson());
 
       // Calculate global heartbeat age before updating (for backward compatibility)
-      final heartbeatAge =
-          DateTime.now().difference(data.lastHeartbeat).inMilliseconds;
+      final heartbeatAge = DateTime.now()
+          .difference(data.lastHeartbeat)
+          .inMilliseconds;
 
       // Collect per-participant heartbeat ages BEFORE updating
       final participantAges = <String, int>{};
@@ -2047,12 +2065,12 @@ class _LedgerOperation implements CallLifecycle {
         callFrameCount: data.callFrames.length,
         tempResourceCount: data.tempResources.length,
         heartbeatAgeMs: heartbeatAge,
-        isStale:
-            hasStaleOther, // Now true only if OTHER participants are stale
+        isStale: hasStaleOther, // Now true only if OTHER participants are stale
         participants: data.callFrames.map((f) => f.participantId).toList(),
         participantHeartbeatAges: participantAges,
-        staleParticipants:
-            staleParticipants.where((p) => p != participantId).toList(),
+        staleParticipants: staleParticipants
+            .where((p) => p != participantId)
+            .toList(),
         dataBefore: dataBefore,
         dataAfter: data,
       );
@@ -2117,7 +2135,7 @@ class _LedgerOperation implements CallLifecycle {
     if (_joinCount <= 0) {
       throw StateError('Cannot leave operation - join count is already 0');
     }
-    
+
     // Check for active spawned calls
     final activeSpawnedCalls = _activeCalls.values
         .where((c) => c.isSpawned)
@@ -2129,9 +2147,9 @@ class _LedgerOperation implements CallLifecycle {
         'still active: [$callIds]. End or cancel all calls before leaving.',
       );
     }
-    
+
     _joinCount--;
-    
+
     if (_joinCount == 0) {
       stopHeartbeat();
       _ledger._unregisterOperation(operationId);
@@ -2296,9 +2314,14 @@ class Ledger extends LedgerBase {
   /// Global heartbeat timer.
   Timer? _globalHeartbeatTimer;
 
-  /// Lock timeout and retry settings.
-  static const _lockTimeout = Duration(seconds: 2);
-  static const _lockRetryInterval = Duration(milliseconds: 50);
+  /// Lock timeout for detecting stale locks.
+  final Duration lockTimeout;
+
+  /// Initial lock retry interval (used with exponential backoff).
+  final Duration lockRetryInterval;
+
+  /// Maximum lock retry interval (caps exponential backoff).
+  final Duration maxLockRetryInterval;
 
   /// Heartbeat interval for global monitoring.
   @override
@@ -2329,6 +2352,9 @@ class Ledger extends LedgerBase {
     this.maxBackups = 20,
     this.heartbeatInterval = const Duration(seconds: 5),
     this.staleThreshold = const Duration(seconds: 15),
+    this.lockTimeout = const Duration(seconds: 2),
+    this.lockRetryInterval = const Duration(milliseconds: 50),
+    this.maxLockRetryInterval = const Duration(milliseconds: 500),
   }) : participantPid = participantPid ?? pid {
     _ledgerDir = Directory(basePath);
     _backupDir = Directory('$basePath/backup');
@@ -2365,7 +2391,7 @@ class Ledger extends LedgerBase {
 
   String _backupDebugLogPath(String operationId) =>
       '${_backupDir.path}/$operationId/operation.debug.log';
-  
+
   /// Get the backup folder for an operation.
   String _backupFolderPath(String operationId) =>
       '${_backupDir.path}/$operationId';
@@ -2390,9 +2416,45 @@ class Ledger extends LedgerBase {
         '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}T'
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:'
         '${now.second.toString().padLeft(2, '0')}.${now.millisecond.toString().padLeft(3, '0')}';
-    final random =
-        Random().nextInt(0xFFFFFFFF).toRadixString(16).padLeft(8, '0');
+    final random = Random()
+        .nextInt(0xFFFFFFFF)
+        .toRadixString(16)
+        .padLeft(8, '0');
     return '$timestamp-$participantId-$random';
+  }
+
+  /// Pattern for valid operation IDs.
+  ///
+  /// Only allows alphanumeric characters, hyphens, underscores, colons, and dots.
+  /// Prevents path traversal attacks via `..` or `/` sequences.
+  static final _validOperationIdPattern = RegExp(r'^[a-zA-Z0-9_\-:.]+$');
+
+  /// Validates that an operation ID is safe for use in file paths.
+  ///
+  /// Throws [ArgumentError] if the operation ID contains invalid characters
+  /// or could be used for path traversal.
+  void _validateOperationId(String operationId) {
+    if (operationId.isEmpty) {
+      throw ArgumentError.value(
+        operationId,
+        'operationId',
+        'Operation ID cannot be empty',
+      );
+    }
+    if (operationId.contains('..') || operationId.contains('/')) {
+      throw ArgumentError.value(
+        operationId,
+        'operationId',
+        'Operation ID contains invalid path characters',
+      );
+    }
+    if (!_validOperationIdPattern.hasMatch(operationId)) {
+      throw ArgumentError.value(
+        operationId,
+        'operationId',
+        'Operation ID contains invalid characters',
+      );
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -2402,25 +2464,38 @@ class Ledger extends LedgerBase {
   /// Acquires an exclusive lock on the operation file.
   ///
   /// The lock file contains participant ID, PID, and timestamp for crash
-  /// detection. If a stale lock is found (older than [_lockTimeout]), the
+  /// detection. If a stale lock is found (older than [lockTimeout]), the
   /// method checks if the lock owner has crashed by examining the operation
   /// file. If the participant has crashed, the stale lock is removed.
+  ///
+  /// Uses exponential backoff for retries, starting at [lockRetryInterval]
+  /// and capping at [maxLockRetryInterval].
   Future<bool> _acquireLock(String operationId) async {
     final lockFile = File(_lockPath(operationId));
     final startTime = DateTime.now();
+    var currentRetryInterval = lockRetryInterval;
 
     while (true) {
       try {
         if (lockFile.existsSync()) {
-          final staleLockRemoved = await _handleStaleLock(operationId, lockFile);
+          final staleLockRemoved = await _handleStaleLock(
+            operationId,
+            lockFile,
+          );
           if (!staleLockRemoved) {
             // Lock exists and is not stale (or stale but owner not crashed)
-            // Wait and retry
-            if (DateTime.now().difference(startTime) >
-                const Duration(seconds: 1)) {
+            // Wait and retry with exponential backoff
+            if (DateTime.now().difference(startTime) > lockTimeout) {
               return false;
             }
-            await Future.delayed(_lockRetryInterval);
+            await Future.delayed(currentRetryInterval);
+            // Exponential backoff with cap
+            currentRetryInterval = Duration(
+              milliseconds: (currentRetryInterval.inMilliseconds * 1.5).toInt(),
+            );
+            if (currentRetryInterval > maxLockRetryInterval) {
+              currentRetryInterval = maxLockRetryInterval;
+            }
             continue;
           }
         }
@@ -2432,11 +2507,17 @@ class Ledger extends LedgerBase {
         );
         return true;
       } catch (e) {
-        if (DateTime.now().difference(startTime) >
-            const Duration(seconds: 1)) {
+        if (DateTime.now().difference(startTime) > lockTimeout) {
           return false;
         }
-        await Future.delayed(_lockRetryInterval);
+        await Future.delayed(currentRetryInterval);
+        // Exponential backoff with cap
+        currentRetryInterval = Duration(
+          milliseconds: (currentRetryInterval.inMilliseconds * 1.5).toInt(),
+        );
+        if (currentRetryInterval > maxLockRetryInterval) {
+          currentRetryInterval = maxLockRetryInterval;
+        }
       }
     }
   }
@@ -2449,7 +2530,7 @@ class Ledger extends LedgerBase {
     final stat = lockFile.statSync();
     final age = DateTime.now().difference(stat.modified);
 
-    if (age <= _lockTimeout) {
+    if (age <= lockTimeout) {
       // Lock is fresh, respect it
       return false;
     }
@@ -2528,7 +2609,9 @@ class Ledger extends LedgerBase {
   // ─────────────────────────────────────────────────────────────
 
   Future<String> _createTrailSnapshot(
-      String operationId, String elapsedFormatted) async {
+    String operationId,
+    String elapsedFormatted,
+  ) async {
     final sourceFile = File(_operationPath(operationId));
     if (!sourceFile.existsSync()) return '';
 
@@ -2548,16 +2631,13 @@ class Ledger extends LedgerBase {
   // ─────────────────────────────────────────────────────────────
 
   /// Clean old backups beyond the retention limit.
-  /// 
+  ///
   /// Counts operation folders (not files) to determine retention.
   Future<void> _cleanOldBackups() async {
     if (!_backupDir.existsSync()) return;
 
     // List all operation folders in backup
-    final folders = _backupDir
-        .listSync()
-        .whereType<Directory>()
-        .toList();
+    final folders = _backupDir.listSync().whereType<Directory>().toList();
 
     if (folders.length <= maxBackups) return;
 
@@ -2665,11 +2745,11 @@ class Ledger extends LedgerBase {
 
       // Register in global registry
       _operations[operationId] = ledgerOp;
-      
+
       // Create session and wrap in Operation
       final sessionId = ledgerOp._createSession();
       final operation = Operation._(ledgerOp, sessionId);
-      
+
       // Auto-start heartbeat for initiator with optional callbacks
       operation.startHeartbeat(
         interval: heartbeatInterval,
@@ -2679,14 +2759,18 @@ class Ledger extends LedgerBase {
 
       // Wire up abort and failure callbacks
       if (callback?.onAbort != null) {
-        unawaited(ledgerOp.onAbort.then((_) {
-          callback!.onAbort!(operation);
-        }));
+        unawaited(
+          ledgerOp.onAbort.then((_) {
+            callback!.onAbort!(operation);
+          }),
+        );
       }
       if (callback?.onFailure != null) {
-        unawaited(operation.onFailure.then((info) {
-          callback!.onFailure!(operation, info);
-        }));
+        unawaited(
+          operation.onFailure.then((info) {
+            callback!.onFailure!(operation, info);
+          }),
+        );
       }
 
       return operation;
@@ -2700,7 +2784,7 @@ class Ledger extends LedgerBase {
   /// Returns an [Operation] object for the participant to interact with.
   /// Each call returns a new Operation with its own session, even if joining
   /// the same operation multiple times.
-  /// 
+  ///
   /// **Session tracking:** Each Operation tracks its own calls. Use
   /// [Operation.getPendingSpawnedCalls] to see spawned calls from this session,
   /// [Operation.hasPendingCalls] to check for any pending calls,
@@ -2729,14 +2813,17 @@ class Ledger extends LedgerBase {
     required String operationId,
     OperationCallback? callback,
   }) async {
+    // Validate operationId to prevent path traversal attacks
+    _validateOperationId(operationId);
+
     // Check if already have an internal _LedgerOperation for this operationId
     var ledgerOp = _operations[operationId];
     final isFirstJoin = ledgerOp == null;
-    
+
     if (isFirstJoin) {
       // First join - create new _LedgerOperation
       final joinTime = DateTime.now();
-      
+
       ledgerOp = _LedgerOperation._(
         ledger: this,
         operationId: operationId,
@@ -2752,7 +2839,7 @@ class Ledger extends LedgerBase {
       // Register in global registry
       _operations[operationId] = ledgerOp;
     }
-    
+
     // Create a new session and wrap in Operation
     final sessionId = ledgerOp._createSession();
     final operation = Operation._(ledgerOp, sessionId);
@@ -2768,16 +2855,20 @@ class Ledger extends LedgerBase {
 
     // Wire up abort and failure callbacks (for each join)
     if (callback?.onAbort != null) {
-      unawaited(ledgerOp.onAbort.then((_) {
-        callback!.onAbort!(operation);
-      }));
+      unawaited(
+        ledgerOp.onAbort.then((_) {
+          callback!.onAbort!(operation);
+        }),
+      );
     }
     if (callback?.onFailure != null) {
-      unawaited(ledgerOp.onFailure.then((info) {
-        callback!.onFailure!(operation, info);
-      }));
+      unawaited(
+        ledgerOp.onFailure.then((info) {
+          callback!.onFailure!(operation, info);
+        }),
+      );
     }
-    
+
     return operation;
   }
 
@@ -2828,8 +2919,9 @@ class Ledger extends LedgerBase {
 
       // Read current state
       final content = await file.readAsString();
-      final ledgerData =
-          LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
+      final ledgerData = LedgerData.fromJson(
+        json.decode(content) as Map<String, dynamic>,
+      );
 
       // Apply update
       final updated = updater(ledgerData);
@@ -2899,8 +2991,9 @@ class Ledger extends LedgerBase {
       final file = File(_operationPath(operationId));
       if (file.existsSync()) {
         final content = await file.readAsString();
-        final ledgerData =
-            LedgerData.fromJson(json.decode(content) as Map<String, dynamic>);
+        final ledgerData = LedgerData.fromJson(
+          json.decode(content) as Map<String, dynamic>,
+        );
         ledgerData.operationState = OperationState.completed;
 
         final encoder = const JsonEncoder.withIndent('  ');
@@ -2921,7 +3014,7 @@ class Ledger extends LedgerBase {
   }
 
   /// Move operation files to backup folder.
-  /// 
+  ///
   /// Creates a per-operation folder in the backup directory.
   Future<void> _moveToBackup(String operationId) async {
     // Create the operation's backup folder
@@ -2929,7 +3022,7 @@ class Ledger extends LedgerBase {
     if (!backupFolder.existsSync()) {
       await backupFolder.create(recursive: true);
     }
-    
+
     final sourceOp = File(_operationPath(operationId));
     final sourceLog = File(_logPath(operationId));
     final sourceDebug = File(_debugLogPath(operationId));
@@ -3111,14 +3204,18 @@ class Ledger extends LedgerBase {
 
     // Wire up abort and failure callbacks (for each join)
     if (callback?.onAbort != null) {
-      unawaited(ledgerOp.onAbort.then((_) {
-        callback!.onAbort!(operation);
-      }));
+      unawaited(
+        ledgerOp.onAbort.then((_) {
+          callback!.onAbort!(operation);
+        }),
+      );
     }
     if (callback?.onFailure != null) {
-      unawaited(ledgerOp.onFailure.then((info) {
-        callback!.onFailure!(operation, info);
-      }));
+      unawaited(
+        ledgerOp.onFailure.then((info) {
+          callback!.onFailure!(operation, info);
+        }),
+      );
     }
 
     return operation;

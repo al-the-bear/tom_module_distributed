@@ -49,19 +49,23 @@ class ProcessConfig {
       id: json['id'] as String,
       name: json['name'] as String,
       command: json['command'] as String,
-      args: (json['args'] as List<dynamic>?)
-              ?.map((e) => e as String)
-              .toList() ??
+      args:
+          (json['args'] as List<dynamic>?)?.map((e) => e as String).toList() ??
           const [],
       workingDirectory: json['workingDirectory'] as String?,
-      environment: (json['environment'] as Map<String, dynamic>?)
-          ?.map((k, v) => MapEntry(k, v as String)),
+      environment: (json['environment'] as Map<String, dynamic>?)?.map(
+        (k, v) => MapEntry(k, v as String),
+      ),
       autostart: json['autostart'] as bool? ?? true,
       restartPolicy: json['restartPolicy'] != null
-          ? RestartPolicy.fromJson(json['restartPolicy'] as Map<String, dynamic>)
+          ? RestartPolicy.fromJson(
+              json['restartPolicy'] as Map<String, dynamic>,
+            )
           : null,
       alivenessCheck: json['alivenessCheck'] != null
-          ? AlivenessCheck.fromJson(json['alivenessCheck'] as Map<String, dynamic>)
+          ? AlivenessCheck.fromJson(
+              json['alivenessCheck'] as Map<String, dynamic>,
+            )
           : null,
     );
   }

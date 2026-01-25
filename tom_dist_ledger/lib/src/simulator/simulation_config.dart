@@ -25,7 +25,7 @@ class SimulationConfig {
   final int externalCallResponseMs;
 
   /// Path to ledger directory for file-based ledger.
-  /// 
+  ///
   /// Default is '_ai/operation_ledger' relative to workspace root.
   /// This should be changed to an absolute path based on the workspace
   /// when the simulation is configured.

@@ -16,19 +16,15 @@ export 'package:tom_dist_ledger/src/ledger_api/ledger_types.dart';
 ///
 /// This callback receives the operation and the error that occurred.
 /// Used by both local and remote ledger implementations.
-typedef HeartbeatErrorCallback = void Function(
-  OperationBase operation,
-  HeartbeatError error,
-);
+typedef HeartbeatErrorCallback =
+    void Function(OperationBase operation, HeartbeatError error);
 
 /// Callback for successful heartbeat.
 ///
 /// This callback receives the operation and the heartbeat result.
 /// Used by both local and remote ledger implementations.
-typedef HeartbeatSuccessCallback = void Function(
-  OperationBase operation,
-  HeartbeatResult result,
-);
+typedef HeartbeatSuccessCallback =
+    void Function(OperationBase operation, HeartbeatResult result);
 
 /// Abstract base class for operation handles.
 ///
@@ -122,4 +118,3 @@ abstract class LedgerBase {
   /// Dispose of the ledger and stop all heartbeats.
   void dispose();
 }
-

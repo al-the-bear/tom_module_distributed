@@ -141,13 +141,7 @@ class AsyncSimulationPrinter {
   /// Print a simulation header.
   void printHeader(String title) {
     final separator = '=' * 60;
-    final lines = [
-      '',
-      separator,
-      title,
-      separator,
-      '',
-    ];
+    final lines = ['', separator, title, separator, ''];
     for (final line in lines) {
       output.add(line);
       print(line);
@@ -158,12 +152,7 @@ class AsyncSimulationPrinter {
   /// Print a phase header.
   void printPhase(String phase) {
     final separator = '-' * 40;
-    final lines = [
-      '',
-      separator,
-      phase,
-      separator,
-    ];
+    final lines = ['', separator, phase, separator];
     for (final line in lines) {
       output.add(line);
       print(line);
@@ -230,13 +219,13 @@ abstract class AsyncSimParticipant {
     required this.config,
     void Function(String)? onBackupCreated,
   }) : ledger = Ledger(
-          basePath: basePath,
-          participantId: name.toLowerCase(),
-          participantPid: pid,
-          callback: onBackupCreated != null
-              ? LedgerCallback(onBackupCreated: onBackupCreated)
-              : null,
-        );
+         basePath: basePath,
+         participantId: name.toLowerCase(),
+         participantPid: pid,
+         callback: onBackupCreated != null
+             ? LedgerCallback(onBackupCreated: onBackupCreated)
+             : null,
+       );
 
   /// Get the operation handle (throws if not set).
   Operation get operation =>
@@ -249,8 +238,7 @@ abstract class AsyncSimParticipant {
   bool get isAborted => _operation?.isAborted ?? false;
 
   /// Future that completes when abort is signaled.
-  Future<void> get onAbort =>
-      _operation?.onAbort ?? Completer<void>().future;
+  Future<void> get onAbort => _operation?.onAbort ?? Completer<void>().future;
 
   /// Get elapsed time formatted.
   String get elapsedFormatted => printer.elapsedFormatted;
@@ -273,10 +261,8 @@ abstract class AsyncSimParticipant {
     log(depth: depth, message: 'startOperation()');
     _currentDepth = depth;
 
-    _operation = await ledger.createOperation(
-      description: description,
-    );
-    
+    _operation = await ledger.createOperation(description: description);
+
     log(depth: depth, message: '  → operationId: "${_operation!.operationId}"');
 
     return _operation!;
@@ -284,7 +270,10 @@ abstract class AsyncSimParticipant {
 
   /// Complete the operation (initiator only).
   Future<void> completeOperation({required int depth}) async {
-    log(depth: depth, message: 'completeOperation(opId: "${operation.operationId}")');
+    log(
+      depth: depth,
+      message: 'completeOperation(opId: "${operation.operationId}")',
+    );
     await operation.complete();
     _operation = null;
   }
@@ -301,9 +290,7 @@ abstract class AsyncSimParticipant {
     log(depth: depth, message: 'joinOperation(opId: "$operationId")');
     _currentDepth = depth;
 
-    _operation = await ledger.joinOperation(
-      operationId: operationId,
-    );
+    _operation = await ledger.joinOperation(operationId: operationId);
 
     return _operation!;
   }
@@ -373,11 +360,12 @@ abstract class AsyncSimParticipant {
   // ─────────────────────────────────────────────────────────────
 
   /// Set the abort flag.
-  Future<void> setAbortFlag({
-    required int depth,
-    required bool value,
-  }) async {
-    log(depth: depth, message: 'setAbortFlag(opId: "${operation.operationId}", aborted: $value)');
+  Future<void> setAbortFlag({required int depth, required bool value}) async {
+    log(
+      depth: depth,
+      message:
+          'setAbortFlag(opId: "${operation.operationId}", aborted: $value)',
+    );
     await operation.setAbortFlag(value);
     if (value) {
       operation.triggerAbort();

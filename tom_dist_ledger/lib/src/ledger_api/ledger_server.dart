@@ -51,10 +51,7 @@ class LedgerServer {
     InternetAddress? address,
   }) async {
     // Create the ledger with server identity
-    final ledger = Ledger(
-      basePath: basePath,
-      participantId: 'ledger_server',
-    );
+    final ledger = Ledger(basePath: basePath, participantId: 'ledger_server');
 
     // Start HTTP server
     final server = await HttpServer.bind(

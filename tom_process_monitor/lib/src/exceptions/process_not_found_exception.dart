@@ -7,7 +7,7 @@ class ProcessNotFoundException extends ProcessMonitorException {
 
   /// Creates a ProcessNotFoundException.
   ProcessNotFoundException(this.processId)
-      : super('Process not found: $processId');
+    : super('Process not found: $processId');
 
   @override
   String toString() => 'ProcessNotFoundException: Process $processId not found';

@@ -7,7 +7,7 @@ class ProcessDisabledException extends ProcessMonitorException {
 
   /// Creates a ProcessDisabledException.
   ProcessDisabledException(this.processId)
-      : super('Process is disabled: $processId');
+    : super('Process is disabled: $processId');
 
   @override
   String toString() =>

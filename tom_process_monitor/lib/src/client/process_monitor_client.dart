@@ -29,17 +29,13 @@ class ProcessMonitorClient {
   late final ProcessControl _processControl;
 
   /// Creates a local process monitor client.
-  ProcessMonitorClient({
-    String? directory,
-    this.instanceId = 'default',
-  }) : directory = directory ?? _resolveDefaultDirectory() {
+  ProcessMonitorClient({String? directory, this.instanceId = 'default'})
+    : directory = directory ?? _resolveDefaultDirectory() {
     _registry = RegistryService(
       directory: this.directory,
       instanceId: instanceId,
     );
-    _processControl = ProcessControl(
-      logDirectory: this.directory,
-    );
+    _processControl = ProcessControl(logDirectory: this.directory);
   }
 
   // --- Registration ---
@@ -373,9 +369,5 @@ String _resolveHomeDirectory() {
 /// Uses the user's home directory (~/.tom/process_monitor/).
 /// Override with the --directory command-line option.
 String _resolveDefaultDirectory() {
-  return path.join(
-    _resolveHomeDirectory(),
-    '.tom',
-    'process_monitor',
-  );
+  return path.join(_resolveHomeDirectory(), '.tom', 'process_monitor');
 }

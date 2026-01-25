@@ -14,10 +14,7 @@ class AlivenessServer {
   HttpServer? _server;
 
   /// Creates an aliveness server.
-  AlivenessServer({
-    required this.port,
-    required this.getStatus,
-  });
+  AlivenessServer({required this.port, required this.getStatus});
 
   /// Whether the server is running.
   bool get isRunning => _server != null;

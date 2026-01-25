@@ -141,5 +141,61 @@ void main() {
       final status = await checker.fetchStatus('http://localhost:$port/status');
       expect(status, isNull);
     });
+
+    group('logging', () {
+      test('logs connection errors when logger is provided', () async {
+        final logs = <String>[];
+        final loggedChecker = AlivenessChecker(logger: logs.add);
+
+        // Close server to cause connection error
+        await server.close(force: true);
+
+        await loggedChecker.checkAlive('http://localhost:$port/alive');
+
+        expect(logs, isNotEmpty);
+        expect(logs.first, contains('Aliveness check failed'));
+        expect(logs.first, contains('localhost:$port'));
+
+        loggedChecker.dispose();
+      });
+
+      test('logs fetchPid errors when logger is provided', () async {
+        final logs = <String>[];
+        final loggedChecker = AlivenessChecker(logger: logs.add);
+
+        await server.close(force: true);
+
+        await loggedChecker.fetchPid('http://localhost:$port/status');
+
+        expect(logs, isNotEmpty);
+        expect(logs.first, contains('Failed to fetch PID'));
+
+        loggedChecker.dispose();
+      });
+
+      test('logs fetchStatus errors when logger is provided', () async {
+        final logs = <String>[];
+        final loggedChecker = AlivenessChecker(logger: logs.add);
+
+        await server.close(force: true);
+
+        await loggedChecker.fetchStatus('http://localhost:$port/status');
+
+        expect(logs, isNotEmpty);
+        expect(logs.first, contains('Failed to fetch status'));
+
+        loggedChecker.dispose();
+      });
+
+      test('does not log when logger is not provided', () async {
+        // The original checker has no logger, so this should not throw
+        await server.close(force: true);
+
+        // These should complete without errors even though they fail
+        await checker.checkAlive('http://localhost:$port/alive');
+        await checker.fetchPid('http://localhost:$port/status');
+        await checker.fetchStatus('http://localhost:$port/status');
+      });
+    });
   });
 }

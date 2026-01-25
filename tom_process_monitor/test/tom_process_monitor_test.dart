@@ -65,10 +65,7 @@ void main() {
     });
 
     test('serializes to JSON correctly', () {
-      final policy = RestartPolicy(
-        maxAttempts: 3,
-        retryIndefinitely: true,
-      );
+      final policy = RestartPolicy(maxAttempts: 3, retryIndefinitely: true);
 
       final json = policy.toJson();
 

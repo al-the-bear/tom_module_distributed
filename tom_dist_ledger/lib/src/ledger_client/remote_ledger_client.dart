@@ -81,8 +81,42 @@ class RemoteLedgerClient extends LedgerBase {
     this.maxBackups = 20,
     this.heartbeatInterval = const Duration(seconds: 5),
     this.staleThreshold = const Duration(seconds: 15),
-  })  : participantPid = participantPid ?? pid,
-        _httpClient = HttpClient();
+  }) : participantPid = participantPid ?? pid,
+       _httpClient = HttpClient();
+
+  /// Pattern for valid operation IDs.
+  ///
+  /// Only allows alphanumeric characters, hyphens, underscores, colons, and dots.
+  /// Prevents path traversal attacks via `..` or `/` sequences.
+  static final _validOperationIdPattern = RegExp(r'^[a-zA-Z0-9_\-:.]+$');
+
+  /// Validates that an operation ID is safe for use.
+  ///
+  /// Throws [ArgumentError] if the operation ID contains invalid characters
+  /// or could be used for path traversal.
+  void _validateOperationId(String operationId) {
+    if (operationId.isEmpty) {
+      throw ArgumentError.value(
+        operationId,
+        'operationId',
+        'Operation ID cannot be empty',
+      );
+    }
+    if (operationId.contains('..') || operationId.contains('/')) {
+      throw ArgumentError.value(
+        operationId,
+        'operationId',
+        'Operation ID contains invalid path characters',
+      );
+    }
+    if (!_validOperationIdPattern.hasMatch(operationId)) {
+      throw ArgumentError.value(
+        operationId,
+        'operationId',
+        'Operation ID contains invalid characters',
+      );
+    }
+  }
 
   /// Create a new operation on the remote server.
   ///
@@ -129,10 +163,16 @@ class RemoteLedgerClient extends LedgerBase {
   /// Join an existing operation on the remote server.
   ///
   /// Returns a [RemoteOperation] with the same API as local [Operation].
+  ///
+  /// Throws [ArgumentError] if [operationId] contains invalid characters
+  /// or could be used for path traversal.
   Future<RemoteOperation> joinOperation({
     required String operationId,
     OperationCallback? callback,
   }) async {
+    // Validate operationId to prevent path traversal attacks
+    _validateOperationId(operationId);
+
     final response = await _post('/operation/join', {
       'operationId': operationId,
       'participantId': participantId,
@@ -523,13 +563,15 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   /// The [work] function receives both the [SpawnedCall] (for cancellation checks)
   /// and this [RemoteOperation] (for logging, abort checks, etc.).
   SpawnedCall<T> spawnCall<T>({
-    required Future<T> Function(SpawnedCall<T> call, RemoteOperation operation) work,
+    required Future<T> Function(SpawnedCall<T> call, RemoteOperation operation)
+    work,
     CallCallback<T>? callback,
     String? description,
     bool failOnCrash = true,
   }) {
     // Generate a temporary call ID (will be replaced by server response)
-    final tempCallId = 'spawn_${DateTime.now().millisecondsSinceEpoch}_${_operation._calls.length}';
+    final tempCallId =
+        'spawn_${DateTime.now().millisecondsSinceEpoch}_${_operation._calls.length}';
 
     // Create spawned call object immediately
     final spawnedCall = SpawnedCall<T>(
@@ -648,12 +690,14 @@ class RemoteOperation implements OperationBase, CallLifecycle {
 
         // Signal operation failure if failOnCrash
         if (failOnCrash) {
-          _operation.signalFailure(OperationFailedInfo(
-            operationId: operationId,
-            failedAt: DateTime.now(),
-            reason: 'Spawned call failed: $e',
-            crashedCallIds: [serverCallId ?? spawnedCall.callId],
-          ));
+          _operation.signalFailure(
+            OperationFailedInfo(
+              operationId: operationId,
+              failedAt: DateTime.now(),
+              reason: 'Spawned call failed: $e',
+              crashedCallIds: [serverCallId ?? spawnedCall.callId],
+            ),
+          );
         }
       }
     }
@@ -661,10 +705,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
 
   /// Internal method to end a call, called by Call.end().
   @override
-  Future<void> endCallInternal<T>({
-    required String callId,
-    T? result,
-  }) async {
+  Future<void> endCallInternal<T>({required String callId, T? result}) async {
     final activeCall = _operation._activeCalls.remove(callId);
     if (activeCall == null) {
       throw StateError('No active call with ID: $callId');
@@ -715,12 +756,14 @@ class RemoteOperation implements OperationBase, CallLifecycle {
 
     // Signal operation failure if failOnCrash
     if (activeCall.failOnCrash) {
-      _operation.signalFailure(OperationFailedInfo(
-        operationId: operationId,
-        failedAt: DateTime.now(),
-        reason: 'Call $callId failed: $error',
-        crashedCallIds: [callId],
-      ));
+      _operation.signalFailure(
+        OperationFailedInfo(
+          operationId: operationId,
+          failedAt: DateTime.now(),
+          reason: 'Call $callId failed: $error',
+          crashedCallIds: [callId],
+        ),
+      );
     }
 
     // Complete the completer
@@ -803,8 +846,11 @@ class RemoteOperation implements OperationBase, CallLifecycle {
     Future<void> Function(OperationFailedInfo info)? onOperationFailed,
     Future<void> Function()? onCompletion,
   }) {
-    return sync([call],
-        onOperationFailed: onOperationFailed, onCompletion: onCompletion);
+    return sync(
+      [call],
+      onOperationFailed: onOperationFailed,
+      onCompletion: onCompletion,
+    );
   }
 
   /// Execute work while monitoring operation state.
@@ -839,7 +885,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
   Future<void> leave({bool cancelPendingCalls = false}) async {
     // Check for pending calls before notifying server
     _operation.leaveSession(sessionId, cancelPendingCalls: cancelPendingCalls);
-    
+
     // Notify server (optional - server just acknowledges)
     await _operation.client._post('/operation/leave', {
       'operationId': operationId,
@@ -977,7 +1023,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
       // Check for stale participants
       final staleParticipants =
           (response['staleParticipants'] as List<dynamic>?)?.cast<String>() ??
-              [];
+          [];
       if (staleParticipants.isNotEmpty) {
         onError?.call(
           this,
@@ -1003,7 +1049,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
           isStale: response['isStale'] as bool? ?? false,
           participants:
               (response['participants'] as List<dynamic>?)?.cast<String>() ??
-                  [],
+              [],
           staleParticipants: staleParticipants,
         ),
       );
@@ -1045,7 +1091,7 @@ class RemoteOperation implements OperationBase, CallLifecycle {
             (response['participants'] as List<dynamic>?)?.cast<String>() ?? [],
         staleParticipants:
             (response['staleParticipants'] as List<dynamic>?)?.cast<String>() ??
-                [],
+            [],
       );
     } catch (_) {
       return null;

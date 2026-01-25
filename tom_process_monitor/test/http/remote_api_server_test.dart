@@ -29,16 +29,16 @@ void main() {
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('api_server_test_').path;
-      registryService = RegistryService(
-        directory: tempDir,
-        instanceId: 'test',
-      );
+      registryService = RegistryService(directory: tempDir, instanceId: 'test');
       await registryService.initialize();
       processControl = ProcessControl(logDirectory: tempDir);
       client = http.Client();
 
       // Find an available port
-      final tempServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final tempServer = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
       port = tempServer.port;
       await tempServer.close();
 
@@ -312,38 +312,40 @@ void main() {
     });
 
     group('executable whitelist requirement', () {
-      test('registration fails with empty whitelist for non-trusted host',
-          () async {
-        // Configure registry with empty whitelist
-        final registry = await registryService.load();
-        registry.remoteAccess = RemoteAccessConfig(
-          startRemoteAccess: true,
-          executableWhitelist: [], // Empty whitelist
-          trustedHosts: [], // No trusted hosts
-        );
-        await registryService.save(registry);
+      test(
+        'registration fails with empty whitelist for non-trusted host',
+        () async {
+          // Configure registry with empty whitelist
+          final registry = await registryService.load();
+          registry.remoteAccess = RemoteAccessConfig(
+            startRemoteAccess: true,
+            executableWhitelist: [], // Empty whitelist
+            trustedHosts: [], // No trusted hosts
+          );
+          await registryService.save(registry);
 
-        final config = {
-          'id': 'blocked-process',
-          'name': 'Blocked Process',
-          'command': '/usr/bin/echo',
-          'args': [],
-          'autostart': false,
-        };
+          final config = {
+            'id': 'blocked-process',
+            'name': 'Blocked Process',
+            'command': '/usr/bin/echo',
+            'args': [],
+            'autostart': false,
+          };
 
-        // Registration should fail due to empty whitelist
-        final response = await client.post(
-          Uri.parse('http://localhost:$port/processes'),
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Real-IP': '10.0.0.100', // Non-trusted host
-          },
-          body: jsonEncode(config),
-        );
+          // Registration should fail due to empty whitelist
+          final response = await client.post(
+            Uri.parse('http://localhost:$port/processes'),
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Real-IP': '10.0.0.100', // Non-trusted host
+            },
+            body: jsonEncode(config),
+          );
 
-        // Should be forbidden or similar
-        expect(response.statusCode, equals(HttpStatus.forbidden));
-      });
+          // Should be forbidden or similar
+          expect(response.statusCode, equals(HttpStatus.forbidden));
+        },
+      );
 
       test('registration succeeds when command matches whitelist', () async {
         // Configure registry with whitelist
@@ -370,6 +372,53 @@ void main() {
         );
 
         expect(response.statusCode, equals(HttpStatus.ok));
+      });
+    });
+
+    group('Input Validation', () {
+      test('POST /processes with invalid JSON returns 400', () async {
+        final response = await client.post(
+          Uri.parse('http://localhost:$port/processes'),
+          headers: {'Content-Type': 'application/json'},
+          body: 'not valid json {',
+        );
+
+        expect(response.statusCode, equals(HttpStatus.badRequest));
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        expect(data['error'], contains('Invalid JSON'));
+      });
+
+      test('POST /processes with missing required field returns 400', () async {
+        // Missing 'id' field
+        final config = {'name': 'Test Process', 'command': '/bin/echo'};
+
+        final response = await client.post(
+          Uri.parse('http://localhost:$port/processes'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(config),
+        );
+
+        expect(response.statusCode, equals(HttpStatus.badRequest));
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        expect(data['error'], contains('Missing or invalid field'));
+      });
+
+      test('POST /processes with wrong field type returns 400', () async {
+        final config = {
+          'id': 12345, // Should be string
+          'name': 'Test Process',
+          'command': '/bin/echo',
+        };
+
+        final response = await client.post(
+          Uri.parse('http://localhost:$port/processes'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(config),
+        );
+
+        expect(response.statusCode, equals(HttpStatus.badRequest));
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        expect(data['error'], contains('Missing or invalid field'));
       });
     });
   });

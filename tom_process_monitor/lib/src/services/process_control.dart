@@ -13,10 +13,7 @@ class ProcessControl {
   final void Function(String message)? logger;
 
   /// Creates a process control service.
-  ProcessControl({
-    required this.logDirectory,
-    this.logger,
-  });
+  ProcessControl({required this.logDirectory, this.logger});
 
   /// Checks if a process is alive.
   Future<bool> isProcessAlive(int pid) async {
@@ -33,10 +30,7 @@ class ProcessControl {
   }
 
   Future<bool> _isProcessAliveWindows(int pid) async {
-    final result = await Process.run(
-      'tasklist',
-      ['/FI', 'PID eq $pid', '/NH'],
-    );
+    final result = await Process.run('tasklist', ['/FI', 'PID eq $pid', '/NH']);
     return result.stdout.toString().contains('$pid');
   }
 
@@ -45,7 +39,9 @@ class ProcessControl {
     final logDir = _getProcessLogDir(process.id);
     await Directory(logDir).create(recursive: true);
 
-    _log('Starting process ${process.id}: ${process.command} ${process.args.join(' ')}');
+    _log(
+      'Starting process ${process.id}: ${process.command} ${process.args.join(' ')}',
+    );
 
     if (Platform.isWindows) {
       return _startProcessWindows(process, logDir);
@@ -111,9 +107,9 @@ class ProcessControl {
       '/format:list',
     ]);
 
-    final pidMatch = RegExp(r'ProcessId=(\d+)').firstMatch(
-      wmicResult.stdout.toString(),
-    );
+    final pidMatch = RegExp(
+      r'ProcessId=(\d+)',
+    ).firstMatch(wmicResult.stdout.toString());
     if (pidMatch == null) {
       throw ProcessException(
         process.command,

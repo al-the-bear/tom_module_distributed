@@ -2,20 +2,20 @@ import 'scenario.dart';
 import 'simulation_config.dart';
 
 /// Predefined simulation scenarios for testing the DPL system.
-/// 
+///
 /// These scenarios cover various failure modes and edge cases to verify
 /// that the distributed operation ledger handles all situations correctly.
-/// 
+///
 /// TIMING NOTE: All scenarios use realistic timings to ensure heartbeats
 /// actually occur during test execution. The heartbeat interval is 4.5s,
 /// so tests are designed to run long enough for multiple heartbeats.
 class Scenarios {
   /// Realistic test configuration with proper timing for heartbeats.
-  /// 
+  ///
   /// - callDelayMs: 2000ms (2 seconds per call)
   /// - externalCallResponseMs: 10000ms (10 seconds for Copilot)
   /// - Heartbeat interval: 4500ms (4.5 seconds)
-  /// 
+  ///
   /// This ensures heartbeats occur during test execution to catch
   /// timing-related issues.
   static const _testConfig = SimulationConfig(
@@ -123,7 +123,8 @@ class Scenarios {
   /// Scenario 4: CLI crashes while Copilot is processing.
   static final cliCrashDuringCopilot = SimulationScenario(
     name: 'cli_crash_during_copilot',
-    description: 'CLI dies while waiting for Copilot response (deep call chain)',
+    description:
+        'CLI dies while waiting for Copilot response (deep call chain)',
     expectedOutcome:
         'All participants detect stale initiator, unwind call chain in order',
     config: _testConfig,
@@ -499,7 +500,8 @@ class Scenarios {
   static final deeplyNestedStack = SimulationScenario(
     name: 'deeply_nested_chain',
     description: 'Call chain with 5 levels of nesting',
-    expectedOutcome: 'Deep call chain tracks correctly, abort unwinds all levels',
+    expectedOutcome:
+        'Deep call chain tracks correctly, abort unwinds all levels',
     config: _testConfig,
     callTree: const [
       ScenarioCall(
@@ -574,52 +576,52 @@ class Scenarios {
 
   /// Get all predefined scenarios.
   static List<SimulationScenario> get all => [
-        happyPath,
-        cliCrashDuringInit,
-        cliCrashDuringBridgeProcessing,
-        cliCrashDuringCopilot,
-        bridgeCrashDuringInit,
-        bridgeCrashDuringCopilot,
-        bridgeHang,
-        copilotTimeout,
-        copilotError,
-        userAbortDuringBridge,
-        userAbortDuringCopilot,
-        directCallNoSupervisor,
-        parallelCallsFromBridge,
-        deeplyNestedStack,
-        crashDuringCleanup,
-      ];
+    happyPath,
+    cliCrashDuringInit,
+    cliCrashDuringBridgeProcessing,
+    cliCrashDuringCopilot,
+    bridgeCrashDuringInit,
+    bridgeCrashDuringCopilot,
+    bridgeHang,
+    copilotTimeout,
+    copilotError,
+    userAbortDuringBridge,
+    userAbortDuringCopilot,
+    directCallNoSupervisor,
+    parallelCallsFromBridge,
+    deeplyNestedStack,
+    crashDuringCleanup,
+  ];
 
   /// Get scenarios by category.
   static List<SimulationScenario> get successScenarios => [happyPath];
 
   static List<SimulationScenario> get initiatorFailures => [
-        cliCrashDuringInit,
-        cliCrashDuringBridgeProcessing,
-        cliCrashDuringCopilot,
-      ];
+    cliCrashDuringInit,
+    cliCrashDuringBridgeProcessing,
+    cliCrashDuringCopilot,
+  ];
 
   static List<SimulationScenario> get supervisorFailures => [
-        bridgeCrashDuringInit,
-        bridgeCrashDuringCopilot,
-        bridgeHang,
-      ];
+    bridgeCrashDuringInit,
+    bridgeCrashDuringCopilot,
+    bridgeHang,
+  ];
 
   static List<SimulationScenario> get externalCallFailures => [
-        copilotTimeout,
-        copilotError,
-      ];
+    copilotTimeout,
+    copilotError,
+  ];
 
   static List<SimulationScenario> get userAbortScenarios => [
-        userAbortDuringBridge,
-        userAbortDuringCopilot,
-      ];
+    userAbortDuringBridge,
+    userAbortDuringCopilot,
+  ];
 
   static List<SimulationScenario> get complexScenarios => [
-        directCallNoSupervisor,
-        parallelCallsFromBridge,
-        deeplyNestedStack,
-        crashDuringCleanup,
-      ];
+    directCallNoSupervisor,
+    parallelCallsFromBridge,
+    deeplyNestedStack,
+    crashDuringCleanup,
+  ];
 }

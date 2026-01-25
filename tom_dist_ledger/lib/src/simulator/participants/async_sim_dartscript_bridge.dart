@@ -7,16 +7,10 @@ class AsyncSimDartScriptBridge extends AsyncSimParticipant {
     required super.printer,
     required super.config,
     super.onBackupCreated,
-  }) : super(
-          name: 'Bridge',
-          pid: 222,
-        );
+  }) : super(name: 'Bridge', pid: 222);
 
   /// Simulate file deletion.
-  Future<void> fsDelete({
-    required int depth,
-    required String path,
-  }) async {
+  Future<void> fsDelete({required int depth, required String path}) async {
     log(depth: depth, message: 'fs.delete("$path")');
     // Simulated - would actually delete the file in real implementation
     await Future.delayed(const Duration(milliseconds: 1));
