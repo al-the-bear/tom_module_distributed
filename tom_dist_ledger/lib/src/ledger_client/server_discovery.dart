@@ -66,9 +66,12 @@ class DiscoveryOptions {
 ///
 /// The discovery process scans addresses in this order:
 /// 1. localhost (127.0.0.1)
-/// 2. 0.0.0.0
-/// 3. Local machine's IP addresses
-/// 4. Other addresses in the local subnet (xxx.xxx.xxx.1-255)
+/// 2. Local machine's IP addresses (all network interfaces)
+/// 3. All /24 subnets for each local IP (xxx.xxx.xxx.1-255)
+///
+/// When the machine has multiple network interfaces (e.g., Ethernet and WiFi,
+/// or VPN connections), all subnets are scanned to find servers on any
+/// connected network.
 ///
 /// ## Usage
 ///
@@ -144,13 +147,25 @@ class ServerDiscovery {
       candidates.add('http://$ip:$port');
     }
 
-    // 3. Scan subnet if enabled
+    // 3. Scan all subnets if enabled (for each local IP)
     if (options.scanSubnet && localIps.isNotEmpty) {
-      final subnetAddresses = _getSubnetAddresses(localIps.first);
-      for (final ip in subnetAddresses) {
-        final url = 'http://$ip:$port';
-        if (!candidates.contains(url)) {
-          candidates.add(url);
+      // Collect unique subnets from all local IPs
+      final scannedSubnets = <String>{};
+
+      for (final ip in localIps) {
+        final parts = ip.split('.');
+        if (parts.length != 4) continue;
+
+        final subnet = '${parts[0]}.${parts[1]}.${parts[2]}';
+        if (scannedSubnets.contains(subnet)) continue;
+        scannedSubnets.add(subnet);
+
+        final subnetAddresses = _getSubnetAddresses(ip);
+        for (final subnetIp in subnetAddresses) {
+          final url = 'http://$subnetIp:$port';
+          if (!candidates.contains(url)) {
+            candidates.add(url);
+          }
         }
       }
     }

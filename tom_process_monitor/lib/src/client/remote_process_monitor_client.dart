@@ -36,37 +36,42 @@ class RemoteProcessMonitorClient {
   /// Discovery order:
   /// 1. Try localhost on default port (19881)
   /// 2. Try 127.0.0.1 on default port
-  /// 3. Scan local subnet for ProcessMonitor instances
+  /// 3. Try all local machine IP addresses
+  /// 4. Scan all local subnets for ProcessMonitor instances (if fullSubnetScan is true)
   ///
   /// Throws [DiscoveryFailedException] if no instance is found.
   static Future<RemoteProcessMonitorClient> discover({
     int port = 19881,
     Duration timeout = const Duration(seconds: 5),
+    bool fullSubnetScan = false,
   }) async {
     final client = http.Client();
 
     try {
-      // List of URLs to try
+      // List of URLs to try (priority order)
       final candidateUrls = <String>[
         'http://localhost:$port',
         'http://127.0.0.1:$port',
-        'http://0.0.0.0:$port',
       ];
 
-      // Add local network addresses if we can determine them
+      // Collect local IPs and their subnets
+      final localIps = <String>[];
+      final subnets = <String>{};
+
       try {
-        final interfaces = await NetworkInterface.list();
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+        );
         for (final interface in interfaces) {
           for (final addr in interface.addresses) {
-            if (addr.type == InternetAddressType.IPv4) {
-              // Get subnet (assume /24 for simplicity)
-              final parts = addr.address.split('.');
+            if (!addr.isLoopback) {
+              final ip = addr.address;
+              localIps.add(ip);
+
+              // Extract subnet
+              final parts = ip.split('.');
               if (parts.length == 4) {
-                final subnet = '${parts[0]}.${parts[1]}.${parts[2]}';
-                // Add common gateway addresses
-                candidateUrls.add('http://$subnet.1:$port');
-                // Add own address
-                candidateUrls.add('http://${addr.address}:$port');
+                subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
               }
             }
           }
@@ -75,10 +80,37 @@ class RemoteProcessMonitorClient {
         // Ignore network interface errors
       }
 
-      // Try each candidate
+      // Add local machine IPs
+      for (final ip in localIps) {
+        candidateUrls.add('http://$ip:$port');
+      }
+
+      // Add gateway addresses for each subnet
+      for (final subnet in subnets) {
+        final gatewayUrl = 'http://$subnet.1:$port';
+        if (!candidateUrls.contains(gatewayUrl)) {
+          candidateUrls.add(gatewayUrl);
+        }
+      }
+
+      // Try priority candidates first
       for (final url in candidateUrls) {
         if (await _tryConnect(client, url, timeout)) {
           return RemoteProcessMonitorClient(baseUrl: url);
+        }
+      }
+
+      // If fullSubnetScan enabled, do full subnet scan
+      if (fullSubnetScan) {
+        for (final subnet in subnets) {
+          final found = await scanSubnet_(
+            subnet,
+            port: port,
+            timeout: const Duration(milliseconds: 500),
+          );
+          if (found.isNotEmpty) {
+            return RemoteProcessMonitorClient(baseUrl: found.first);
+          }
         }
       }
 
@@ -95,7 +127,7 @@ class RemoteProcessMonitorClient {
   ///
   /// [subnet] should be in format "192.168.1" (first 3 octets).
   /// Returns list of URLs where ProcessMonitor is responding.
-  static Future<List<String>> scanSubnet(
+  static Future<List<String>> scanSubnet_(
     String subnet, {
     int port = 19881,
     Duration timeout = const Duration(milliseconds: 500),
