@@ -37,13 +37,16 @@ class RemoteProcessMonitorClient {
   /// 1. Try localhost on default port (19881)
   /// 2. Try 127.0.0.1 on default port
   /// 3. Try all local machine IP addresses
-  /// 4. Scan all local subnets for ProcessMonitor instances (if fullSubnetScan is true)
+  /// 4. Scan all /24 subnets for each local IP
+  ///
+  /// When the machine has multiple network interfaces (e.g., Ethernet and WiFi,
+  /// or VPN connections), all subnets are scanned to find servers on any
+  /// connected network.
   ///
   /// Throws [DiscoveryFailedException] if no instance is found.
   static Future<RemoteProcessMonitorClient> discover({
     int port = 19881,
     Duration timeout = const Duration(seconds: 5),
-    bool fullSubnetScan = false,
   }) async {
     final client = http.Client();
 
@@ -85,32 +88,22 @@ class RemoteProcessMonitorClient {
         candidateUrls.add('http://$ip:$port');
       }
 
-      // Add gateway addresses for each subnet
-      for (final subnet in subnets) {
-        final gatewayUrl = 'http://$subnet.1:$port';
-        if (!candidateUrls.contains(gatewayUrl)) {
-          candidateUrls.add(gatewayUrl);
-        }
-      }
-
-      // Try priority candidates first
+      // Try priority candidates first (localhost, local IPs)
       for (final url in candidateUrls) {
         if (await _tryConnect(client, url, timeout)) {
           return RemoteProcessMonitorClient(baseUrl: url);
         }
       }
 
-      // If fullSubnetScan enabled, do full subnet scan
-      if (fullSubnetScan) {
-        for (final subnet in subnets) {
-          final found = await scanSubnet_(
-            subnet,
-            port: port,
-            timeout: const Duration(milliseconds: 500),
-          );
-          if (found.isNotEmpty) {
-            return RemoteProcessMonitorClient(baseUrl: found.first);
-          }
+      // Scan all subnets
+      for (final subnet in subnets) {
+        final found = await scanSubnet_(
+          subnet,
+          port: port,
+          timeout: const Duration(milliseconds: 500),
+        );
+        if (found.isNotEmpty) {
+          return RemoteProcessMonitorClient(baseUrl: found.first);
         }
       }
 
