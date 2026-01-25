@@ -201,7 +201,7 @@ class AsyncSimulationPrinter {
 abstract class AsyncSimParticipant {
   final String name;
   final int pid;
-  final Ledger ledger;
+  final LocalLedger ledger;
   final AsyncSimulationPrinter printer;
   final SimulationConfig config;
 
@@ -218,7 +218,7 @@ abstract class AsyncSimParticipant {
     required this.printer,
     required this.config,
     void Function(String)? onBackupCreated,
-  }) : ledger = Ledger(
+  }) : ledger = LocalLedger(
          basePath: basePath,
          participantId: name.toLowerCase(),
          participantPid: pid,

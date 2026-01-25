@@ -7,10 +7,10 @@ Comprehensive API reference for the `tom_dist_ledger` package.
 ## Table of Contents
 
 1. [Abstract Base Classes](#abstract-base-classes)
-   - [LedgerBase](#ledgerbase)
+   - [Ledger](#ledger-abstract)
    - [OperationBase](#operationbase)
 2. [Local Ledger Classes](#local-ledger-classes)
-   - [Ledger Class](#ledger-class)
+   - [LocalLedger Class](#localledger-class)
    - [Operation Class](#operation-class)
 3. [Remote Ledger Classes](#remote-ledger-classes)
    - [LedgerServer](#ledgerserver)
@@ -31,12 +31,74 @@ Comprehensive API reference for the `tom_dist_ledger` package.
 
 ## Abstract Base Classes
 
-### LedgerBase
+### Ledger (Abstract)
 
-Abstract base class for ledger implementations. Both `Ledger` (local) and `RemoteLedgerClient` (remote) extend this class.
+Abstract base class for ledger implementations. Both `LocalLedger` (local) and `RemoteLedgerClient` (remote) extend this class.
 
 ```dart
-abstract class LedgerBase
+abstract class Ledger
+```
+
+#### Static Factory Method
+
+##### connect
+
+Unified factory method that creates either a local or remote ledger based on parameters.
+
+```dart
+static Future<Ledger?> connect({
+  required String participantId,
+  String? basePath,
+  String? serverUrl,
+  int? participantPid,
+  LedgerCallback? callback,
+  int maxBackups = 20,
+  Duration heartbeatInterval = const Duration(seconds: 5),
+  Duration staleThreshold = const Duration(seconds: 15),
+  int port = 19880,
+  Duration timeout = const Duration(seconds: 2),
+  bool scanSubnet = true,
+  void Function(String)? logger,
+})
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `participantId` | `String` | required | Unique identifier for this ledger instance |
+| `basePath` | `String?` | `null` | Path for local ledger (creates LocalLedger) |
+| `serverUrl` | `String?` | `null` | URL for remote ledger (creates RemoteLedgerClient) |
+| `participantPid` | `int?` | current PID | Process ID for this participant |
+| `callback` | `LedgerCallback?` | `null` | Grouped callbacks (backup, log, heartbeat) |
+| `maxBackups` | `int` | `20` | Maximum backup operations to retain |
+| `heartbeatInterval` | `Duration` | 5 seconds | Interval between heartbeats |
+| `staleThreshold` | `Duration` | 15 seconds | Threshold for detecting stale participants |
+| `port` | `int` | `19880` | Port for remote server discovery |
+| `timeout` | `Duration` | 2 seconds | Connection timeout for remote discovery |
+| `scanSubnet` | `bool` | `true` | Whether to scan subnet during discovery |
+| `logger` | `Function(String)?` | `null` | Optional progress logging |
+
+**Returns:** `Ledger?` - A LocalLedger if basePath is provided, or RemoteLedgerClient if connecting remotely. Returns null if remote discovery fails.
+
+**Throws:** `ArgumentError` if both basePath and serverUrl are provided.
+
+**Example:**
+```dart
+// Connect to a local ledger
+final local = await Ledger.connect(
+  basePath: '/tmp/ledger',
+  participantId: 'cli',
+);
+
+// Connect to a remote server (auto-discover)
+final remote = await Ledger.connect(
+  participantId: 'client',
+);
+
+// Connect to a specific remote server
+final remote = await Ledger.connect(
+  serverUrl: 'http://localhost:19880',
+  participantId: 'client',
+);
 ```
 
 #### Properties
@@ -49,11 +111,13 @@ abstract class LedgerBase
 | `heartbeatInterval` | `Duration` | Interval between heartbeats |
 | `staleThreshold` | `Duration` | Threshold for detecting stale participants |
 
-#### Methods
+#### Abstract Methods
 
-| Method | Description |
-|--------|-------------|
-| `dispose()` | Dispose of the ledger and stop all heartbeats |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `createOperation({...})` | `Future<OperationBase>` | Create a new operation (initiator) |
+| `joinOperation({...})` | `Future<OperationBase>` | Join an existing operation |
+| `dispose()` | `Future<void>` | Dispose of the ledger and stop all heartbeats |
 
 ### OperationBase
 
@@ -90,18 +154,18 @@ abstract class OperationBase
 
 ## Local Ledger Classes
 
-### Ledger Class
+### LocalLedger Class
 
-Main entry point for the distributed ledger system.
+Local file-based implementation of the ledger system.
 
 ```dart
-class Ledger
+class LocalLedger extends Ledger
 ```
 
 ### Constructor
 
 ```dart
-Ledger({
+LocalLedger({
   required String basePath,
   required String participantId,
   int? participantPid,
@@ -124,7 +188,7 @@ Ledger({
 
 **Example:**
 ```dart
-final ledger = Ledger(
+final ledger = LocalLedger(
   basePath: '/tmp/ledger',
   participantId: 'cli',
   callback: LedgerCallback(
@@ -138,9 +202,10 @@ final ledger = Ledger(
 
 #### createOperation
 
-Create a new operation (initiator).
+Create a new operation (initiator). Returns the concrete `Operation` type.
 
 ```dart
+@override
 Future<Operation> createOperation({
   String? description,
   OperationCallback? callback,
@@ -159,9 +224,10 @@ Call `Operation.complete()` to stop heartbeat and archive the operation.
 
 #### joinOperation
 
-Join an existing operation (participant).
+Join an existing operation (participant). Returns the concrete `Operation` type.
 
 ```dart
+@override
 Future<Operation> joinOperation({
   required String operationId,
   OperationCallback? callback,
@@ -194,7 +260,7 @@ Future<void> dispose()
 
 Represents a running operation for a specific join session.
 
-Each call to `Ledger.createOperation()` or `Ledger.joinOperation()` returns
+Each call to `LocalLedger.createOperation()` or `LocalLedger.joinOperation()` returns
 a new `Operation` with its own session. This allows tracking which calls
 belong to which join, and ensures `leave()` only checks calls created
 through this operation.

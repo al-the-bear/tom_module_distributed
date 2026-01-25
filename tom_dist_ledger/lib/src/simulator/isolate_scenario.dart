@@ -220,7 +220,7 @@ Future<void> _participantIsolateEntry(IsolateParticipantConfig config) async {
 /// Internal runner that executes in the participant isolate.
 class _IsolateRunner {
   final IsolateParticipantConfig config;
-  late final Ledger _ledger;
+  late final LocalLedger _ledger;
   Operation? _operation;
   bool _crashed = false;
   bool _hasError = false;
@@ -274,7 +274,7 @@ class _IsolateRunner {
     _sendResponse(IsolateResponseType.started);
 
     // Create ledger instance
-    _ledger = Ledger(
+    _ledger = LocalLedger(
       basePath: config.basePath,
       participantId: name.toLowerCase(),
       participantPid: config.pid,

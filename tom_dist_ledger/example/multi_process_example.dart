@@ -154,7 +154,7 @@ void main() async {
   final tempDir = Directory.systemTemp.createTempSync('multiprocess_example_');
   print('Working directory: ${tempDir.path}\n');
 
-  final ledger = Ledger(
+  final ledger = LocalLedger(
     basePath: tempDir.path,
     participantId: 'orchestrator',
     callback: LedgerCallback(

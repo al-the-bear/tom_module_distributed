@@ -103,7 +103,7 @@ class ConcurrentScenarioResult {
 class IndependentParticipant {
   final String name;
   final int pid;
-  final Ledger ledger;
+  final LocalLedger ledger;
   final AsyncSimulationPrinter printer;
   final int heartbeatIntervalMs;
   final int heartbeatTimeoutMs;
@@ -132,7 +132,7 @@ class IndependentParticipant {
     this.heartbeatIntervalMs = 4500,
     this.heartbeatTimeoutMs = 10000,
     void Function(String)? onBackupCreated,
-  }) : ledger = Ledger(
+  }) : ledger = LocalLedger(
          basePath: basePath,
          participantId: name.toLowerCase(),
          participantPid: pid,

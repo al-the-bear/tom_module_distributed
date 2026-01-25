@@ -13,7 +13,7 @@ import '../simulation_config.dart';
 /// 3. Writes response to a response file when done
 /// 4. Caller polls for the response file
 class AsyncSimCopilotChat {
-  final Ledger ledger;
+  final LocalLedger ledger;
   final AsyncSimulationPrinter printer;
   final SimulationConfig config;
 
@@ -25,7 +25,7 @@ class AsyncSimCopilotChat {
     required this.printer,
     required this.config,
     void Function(String)? onBackupCreated,
-  }) : ledger = Ledger(
+  }) : ledger = LocalLedger(
          basePath: basePath,
          participantId: 'copilot',
          callback: onBackupCreated != null

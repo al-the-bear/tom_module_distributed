@@ -26,7 +26,7 @@ class LedgerServer {
   final HttpServer _server;
 
   /// The ledger instance used to process requests.
-  final Ledger _ledger;
+  final LocalLedger _ledger;
 
   /// The port the server is listening on.
   int get port => _server.port;
@@ -51,7 +51,7 @@ class LedgerServer {
     InternetAddress? address,
   }) async {
     // Create the ledger with server identity
-    final ledger = Ledger(basePath: basePath, participantId: 'ledger_server');
+    final ledger = LocalLedger(basePath: basePath, participantId: 'ledger_server');
 
     // Start HTTP server
     final server = await HttpServer.bind(

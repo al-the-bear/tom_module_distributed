@@ -42,7 +42,7 @@ void main() {
 
     test('CLI initiator with remote Bridge participant', () async {
       // CLI runs locally, creates operation
-      final cliLedger = Ledger(
+      final cliLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'cli',
         heartbeatInterval: const Duration(milliseconds: 200),

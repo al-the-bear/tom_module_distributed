@@ -22,8 +22,12 @@ The package is organized into three parts:
 
 High-level API for operation management:
 
-- `Ledger` - Global manager for all operations
-- `Operation` - Per-participant handle with caching
+- `Ledger` - Abstract base class for all ledger implementations
+- `LocalLedger` - Local file-based ledger implementation  
+- `RemoteLedgerClient` - HTTP client for remote ledger servers
+- `Operation` - Per-participant handle with caching (local)
+- `RemoteOperation` - Remote operation handle
+- `Ledger.connect()` - Unified factory method for both local and remote access
 - Heartbeat with error/success callbacks
 - Call execution tracking (`startCallExecution`/`endCallExecution`)
 
@@ -45,21 +49,52 @@ Testing and simulation utilities:
 
 ## Usage
 
+### Using Ledger.connect() (Recommended)
+
+The easiest way to work with ledgers is through the unified `Ledger.connect()` factory:
+
 ```dart
 import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
-// Create a ledger at a workspace path
-final ledger = Ledger(
+// Connect to a local ledger
+final ledger = await Ledger.connect(
   basePath: '/workspace/_ai/operation_ledger',
+  participantId: 'cli',
+);
+
+// Or connect to a remote server (with auto-discovery)
+final ledger = await Ledger.connect(
+  participantId: 'cli',
+);
+
+// Or connect to a specific server
+final ledger = await Ledger.connect(
+  serverUrl: 'http://localhost:19880',
+  participantId: 'cli',
+);
+
+if (ledger != null) {
+  final op = await ledger.createOperation();
+  // ... do work ...
+  await ledger.dispose();
+}
+```
+
+### Using LocalLedger Directly
+
+For local file-based operations:
+
+```dart
+import 'package:tom_dist_ledger/tom_dist_ledger.dart';
+
+// Create a local ledger at a workspace path
+final ledger = LocalLedger(
+  basePath: '/workspace/_ai/operation_ledger',
+  participantId: 'cli',
 );
 
 // Start an operation (initiator)
-final operation = await ledger.startOperation(
-  operationId: 'op_${DateTime.now().millisecondsSinceEpoch}',
-  initiatorPid: pid,
-  participantId: 'cli',
-  getElapsedFormatted: () => '000.000',
-);
+final operation = await ledger.createOperation();
 
 // Start heartbeat
 operation.startHeartbeat(
@@ -68,11 +103,11 @@ operation.startHeartbeat(
 );
 
 // Track call execution
-await operation.startCallExecution(callId: 'invoke-1');
+await operation.createCallFrame(callId: 'invoke-1');
 
 // ... do work ...
 
-await operation.endCallExecution(callId: 'invoke-1');
+await operation.deleteCallFrame(callId: 'invoke-1');
 
 // Complete the operation
 await operation.complete();
@@ -118,8 +153,28 @@ await server.stop();
 
 ### Connecting a Client
 
-The recommended way to create a client is using `connect()`, which supports
-both explicit server URLs and auto-discovery:
+Use `Ledger.connect()` for the simplest connection (recommended):
+
+```dart
+// Auto-discover a server on the network
+final ledger = await Ledger.connect(
+  participantId: 'my_client',
+);
+
+// Or connect to a specific server
+final ledger = await Ledger.connect(
+  serverUrl: 'http://localhost:19880',
+  participantId: 'my_client',
+);
+
+if (ledger != null) {
+  final op = await ledger.createOperation();
+  // ... do work ...
+  await ledger.dispose();
+}
+```
+
+Or use `RemoteLedgerClient.connect()` directly for more control:
 
 ```dart
 // Auto-discover a server on the network

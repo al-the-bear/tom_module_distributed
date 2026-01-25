@@ -16,7 +16,7 @@ void main() async {
   // Create a ledger in a temp directory
   final tempDir = Directory.systemTemp.createTempSync('dpl_example_');
 
-  final ledger = Ledger(
+  final ledger = LocalLedger(
     basePath: tempDir.path,
     participantId: 'example',
     callback: LedgerCallback(onBackupCreated: (path) => print('Backup: $path')),

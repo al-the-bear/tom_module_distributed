@@ -10,7 +10,7 @@ part of 'ledger_api.dart';
 ///
 /// **Example:**
 /// ```dart
-/// final ledger = Ledger(
+/// final ledger = LocalLedger(
 ///   basePath: '/tmp/ledger',
 ///   participantId: 'cli',
 ///   callback: LedgerCallback(

@@ -464,7 +464,7 @@ class Operation implements OperationBase {
 /// the shared operation file and log. This class is internal; users interact
 /// with [Operation] which wraps this with session-aware call tracking.
 class _LedgerOperation implements CallLifecycle {
-  final Ledger _ledger;
+  final LocalLedger _ledger;
   final String operationId;
   final String participantId;
   final int pid;
@@ -521,7 +521,7 @@ class _LedgerOperation implements CallLifecycle {
   final _random = Random();
 
   _LedgerOperation._({
-    required Ledger ledger,
+    required LocalLedger ledger,
     required this.operationId,
     required this.participantId,
     required this.pid,
@@ -2260,7 +2260,7 @@ class _LedgerOperation implements CallLifecycle {
 ///
 /// **Production pattern (one identity per Ledger):**
 /// ```dart
-/// final ledger = Ledger(
+/// final ledger = LocalLedger(
 ///   basePath: '/tmp/ledger',
 ///   participantId: 'orchestrator',
 /// );
@@ -2269,14 +2269,14 @@ class _LedgerOperation implements CallLifecycle {
 ///
 /// **Simulation pattern (multiple identities per Ledger):**
 /// ```dart
-/// final ledger = Ledger(basePath: '/tmp/ledger');
+/// final ledger = LocalLedger(basePath: '/tmp/ledger');
 /// final cliOp = await ledger.createOperation(participantId: 'cli');
 /// final bridgeOp = await ledger.joinOperation(
 ///   operationId: opId,
 ///   participantId: 'bridge',
 /// );
 /// ```
-class Ledger extends LedgerBase {
+class LocalLedger extends Ledger {
   final String basePath;
 
   /// The participant ID for this ledger instance.
@@ -2335,7 +2335,7 @@ class Ledger extends LedgerBase {
   ///
   /// **Example usage with callback:**
   /// ```dart
-  /// final ledger = Ledger(
+  /// final ledger = LocalLedger(
   ///   basePath: '/tmp/ledger',
   ///   participantId: 'cli',
   ///   callback: LedgerCallback(
@@ -2344,7 +2344,7 @@ class Ledger extends LedgerBase {
   ///   ),
   /// );
   /// ```
-  Ledger({
+  LocalLedger({
     required this.basePath,
     required this.participantId,
     int? participantPid,
@@ -2676,7 +2676,7 @@ class Ledger extends LedgerBase {
   ///
   /// The participant identity is taken from the Ledger constructor:
   /// ```dart
-  /// final ledger = Ledger(basePath: path, participantId: 'orchestrator');
+  /// final ledger = LocalLedger(basePath: path, participantId: 'orchestrator');
   /// final op = await ledger.createOperation(
   ///   callback: OperationCallback(
   ///     onHeartbeatError: (op, error) => print('Failure: ${error.message}'),
@@ -2688,6 +2688,7 @@ class Ledger extends LedgerBase {
   ///
   /// An operation ID will be auto-generated based on timestamp and
   /// participantId.
+  @override
   Future<Operation> createOperation({
     String? description,
     OperationCallback? callback,
@@ -2799,7 +2800,7 @@ class Ledger extends LedgerBase {
   ///
   /// The participant identity is taken from the Ledger constructor:
   /// ```dart
-  /// final ledger = Ledger(basePath: path, participantId: 'worker_1');
+  /// final ledger = LocalLedger(basePath: path, participantId: 'worker_1');
   /// final op = await ledger.joinOperation(
   ///   operationId: opId,
   ///   callback: OperationCallback(
@@ -2809,6 +2810,7 @@ class Ledger extends LedgerBase {
   /// // ... do work ...
   /// op.leave(); // Stops heartbeat when no sessions remain
   /// ```
+  @override
   Future<Operation> joinOperation({
     required String operationId,
     OperationCallback? callback,

@@ -62,7 +62,7 @@ void main(List<String> args) async {
   stderr.writeln('[$participantId] Operation ID: $operationId');
 
   // Create ledger instance pointing to the same directory
-  final ledger = Ledger(
+  final ledger = LocalLedger(
     basePath: ledgerPath,
     participantId: participantId,
     callback: LedgerCallback(

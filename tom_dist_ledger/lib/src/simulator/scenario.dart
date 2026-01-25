@@ -540,7 +540,7 @@ class ScenarioRunner {
 class _SimulatedParticipant {
   final String name;
   final int pid;
-  final Ledger ledger;
+  final LocalLedger ledger;
   final AsyncSimulationPrinter printer;
   final bool isInitiator;
 
@@ -554,7 +554,7 @@ class _SimulatedParticipant {
     required this.printer,
     this.isInitiator = false,
     void Function(String)? onBackupCreated,
-  }) : ledger = Ledger(
+  }) : ledger = LocalLedger(
          basePath: basePath,
          participantId: name.toLowerCase(),
          participantPid: pid,

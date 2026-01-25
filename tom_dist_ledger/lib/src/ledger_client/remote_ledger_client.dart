@@ -51,7 +51,7 @@ import '../ledger_api/ledger_api.dart';
 ///   participantId: 'remote_worker',
 /// );
 /// ```
-class RemoteLedgerClient extends LedgerBase {
+class RemoteLedgerClient extends Ledger {
   /// The URL of the ledger server.
   final String serverUrl;
 
@@ -361,6 +361,7 @@ class RemoteLedgerClient extends LedgerBase {
   /// Create a new operation on the remote server.
   ///
   /// Returns a [RemoteOperation] with the same API as local [Operation].
+  @override
   Future<RemoteOperation> createOperation({
     String? description,
     OperationCallback? callback,
@@ -406,6 +407,7 @@ class RemoteLedgerClient extends LedgerBase {
   ///
   /// Throws [ArgumentError] if [operationId] contains invalid characters
   /// or could be used for path traversal.
+  @override
   Future<RemoteOperation> joinOperation({
     required String operationId,
     OperationCallback? callback,

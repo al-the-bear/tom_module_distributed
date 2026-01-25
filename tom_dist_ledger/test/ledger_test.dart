@@ -204,12 +204,12 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('Ledger', () {
-    late Ledger ledger;
+    late LocalLedger ledger;
     final List<String> backups = [];
 
     setUp(() {
       backups.clear();
-      ledger = Ledger(
+      ledger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'test',
         callback: LedgerCallback(onBackupCreated: (path) => backups.add(path)),
@@ -225,7 +225,7 @@ void main() {
         final newPath = '${tempDir.path}/new_ledger';
         expect(Directory(newPath).existsSync(), isFalse);
 
-        final newLedger = Ledger(basePath: newPath, participantId: 'test');
+        final newLedger = LocalLedger(basePath: newPath, participantId: 'test');
         expect(Directory(newPath).existsSync(), isTrue);
         newLedger.dispose();
       });
@@ -290,7 +290,7 @@ void main() {
     group('joinOperation', () {
       test('creates operation object for existing operation', () async {
         // First, create an operation as initiator
-        final initiatorLedger = Ledger(
+        final initiatorLedger = LocalLedger(
           basePath: tempDir.path,
           participantId: 'cli',
         );
@@ -298,7 +298,7 @@ void main() {
         final operationId = initiator.operationId;
 
         // Then, participate as another process
-        final participantLedger = Ledger(
+        final participantLedger = LocalLedger(
           basePath: tempDir.path,
           participantId: 'bridge',
         );
@@ -316,14 +316,14 @@ void main() {
       });
 
       test('loads cached data from existing operation file', () async {
-        final initiatorLedger = Ledger(
+        final initiatorLedger = LocalLedger(
           basePath: tempDir.path,
           participantId: 'cli',
         );
         final initiator = await initiatorLedger.createOperation();
         final operationId = initiator.operationId;
 
-        final participantLedger = Ledger(
+        final participantLedger = LocalLedger(
           basePath: tempDir.path,
           participantId: 'bridge',
         );
@@ -362,13 +362,13 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('Operation', () {
-    late Ledger ledger;
+    late LocalLedger ledger;
     late Operation operation;
     final List<String> backups = [];
 
     setUp(() async {
       backups.clear();
-      ledger = Ledger(
+      ledger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'test',
         callback: LedgerCallback(onBackupCreated: (path) => backups.add(path)),
@@ -673,7 +673,7 @@ void main() {
       });
 
       test('throws if not initiator', () async {
-        final participantLedger = Ledger(
+        final participantLedger = LocalLedger(
           basePath: tempDir.path,
           participantId: 'bridge',
         );
@@ -727,12 +727,12 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('Backup and Trail', () {
-    late Ledger ledger;
+    late LocalLedger ledger;
     final List<String> backups = [];
 
     setUp(() {
       backups.clear();
-      ledger = Ledger(
+      ledger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'test',
         callback: LedgerCallback(onBackupCreated: (path) => backups.add(path)),
@@ -804,10 +804,10 @@ void main() {
   // ═══════════════════════════════════════════════════════════════════
 
   group('File Locking', () {
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -902,7 +902,7 @@ void main() {
 
     test('lock timing is configurable', () async {
       // Create ledger with custom timing
-      final customLedger = Ledger(
+      final customLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'custom_cli',
         lockTimeout: const Duration(milliseconds: 500),
@@ -941,7 +941,7 @@ void main() {
   group('Concurrent Access', () {
     test('multiple participants can modify the same operation', () async {
       // Start as initiator
-      final initiatorLedger = Ledger(
+      final initiatorLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'cli',
       );
@@ -949,7 +949,7 @@ void main() {
       final operationId = initiator.operationId;
 
       // Join as participant
-      final participantLedger = Ledger(
+      final participantLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'bridge',
       );
@@ -985,7 +985,7 @@ void main() {
       backups.clear();
 
       // 1. CLI starts operation
-      final cliLedger = Ledger(
+      final cliLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'cli',
         callback: LedgerCallback(onBackupCreated: (path) => backups.add(path)),
@@ -995,7 +995,7 @@ void main() {
       await cli.createCallFrame(callId: 'cli-main');
 
       // 2. Bridge joins and starts processing
-      final bridgeLedger = Ledger(
+      final bridgeLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'bridge',
         callback: LedgerCallback(onBackupCreated: (path) => backups.add(path)),
@@ -1005,7 +1005,7 @@ void main() {
       await bridge.registerTempResource(path: '/tmp/work.txt');
 
       // 3. VSCode joins and calls external service
-      final vscodeLedger = Ledger(
+      final vscodeLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'vscode',
         callback: LedgerCallback(onBackupCreated: (path) => backups.add(path)),
@@ -1094,11 +1094,11 @@ void main() {
 
   group('Heartbeat Callbacks', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('heartbeat_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1337,11 +1337,11 @@ void main() {
 
   group('Operation (additional coverage)', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('op_extra_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1414,11 +1414,11 @@ void main() {
 
   group('New API - startCall/endCall', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('new_api_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1590,11 +1590,11 @@ void main() {
 
   group('New API - log with LogLevel', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('log_level_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1644,11 +1644,11 @@ void main() {
 
   group('New API - createOperation with generated ID', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('create_op_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1671,11 +1671,11 @@ void main() {
 
   group('Backup cleanup with maxBackups', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('backup_cleanup_test_');
-      ledger = Ledger(
+      ledger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'test',
         maxBackups: 3,
@@ -1710,13 +1710,13 @@ void main() {
 
   group('spawnCall with failOnCrash', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync(
         'spawnCall_failoncrash_test_',
       );
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1816,11 +1816,11 @@ void main() {
 
   group('failCall', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('failCall_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -1895,11 +1895,11 @@ void main() {
 
   group('spawnCall and sync', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawnCall_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2230,11 +2230,11 @@ void main() {
 
   group('endCall behavior', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('endcall_callback_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2265,11 +2265,11 @@ void main() {
 
   group('sync method', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_method_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2310,11 +2310,11 @@ void main() {
 
   group('waitForCompletion', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('wait_completion_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2352,11 +2352,11 @@ void main() {
 
   group('Operation.heartbeat() single call', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('single_heartbeat_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2391,11 +2391,11 @@ void main() {
 
   group('getOperationState and setOperationState', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('op_state_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2443,11 +2443,11 @@ void main() {
 
   group('retrieveAndLockOperation', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('lock_op_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2493,8 +2493,8 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('join_op_test_');
-      initiatorLedger = Ledger(basePath: tempDir.path, participantId: 'cli');
-      participantLedger = Ledger(
+      initiatorLedger = LocalLedger(basePath: tempDir.path, participantId: 'cli');
+      participantLedger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'bridge',
       );
@@ -2524,11 +2524,11 @@ void main() {
 
   group('Global Heartbeat', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('global_hb_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2540,7 +2540,7 @@ void main() {
       // Create ledger with very short intervals for testing
       ledger.dispose();
       HeartbeatError? receivedError;
-      ledger = Ledger(
+      ledger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'test',
         heartbeatInterval: Duration(milliseconds: 30),
@@ -2717,11 +2717,11 @@ void main() {
 
   group('sync with onCompletion', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_oncompletion_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2750,11 +2750,11 @@ void main() {
 
   group('spawnCall with onCompletion', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawn_oncompletion_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2789,11 +2789,11 @@ void main() {
 
   group('sync method with active calls', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_active_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2839,11 +2839,11 @@ void main() {
 
   group('onOperationFailed callback in sync', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('sync_onfailure_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2885,11 +2885,11 @@ void main() {
 
   group('waitForCompletion with onOperationFailed', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('wait_fail_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2920,11 +2920,11 @@ void main() {
 
   group('Heartbeat detects operation state changes', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('hb_state_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -2951,11 +2951,11 @@ void main() {
 
   group('spawnCall with onCallCrashed returning null', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('spawn_crash_null_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3075,7 +3075,7 @@ void main() {
 
     test('onLogLine is called for each log entry', () async {
       final logLines = <String>[];
-      final ledger = Ledger(
+      final ledger = LocalLedger(
         basePath: tempDir.path,
         participantId: 'cli',
         callback: LedgerCallback(onLogLine: (line) => logLines.add(line)),
@@ -3101,11 +3101,11 @@ void main() {
 
   group('Operation.startTime', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('start_time_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3187,11 +3187,11 @@ void main() {
 
   group('execFileResultWorker', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('exec_file_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3264,11 +3264,11 @@ void main() {
 
   group('execStdioWorker', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('exec_stdio_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3313,11 +3313,11 @@ void main() {
 
   group('execServerRequest', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('exec_server_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -3354,11 +3354,11 @@ void main() {
 
   group('awaitCall', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('await_call_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {

@@ -27,7 +27,7 @@ void main() async {
   // Track all backups for validation
   final backups = <String>[];
   
-  final ledger = Ledger(
+  final ledger = LocalLedger(
     basePath: tempDir.path,
     participantId: 'orchestrator',
     callback: LedgerCallback(

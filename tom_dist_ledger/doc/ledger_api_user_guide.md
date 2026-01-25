@@ -58,11 +58,42 @@ import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
 ## Quick Start
 
-### Local Ledger (Same Machine)
+### Using Ledger.connect() (Recommended)
+
+The easiest way to work with ledgers is through the unified `Ledger.connect()` factory:
 
 ```dart
-// Create a ledger for file-based coordination
-final ledger = Ledger(
+// Connect to a local ledger
+final ledger = await Ledger.connect(
+  basePath: '/tmp/ledger',
+  participantId: 'orchestrator',
+);
+
+// Or connect to a remote server (with auto-discovery)
+final ledger = await Ledger.connect(
+  participantId: 'orchestrator',
+);
+
+// Or connect to a specific server
+final ledger = await Ledger.connect(
+  serverUrl: 'http://localhost:19880',
+  participantId: 'orchestrator',
+);
+
+if (ledger != null) {
+  final operation = await ledger.createOperation();
+  // ... do work ...
+  await ledger.dispose();
+}
+```
+
+### Local Ledger (Same Machine)
+
+For direct local file-based coordination:
+
+```dart
+// Create a local ledger for file-based coordination
+final ledger = LocalLedger(
   basePath: '/tmp/ledger',
   participantId: 'orchestrator',
 );
@@ -128,10 +159,26 @@ The ledger supports two access patterns with an **identical API**:
 
 | Pattern | Class | Use Case |
 |---------|-------|----------|
-| **Local** | `Ledger` | Same machine, file-based coordination |
+| **Local** | `LocalLedger` | Same machine, file-based coordination |
 | **Remote** | `RemoteLedgerClient` | Network access via HTTP server |
 
-### Unified API
+### Unified API via Ledger.connect()
+
+The recommended way to create a ledger is through the unified `Ledger.connect()` factory:
+
+```dart
+// Local access - provide basePath
+final ledger = await Ledger.connect(
+  basePath: '/tmp/ledger',
+  participantId: 'orchestrator',
+);
+
+// Remote access - omit basePath, optionally provide serverUrl
+final ledger = await Ledger.connect(
+  participantId: 'worker',
+  serverUrl: 'http://localhost:19880', // Optional, auto-discovers if omitted
+);
+```
 
 Both local and remote operations provide the **same typed API**:
 
@@ -157,19 +204,19 @@ Both local and remote operations provide the **same typed API**:
 - You need network-accessible coordination
 - You're building distributed services
 
-### LedgerBase Interface
+### Ledger Abstract Interface
 
-Both `Ledger` and `RemoteLedgerClient` extend `LedgerBase`, so you can write code that works with either:
+Both `LocalLedger` and `RemoteLedgerClient` extend the abstract `Ledger` class, so you can write code that works with either:
 
 ```dart
-Future<void> doCoordinatedWork(LedgerBase ledger, String operationId) async {
-  // Works with both Ledger and RemoteLedgerClient
-  final operation = await (ledger as dynamic).joinOperation(
+Future<void> doCoordinatedWork(Ledger ledger, String operationId) async {
+  // Works with both LocalLedger and RemoteLedgerClient
+  final operation = await ledger.joinOperation(
     operationId: operationId,
   );
   
   // Same typed API for both local and remote
-  final call = await operation.startCall<String>(
+  final call = await (operation as dynamic).startCall<String>(
     callback: CallCallback<String>(
       onCompletion: (result) async => print('Result: $result'),
     ),
@@ -179,6 +226,7 @@ Future<void> doCoordinatedWork(LedgerBase ledger, String operationId) async {
   
   await operation.leave();
 }
+```
 ```
 
 ### Remote-Specific Features
@@ -210,7 +258,7 @@ final result = await operation.sync([call1, call2]);
 One participant creates the operation and coordinates completion:
 
 ```dart
-final ledger = Ledger(
+final ledger = LocalLedger(
   basePath: '/tmp/ledger',
   participantId: 'orchestrator',
 );
@@ -240,7 +288,7 @@ await operation.complete();
 Other participants join existing operations:
 
 ```dart
-final ledger = Ledger(
+final ledger = LocalLedger(
   basePath: '/tmp/ledger',
   participantId: 'worker-1',
 );
@@ -458,7 +506,7 @@ if (optionalCall.isSuccess) {
 Each participant periodically updates a timestamp in the ledger. If a participant's heartbeat becomes stale (exceeds the threshold), it's considered crashed.
 
 ```dart
-final ledger = Ledger(
+final ledger = LocalLedger(
   basePath: '/tmp/ledger',
   participantId: 'worker',
   heartbeatInterval: Duration(seconds: 5),  // How often to update
@@ -660,7 +708,7 @@ final optional = operation.spawnCall<void>(
 ### 6. Dispose Ledgers and Clients
 
 ```dart
-final ledger = Ledger(...);
+final ledger = LocalLedger(...);
 try {
   await doWork(ledger);
 } finally {

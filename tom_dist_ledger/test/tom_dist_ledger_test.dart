@@ -6,11 +6,11 @@ import 'package:test/test.dart';
 void main() {
   group('Ledger', () {
     late Directory tempDir;
-    late Ledger ledger;
+    late LocalLedger ledger;
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('dpl_test_');
-      ledger = Ledger(basePath: tempDir.path, participantId: 'test');
+      ledger = LocalLedger(basePath: tempDir.path, participantId: 'test');
     });
 
     tearDown(() {
@@ -19,14 +19,14 @@ void main() {
     });
 
     test('can start an operation', () async {
-      final operation = await ledger.createOperation();
+      final Operation operation = await ledger.createOperation();
 
       expect(operation.operationId, isNotEmpty);
       expect(operation.isInitiator, isTrue);
     });
 
     test('can track call execution', () async {
-      final operation = await ledger.createOperation();
+      final Operation operation = await ledger.createOperation();
 
       await operation.createCallFrame(callId: 'call-1');
       // Stack has 1 frame (createCallFrame adds it)
