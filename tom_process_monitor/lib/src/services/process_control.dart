@@ -6,14 +6,21 @@ import '../models/process_entry.dart';
 
 /// Service for starting, stopping, and checking processes.
 class ProcessControl {
-  /// Log directory for process output.
+  /// Base directory for logs.
   final String logDirectory;
+
+  /// Instance ID for log path construction.
+  final String instanceId;
 
   /// Logger function.
   final void Function(String message)? logger;
 
   /// Creates a process control service.
-  ProcessControl({required this.logDirectory, this.logger});
+  ProcessControl({
+    required this.logDirectory,
+    required this.instanceId,
+    this.logger,
+  });
 
   /// Checks if a process is alive.
   Future<bool> isProcessAlive(int pid) async {
@@ -174,7 +181,8 @@ class ProcessControl {
         .replaceAll(':', '')
         .replaceAll('-', '')
         .substring(0, 15);
-    return path.join(logDirectory, processId, timestamp);
+    // Spec: {base}/{instanceId}_logs/{processId}/{timestamp}
+    return path.join(logDirectory, '${instanceId}_logs', processId, timestamp);
   }
 
   String _escapeUnix(String arg) {

@@ -9,7 +9,10 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('pm_control_test_');
-    processControl = ProcessControl(logDirectory: tempDir.path);
+    processControl = ProcessControl(
+      logDirectory: tempDir.path,
+      instanceId: 'test',
+    );
   });
 
   tearDown(() async {

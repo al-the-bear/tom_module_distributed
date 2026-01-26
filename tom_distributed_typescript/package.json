@@ -1,0 +1,27 @@
+{
+  "name": "tom_distributed_typescript",
+  "version": "0.1.0",
+  "description": "TypeScript clients for Tom Distributed System (Process Monitor & Ledger)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "tom",
+    "distributed",
+    "ledger",
+    "process-monitor",
+    "typescript"
+  ],
+  "author": "Tom Framework",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0" 
+  }
+}

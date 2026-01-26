@@ -37,7 +37,10 @@ class LocalProcessMonitorClient implements ProcessMonitorClient {
       directory: this.directory,
       instanceId: instanceId,
     );
-    _processControl = ProcessControl(logDirectory: this.directory);
+    _processControl = ProcessControl(
+      logDirectory: this.directory,
+      instanceId: instanceId,
+    );
   }
 
   // --- Registration ---

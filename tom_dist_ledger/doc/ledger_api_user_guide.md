@@ -287,7 +287,7 @@ print('Operation ID: ${operation.operationId}');
 // Spawn workers, wait for completion...
 await doOrchestratorWork(operation);
 
-// Complete the operation - archives files, stops heartbeat
+// Complete the operation - archives all files (including trail) to backup, stops heartbeat
 await operation.complete();
 ```
 

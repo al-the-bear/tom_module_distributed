@@ -87,6 +87,24 @@ class LedgerServer {
 
   /// Route and handle a single request.
   Future<void> _handleRequest(HttpRequest request) async {
+    // Add CORS headers
+    request.response.headers.add('Access-Control-Allow-Origin', '*');
+    request.response.headers.add(
+      'Access-Control-Allow-Methods',
+      'GET, POST, PUT, DELETE, OPTIONS',
+    );
+    request.response.headers.add(
+      'Access-Control-Allow-Headers',
+      'Origin, Content-Type, X-Auth-Token, Participant-Id',
+    );
+
+    // Handle preflight requests
+    if (request.method == 'OPTIONS') {
+      request.response.statusCode = HttpStatus.ok;
+      await request.response.close();
+      return;
+    }
+
     final path = request.uri.path;
     final method = request.method;
 

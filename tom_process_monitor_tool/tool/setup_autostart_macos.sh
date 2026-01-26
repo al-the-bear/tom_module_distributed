@@ -66,14 +66,14 @@ if [ "$CLEAN" = true ]; then
     rm -rf "$HOME/.tom/process_monitor/logs"
     echo "Old configuration removed."
 
-    echo "Creating initial configuration with standaloneMode=true..."
+    echo "Creating initial configuration with standaloneMode=false..."
     mkdir -p "$HOME/.tom/process_monitor"
     cat > "$HOME/.tom/process_monitor/processes_default.json" <<EOF
 {
   "version": 1,
   "instanceId": "default",
   "monitorIntervalMs": 5000,
-  "standaloneMode": true,
+  "standaloneMode": false,
   "alivenessServer": {
     "enabled": true,
     "port": 19883

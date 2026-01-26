@@ -27,12 +27,13 @@ The Ledger Server provides HTTP access to the Distributed Ledger, allowing remot
 - **REST API** - Simple JSON-based request/response format
 - **Participant identification** - Clients identify themselves with each request
 - **Full ledger API** - Create, join, heartbeat, and complete operations
+- **Web Support** - Full CORS support for browser-based clients
 
 ### Architecture
 
 ```
 ┌──────────────────┐        HTTP        ┌──────────────────┐
-│ RemoteLedgerClient│ ◄───────────────► │  LedgerServer    │
+│ RemoteLedgerClient│ ◄───────────────► │ Tom Ledger Server│
 │ (remote_worker)  │                    │                  │
 └──────────────────┘                    │  ┌────────────┐  │
                                         │  │   Ledger   │  │
@@ -44,7 +45,8 @@ The Ledger Server provides HTTP access to the Distributed Ledger, allowing remot
                                                 ▼
                                         ┌──────────────────┐
                                         │  Ledger Files    │
-                                        │  /tmp/ledger/    │
+                                        │  ~/.tom/         │
+                                        │  operation_ledger│
                                         └──────────────────┘
 ```
 
@@ -339,12 +341,23 @@ The server stores files in the specified base path:
 
 ```
 {basePath}/
-├── {operationId}.operation.json     # Operation state
-├── {operationId}.operation.log      # Human-readable log
+├── {operationId}.operation.json      # Operation state
+├── {operationId}.operation.log       # Human-readable log
 ├── {operationId}.operation.debug.log # Debug log
+├── {operationId}_trail/              # Heartbeat snapshots (during operation)
+│   └── {elapsed}_{operationId}.json  # Snapshot at each heartbeat
 └── backup/
-    └── {operationId}/               # Completed/failed operations
+    └── {operationId}/                # Completed/failed operations
+        ├── operation.json
+        ├── operation.log
+        ├── operation.debug.log
+        └── trail/                    # Archived heartbeat snapshots
+            └── {elapsed}_{operationId}.json
 ```
+
+The trail folder contains snapshots of the operation state at each heartbeat.
+When an operation completes, the trail folder is moved to backup along with
+the other operation files and is subject to the same backup retention policy.
 
 ### Checking Operation State
 

@@ -1,39 +1,20 @@
-<!-- 
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# Tom Process Monitor Library
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages). 
+Shared core library for the Tom Process Monitor system.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages). 
--->
+## Overview
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+This package contains the core logic for:
 
-## Features
-
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+- Process definitions and registry management
+- Remote API Server (`RemoteApiServer`)
+- Aliveness Server (`AlivenessServer`)
+- Client definitions for interacting with the monitor
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder. 
+This library is primarily used by the `tom_process_monitor_tool` and `monitor_watcher` applications to provide the monitoring infrastructure.
 
-```dart
-const like = 'sample';
-```
+### Remote API & CORS
 
-## Additional information
-
-TODO: Tell users more about the package: where to find more information, how to 
-contribute to the package, how to file issues, what response they can expect 
-from the package authors, and more.
+The servers implemented in this package (`RemoteApiServer` and `AlivenessServer`) are configured to support CORS (Cross-Origin Resource Sharing) for all origins (`*`). This allows web-based dashboards and tools running in browsers to interact directly with the local monitoring infrastructure.

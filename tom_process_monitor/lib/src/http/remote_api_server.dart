@@ -114,6 +114,24 @@ class RemoteApiServer {
 
   Future<void> _handleRequest(HttpRequest request) async {
     try {
+      // Add CORS headers
+      request.response.headers.add('Access-Control-Allow-Origin', '*');
+      request.response.headers.add(
+        'Access-Control-Allow-Methods',
+        'GET, POST, DELETE, OPTIONS',
+      );
+      request.response.headers.add(
+        'Access-Control-Allow-Headers',
+        'Origin, Content-Type, X-Auth-Token',
+      );
+
+      // Handle preflight requests
+      if (request.method == 'OPTIONS') {
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        return;
+      }
+
       final registry = await registryService.load();
       final isTrusted = _isTrustedHost(request, registry);
 
@@ -653,7 +671,6 @@ class RemoteApiServer {
             partnerAlivenessPort: body['partnerAlivenessPort'] as int?,
             partnerStatusUrl: body['partnerStatusUrl'] as String?,
             discoveryOnStartup: body['discoveryOnStartup'] as bool?,
-            startPartnerIfMissing: body['startPartnerIfMissing'] as bool?,
           );
           await registryService.save(registry);
           await _sendJson(request, registry.partnerDiscovery.toJson());

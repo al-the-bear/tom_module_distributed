@@ -25,7 +25,7 @@ dart run bin/ledger_server.dart --path=/path/to/ledger
 dart run bin/ledger_server.dart -d /path/to/ledger
 
 # Full example
-dart run bin/ledger_server.dart --port=19880 --path=/workspace/_ai/ledger
+dart run bin/ledger_server.dart --port=19880 --path=~/.tom/operation_ledger
 ```
 
 ### Server Endpoints
@@ -36,6 +36,10 @@ dart run bin/ledger_server.dart --port=19880 --path=/workspace/_ai/ledger
 | `/operations` | POST | Create new operation |
 | `/operations/:id` | GET | Get operation state |
 | `/operations/:id` | POST | Operation actions (startCall, endCall, heartbeat, etc.) |
+
+### CORS Support
+
+The server supports CORS for all origins (`*`), enabling web applications (like local dashboards) to query the ledger status and operations directly.
 
 ### Connecting a Client
 

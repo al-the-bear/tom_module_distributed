@@ -20,13 +20,43 @@ class AlivenessChecker {
     _client.close();
   }
 
-  /// Checks if a URL is alive (returns HTTP 200 with body "OK").
+  /// Checks if a URL is alive.
+  ///
+  /// Supports multiple response formats:
+  /// - Plain text: `"OK"`
+  /// - JSON with status: `{"status": "ok"}` or `{"status": "OK"}`
+  /// - JSON with healthy: `{"healthy": true}`
+  ///
+  /// Returns true if HTTP 200 and response indicates healthy.
   Future<bool> checkAlive(String url, {Duration? timeout}) async {
     try {
       final response = await _client
           .get(Uri.parse(url))
           .timeout(timeout ?? const Duration(milliseconds: 2000));
-      return response.statusCode == 200 && response.body.trim() == 'OK';
+
+      if (response.statusCode != 200) return false;
+
+      final body = response.body.trim();
+
+      // Plain text "OK"
+      if (body == 'OK') return true;
+
+      // Try JSON parsing
+      try {
+        final json = jsonDecode(body) as Map<String, dynamic>;
+
+        // {"status": "ok"} or {"status": "OK"}
+        final status = json['status'] as String?;
+        if (status != null && status.toLowerCase() == 'ok') return true;
+
+        // {"healthy": true}
+        final healthy = json['healthy'] as bool?;
+        if (healthy == true) return true;
+      } catch (_) {
+        // Not valid JSON, fall through
+      }
+
+      return false;
     } catch (e) {
       logger?.call('Aliveness check failed for $url: $e');
       return false;

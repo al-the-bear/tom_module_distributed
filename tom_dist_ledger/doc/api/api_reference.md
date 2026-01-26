@@ -828,8 +828,10 @@ operation.leave(cancelPendingCalls: true);
 
 Complete the operation (for initiator only).
 
-This stops the heartbeat, logs completion, moves files to backup,
-and unregisters the operation.
+This stops the heartbeat, logs completion, moves all operation files
+(including the trail folder with heartbeat snapshots) to the backup
+directory, and unregisters the operation. The archived files are
+subject to the backup retention policy.
 
 ```dart
 Future<void> complete()

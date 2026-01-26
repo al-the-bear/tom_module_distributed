@@ -33,6 +33,24 @@ class AlivenessServer {
 
   Future<void> _handleRequest(HttpRequest request) async {
     try {
+      // Add CORS headers
+      request.response.headers.add('Access-Control-Allow-Origin', '*');
+      request.response.headers.add(
+        'Access-Control-Allow-Methods',
+        'GET, POST, OPTIONS',
+      );
+      request.response.headers.add(
+        'Access-Control-Allow-Headers',
+        'Origin, Content-Type, X-Auth-Token',
+      );
+
+      // Handle preflight requests
+      if (request.method == 'OPTIONS') {
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        return;
+      }
+
       if (request.method == 'GET') {
         switch (request.uri.path) {
           case '/alive':

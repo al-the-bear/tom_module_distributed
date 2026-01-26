@@ -3,12 +3,14 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import 'models/aliveness_check.dart';
 import 'models/monitor_status.dart';
 import 'models/partner_discovery_config.dart';
 import 'models/process_entry.dart';
 import 'models/process_state.dart';
 import 'models/registry.dart';
 import 'models/restart_policy.dart';
+import 'models/startup_check.dart';
 import 'services/aliveness_checker.dart';
 import 'services/aliveness_server.dart';
 import 'services/log_manager.dart';
@@ -44,6 +46,7 @@ class ProcessMonitor {
   RemoteApiServer? _remoteApiServer;
 
   bool _running = false;
+  bool _isMonitoring = false;
   DateTime? _startedAt;
   Timer? _monitorTimer;
   bool _restartRequested = false;
@@ -66,6 +69,7 @@ class ProcessMonitor {
     );
     _processControl = ProcessControl(
       logDirectory: this.directory,
+      instanceId: instanceId,
       logger: _log,
     );
     _logManager = LogManager(
@@ -95,31 +99,13 @@ class ProcessMonitor {
     _log('========================================');
 
     // 2. Initialize registry
+    _log('Initializing registry...');
     await _registryService.initialize();
+    _log('Loading registry...');
     final registry = await _registryService.load();
+    _log('Registry loaded. Instance: ${registry.instanceId}');
 
-    // 3. Record watcher info if started by watcher
-    if (watcherPid != null) {
-      registry.watcherInfo = WatcherInfo(
-        watcherPid: watcherPid!,
-        watcherInstanceId: 'watcher',
-        watcherAlivenessPort: 19884,
-      );
-      await _registryService.save(registry);
-    }
-
-    // 4. Partner discovery (if not in standalone mode)
-    if (!registry.standaloneMode) {
-      await _discoverPartner(registry);
-    }
-
-    // 5. Detect crashed processes (were running but stale PIDs)
-    await _detectCrashedProcesses(registry);
-
-    // 6. Log configuration summary
-    _logConfigSummary(registry);
-
-    // 7. Start aliveness server
+    // 3. Start aliveness server (early start for partner discovery)
     if (registry.alivenessServer.enabled) {
       _alivenessServer = AlivenessServer(
         port: registry.alivenessServer.port,
@@ -129,10 +115,31 @@ class ProcessMonitor {
       _log('Aliveness server started on port ${registry.alivenessServer.port}');
     }
 
-    // 8. Start remote API server if enabled
+    // 4. Start remote API server if enabled
     if (registry.remoteAccess.startRemoteAccess) {
       await _startRemoteServer(registry.remoteAccess.remotePort);
     }
+
+    // 5. Record watcher info if started by watcher
+    if (watcherPid != null) {
+      registry.watcherInfo = WatcherInfo(
+        watcherPid: watcherPid!,
+        watcherInstanceId: 'watcher',
+        watcherAlivenessPort: 19884,
+      );
+      await _registryService.save(registry);
+    }
+
+    // 6. Partner discovery (if not in standalone mode)
+    if (!registry.standaloneMode) {
+      await _discoverPartner(registry);
+    }
+
+    // 7. Detect crashed processes (were running but stale PIDs)
+    await _detectCrashedProcesses(registry);
+
+    // 8. Log configuration summary
+    _logConfigSummary(registry);
 
     // 9. Start autostart processes
     await _startAutostartProcesses(registry);
@@ -264,12 +271,68 @@ class ProcessMonitor {
   }
 
   Future<void> _startAutostartProcesses(ProcessRegistry registry) async {
+    // Ensure default processes exist
+    await _ensureDefaultProcesses(registry);
+
     for (final process in registry.processes.values) {
       if (process.enabled && process.autostart) {
         await _startProcess(process);
       }
     }
     await _registryService.save(registry);
+  }
+
+  /// Ensures that default processes (like Ledger Server) are configured.
+  Future<void> _ensureDefaultProcesses(ProcessRegistry registry) async {
+    // Only for the main 'default' instance
+    if (instanceId != 'default') return;
+
+    final binDir = path.dirname(Platform.resolvedExecutable);
+    final ledgerPath = path.join(binDir, 'Tom Ledger Server');
+
+    // Check if binary exists
+    if (await File(ledgerPath).exists()) {
+      // Only add if missing - do NOT overwrite existing user configuration
+      if (!registry.processes.containsKey('ledger_server')) {
+        _log('Adding default Ledger Server configuration...');
+
+        final defaultAliveness = AlivenessCheck(
+          url: 'http://127.0.0.1:19880/health',
+          enabled: true,
+          intervalMs: 10000,
+          timeoutMs: 5000,
+          startupCheck: StartupCheck(
+            enabled: true,
+            checkIntervalMs: 1000,
+            maxAttempts: 30,
+            initialDelayMs: 2000,
+          ),
+        );
+
+        final defaultRestart = const RestartPolicy(retryIndefinitely: true);
+        final defaultArgs = [
+          '--path',
+          path.join(path.dirname(directory), 'operation_ledger')
+        ];
+
+        final entry = ProcessEntry(
+          id: 'ledger_server',
+          name: 'Tom Ledger Server',
+          command: ledgerPath,
+          args: defaultArgs,
+          autostart: true,
+          enabled: true,
+          isRemote: false,
+          restartPolicy: defaultRestart,
+          registeredAt: DateTime.now(),
+          alivenessCheck: defaultAliveness,
+        );
+        registry.processes['ledger_server'] = entry;
+        await _registryService.save(registry);
+      }
+    } else {
+      _log('Ledger Server binary not found at $ledgerPath, skipping autoconfig.');
+    }
   }
 
   void _startMonitoringLoop(int intervalMs) {
@@ -282,43 +345,56 @@ class ProcessMonitor {
   Future<void> _monitoringTick() async {
     if (!_running) return;
 
-    // Check for restart signal
-    if (_restartRequested) {
-      _restartRequested = false;
-      await restartSelf();
+    // Prevent overlapping ticks can cause lock contention and crashes
+    if (_isMonitoring) {
+      _log('Skipping monitoring tick: previous tick still in progress');
       return;
     }
+    _isMonitoring = true;
 
-    // Check for restart signal file
-    final signalFile = File(path.join(directory, 'restart_$instanceId.signal'));
-    if (await signalFile.exists()) {
-      await signalFile.delete();
-      await restartSelf();
-      return;
+    try {
+      // Check for restart signal
+      if (_restartRequested) {
+        _restartRequested = false;
+        await restartSelf();
+        return;
+      }
+
+      // Check for restart signal file
+      final signalFile = File(path.join(directory, 'restart_$instanceId.signal'));
+      if (await signalFile.exists()) {
+        await signalFile.delete();
+        await restartSelf();
+        return;
+      }
+
+      await _registryService.withLock((registry) async {
+        // Check remote access setting changes
+        if (registry.remoteAccess.startRemoteAccess &&
+            _remoteApiServer?.isRunning != true) {
+          await _startRemoteServer(registry.remoteAccess.remotePort);
+        } else if (!registry.remoteAccess.startRemoteAccess &&
+            _remoteApiServer?.isRunning == true) {
+          await _remoteApiServer?.stop();
+          _remoteApiServer = null;
+          _log('Remote API server stopped');
+        }
+
+        // Update partner status periodically (if not standalone)
+        if (!registry.standaloneMode) {
+          await _updatePartnerStatus(registry.partnerDiscovery);
+        }
+
+        // Monitor each process
+        for (final process in registry.processes.values) {
+          await _monitorProcess(process, registry);
+        }
+      });
+    } catch (e, stack) {
+      _log('Error in monitoring tick: $e\n$stack');
+    } finally {
+      _isMonitoring = false;
     }
-
-    await _registryService.withLock((registry) async {
-      // Check remote access setting changes
-      if (registry.remoteAccess.startRemoteAccess &&
-          _remoteApiServer?.isRunning != true) {
-        await _startRemoteServer(registry.remoteAccess.remotePort);
-      } else if (!registry.remoteAccess.startRemoteAccess &&
-          _remoteApiServer?.isRunning == true) {
-        await _remoteApiServer?.stop();
-        _remoteApiServer = null;
-        _log('Remote API server stopped');
-      }
-
-      // Update partner status periodically (if not standalone)
-      if (!registry.standaloneMode) {
-        await _updatePartnerStatus(registry.partnerDiscovery);
-      }
-
-      // Monitor each process
-      for (final process in registry.processes.values) {
-        await _monitorProcess(process, registry);
-      }
-    });
   }
 
   /// Updates the partner status during monitoring.
@@ -336,6 +412,9 @@ class ProcessMonitor {
     } else {
       _partnerStatus = 'stopped';
       _partnerPid = null;
+
+      _log('Partner (${config.partnerInstanceId}) is down. Restarting...');
+      await _startPartnerInstance(config);
     }
   }
 
@@ -445,6 +524,7 @@ class ProcessMonitor {
       _log('Process ${process.id} started with PID $processPid');
     } catch (e) {
       _log('Failed to start ${process.id}: $e');
+      process.lastStoppedAt = DateTime.now();
       process.state = ProcessState.crashed;
     }
   }
@@ -486,6 +566,7 @@ class ProcessMonitor {
     switch (check.failAction) {
       case 'restart':
         process.state = ProcessState.crashed;
+        process.lastStoppedAt = DateTime.now();
       case 'disable':
         process.enabled = false;
         process.state = ProcessState.disabled;
@@ -518,7 +599,7 @@ class ProcessMonitor {
     final backoffMs = policy.backoffIntervalsMs[backoffIndex];
 
     final timeSinceCrash = DateTime.now().difference(
-      process.lastStoppedAt ?? DateTime.now(),
+      process.lastStoppedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
     );
 
     if (timeSinceCrash.inMilliseconds < backoffMs) {
@@ -612,7 +693,8 @@ class ProcessMonitor {
     _partnerPid = null;
     _log('Partner not found: ${config.partnerInstanceId}');
 
-    if (config.startPartnerIfMissing) {
+    // If not standalone, always start partner if missing
+    if (!registry.standaloneMode) {
       _log('Starting partner instance...');
       // Start the watcher/default partner
       await _startPartnerInstance(config);
@@ -625,9 +707,15 @@ class ProcessMonitor {
     final partnerInstanceId = config.partnerInstanceId ?? 'watcher';
 
     // Start partner as detached process
+    // All instances share the same directory but use different filenames/subfolders
+    // based on instanceId (e.g. processes_default.json vs processes_watcher.json).
+
     final args = [
-      ...Platform.executableArguments,
-      '--instance=$partnerInstanceId',
+      '--foreground', // Partner runs in its own foreground (detached)
+      '--instance',
+      partnerInstanceId,
+      '--directory',
+      directory,
     ];
 
     _log('Starting partner: $executable ${args.join(' ')}');

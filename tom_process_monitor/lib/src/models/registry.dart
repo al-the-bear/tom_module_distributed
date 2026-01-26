@@ -112,7 +112,14 @@ class ProcessRegistry {
        partnerDiscovery =
            partnerDiscovery ??
            PartnerDiscoveryConfig.defaultForInstance(instanceId),
-       remoteAccess = remoteAccess ?? RemoteAccessConfig.defaultConfig,
+       remoteAccess =
+           remoteAccess ??
+           (instanceId == 'watcher'
+               ? const RemoteAccessConfig(
+                   startRemoteAccess: false,
+                   remotePort: 19882, // Standard watcher port
+                 )
+               : RemoteAccessConfig.defaultConfig),
        alivenessServer =
            alivenessServer ??
            AlivenessServerConfig(port: instanceId == 'watcher' ? 19884 : 19883),
@@ -138,7 +145,12 @@ class ProcessRegistry {
           ? RemoteAccessConfig.fromJson(
               json['remoteAccess'] as Map<String, dynamic>,
             )
-          : RemoteAccessConfig.defaultConfig,
+          : (instanceId == 'watcher'
+              ? const RemoteAccessConfig(
+                  startRemoteAccess: false,
+                  remotePort: 19882, // Standard watcher port
+                )
+              : RemoteAccessConfig.defaultConfig), // Default remote access config
       alivenessServer: json['alivenessServer'] != null
           ? AlivenessServerConfig.fromJson(
               json['alivenessServer'] as Map<String, dynamic>,

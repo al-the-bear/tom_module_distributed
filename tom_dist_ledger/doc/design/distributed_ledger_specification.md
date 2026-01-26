@@ -78,14 +78,18 @@ Both roles use the same `Operation` API. The difference is in how they obtain th
 
 ```
 {basePath}/
-├── {operationId}.operation.json     # Operation ledger data
-├── {operationId}.operation.log      # Human-readable log
+├── {operationId}.operation.json      # Operation ledger data
+├── {operationId}.operation.log       # Human-readable log
 ├── {operationId}.operation.debug.log # Debug log
+├── {operationId}_trail/              # Heartbeat snapshots (during operation)
+│   └── {elapsed}_{operationId}.json  # Snapshot at each heartbeat
 └── backup/
     └── {operationId}/
         ├── operation.json
         ├── operation.log
-        └── operation.debug.log
+        ├── operation.debug.log
+        └── trail/                    # Archived heartbeat snapshots
+            └── {elapsed}_{operationId}.json
 ```
 
 ### Operation ID Format
@@ -699,14 +703,18 @@ enum LogLevel { debug, info, warning, error }
 
 ### Backup Mechanism
 
-When an operation ends (completed or failed), files are moved to backup:
+When an operation ends (completed or failed), all operation files are moved to backup:
 
 ```
 {basePath}/backup/{operationId}/
-├── operation.json
-├── operation.log
-└── operation.debug.log
+├── operation.json       # Final operation state
+├── operation.log        # Human-readable log
+├── operation.debug.log  # Debug log
+└── trail/               # Heartbeat snapshots
+    └── {elapsed}_{operationId}.json
 ```
+
+The trail folder contains snapshots of the operation state at each heartbeat interval. These are useful for debugging and auditing. The entire trail folder is moved to the backup directory along with the other operation files, ensuring all data is subject to the same backup retention policy.
 
 ### Backup Retention
 

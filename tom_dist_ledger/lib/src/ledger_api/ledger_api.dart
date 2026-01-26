@@ -2458,6 +2458,10 @@ class LocalLedger extends Ledger {
   String _backupFolderPath(String operationId) =>
       '${_backupDir.path}/$operationId';
 
+  /// Get the backup trail folder path for an operation.
+  String _backupTrailPath(String operationId) =>
+      '${_backupDir.path}/$operationId/trail';
+
   // Trail folder for per-modification snapshots
   String _trailPath(String operationId) => '$basePath/${operationId}_trail';
 
@@ -3079,7 +3083,11 @@ class LocalLedger extends Ledger {
 
   /// Move operation files to backup folder.
   ///
-  /// Creates a per-operation folder in the backup directory.
+  /// Creates a per-operation folder in the backup directory and moves:
+  /// - operation.json
+  /// - operation.log
+  /// - operation.debug.log
+  /// - trail/ folder (heartbeat snapshots)
   Future<void> _moveToBackup(String operationId) async {
     // Create the operation's backup folder
     final backupFolder = Directory(_backupFolderPath(operationId));
@@ -3090,6 +3098,7 @@ class LocalLedger extends Ledger {
     final sourceOp = File(_operationPath(operationId));
     final sourceLog = File(_logPath(operationId));
     final sourceDebug = File(_debugLogPath(operationId));
+    final sourceTrail = Directory(_trailPath(operationId));
 
     if (sourceOp.existsSync()) {
       await sourceOp.rename(_backupOperationPath(operationId));
@@ -3099,6 +3108,9 @@ class LocalLedger extends Ledger {
     }
     if (sourceDebug.existsSync()) {
       await sourceDebug.rename(_backupDebugLogPath(operationId));
+    }
+    if (sourceTrail.existsSync()) {
+      await sourceTrail.rename(_backupTrailPath(operationId));
     }
 
     _backupCallback?.call(_backupFolderPath(operationId));

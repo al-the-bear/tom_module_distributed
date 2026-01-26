@@ -138,7 +138,10 @@ void main() {
         tempDir = Directory.systemTemp.createTempSync('pm_discover_test_').path;
         registryService = RegistryService(directory: tempDir, instanceId: 'test');
         await registryService.initialize();
-        processControl = ProcessControl(logDirectory: tempDir);
+        processControl = ProcessControl(
+          logDirectory: tempDir,
+          instanceId: 'test',
+        );
 
         // Find an available port
         final tempServer = await ServerSocket.bind(
@@ -344,7 +347,10 @@ void main() {
       tempDir = Directory.systemTemp.createTempSync('pm_bind_test_').path;
       registryService = RegistryService(directory: tempDir, instanceId: 'test');
       await registryService.initialize();
-      processControl = ProcessControl(logDirectory: tempDir);
+      processControl = ProcessControl(
+        logDirectory: tempDir,
+        instanceId: 'test',
+      );
 
       // Find an available port
       final tempServer = await ServerSocket.bind(

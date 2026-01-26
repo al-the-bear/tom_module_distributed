@@ -31,7 +31,10 @@ void main() {
       tempDir = Directory.systemTemp.createTempSync('api_server_test_').path;
       registryService = RegistryService(directory: tempDir, instanceId: 'test');
       await registryService.initialize();
-      processControl = ProcessControl(logDirectory: tempDir);
+      processControl = ProcessControl(
+        logDirectory: tempDir,
+        instanceId: 'test',
+      );
       client = http.Client();
 
       // Find an available port

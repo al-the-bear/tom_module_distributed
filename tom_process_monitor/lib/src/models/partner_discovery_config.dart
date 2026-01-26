@@ -12,16 +12,12 @@ class PartnerDiscoveryConfig {
   /// Attempt to discover partner on startup.
   final bool discoveryOnStartup;
 
-  /// Start partner if not found on startup.
-  final bool startPartnerIfMissing;
-
   /// Creates a partner discovery configuration.
   const PartnerDiscoveryConfig({
     this.partnerInstanceId,
     this.partnerAlivenessPort,
     this.partnerStatusUrl,
     this.discoveryOnStartup = true,
-    this.startPartnerIfMissing = false,
   });
 
   /// Default partner discovery config for default instance.
@@ -48,7 +44,6 @@ class PartnerDiscoveryConfig {
       partnerAlivenessPort: json['partnerAlivenessPort'] as int?,
       partnerStatusUrl: json['partnerStatusUrl'] as String?,
       discoveryOnStartup: json['discoveryOnStartup'] as bool? ?? true,
-      startPartnerIfMissing: json['startPartnerIfMissing'] as bool? ?? false,
     );
   }
 
@@ -60,7 +55,6 @@ class PartnerDiscoveryConfig {
         'partnerAlivenessPort': partnerAlivenessPort,
       if (partnerStatusUrl != null) 'partnerStatusUrl': partnerStatusUrl,
       'discoveryOnStartup': discoveryOnStartup,
-      'startPartnerIfMissing': startPartnerIfMissing,
     };
   }
 
@@ -70,15 +64,12 @@ class PartnerDiscoveryConfig {
     int? partnerAlivenessPort,
     String? partnerStatusUrl,
     bool? discoveryOnStartup,
-    bool? startPartnerIfMissing,
   }) {
     return PartnerDiscoveryConfig(
       partnerInstanceId: partnerInstanceId ?? this.partnerInstanceId,
       partnerAlivenessPort: partnerAlivenessPort ?? this.partnerAlivenessPort,
       partnerStatusUrl: partnerStatusUrl ?? this.partnerStatusUrl,
       discoveryOnStartup: discoveryOnStartup ?? this.discoveryOnStartup,
-      startPartnerIfMissing:
-          startPartnerIfMissing ?? this.startPartnerIfMissing,
     );
   }
 }

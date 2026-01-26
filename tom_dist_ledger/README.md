@@ -60,7 +60,7 @@ import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
 // Connect to a local ledger
 final ledger = await Ledger.connect(
-  basePath: '/workspace/_ai/operation_ledger',
+  basePath: '~/.tom/operation_ledger',
   participantId: 'cli',
 );
 
@@ -91,7 +91,7 @@ import 'package:tom_dist_ledger/tom_dist_ledger.dart';
 
 // Create a local ledger at a workspace path
 final ledger = LocalLedger(
-  basePath: '/workspace/_ai/operation_ledger',
+  basePath: '~/.tom/operation_ledger',
   participantId: 'cli',
 );
 
@@ -152,6 +152,8 @@ print('Server running on port ${server.port}');
 // Stop when done
 await server.stop();
 ```
+
+**CORS Support**: The Ledger Server supports CORS for all origins (`*`) to allow access from web browsers.
 
 ### Connecting a Client
 
