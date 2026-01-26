@@ -24,7 +24,7 @@ class LocalProcessMonitorClient implements ProcessMonitorClient {
   /// Directory containing registry and lock files.
   final String directory;
 
-  /// ProcessMonitor instance ID.
+  @override
   final String instanceId;
 
   late final RegistryService _registry;

@@ -41,6 +41,9 @@ import 'remote_process_monitor_client.dart';
 /// await monitor.start('my-app');
 /// ```
 abstract class ProcessMonitorClient {
+  /// The ProcessMonitor instance ID this client is targeting.
+  String get instanceId;
+
   /// Creates a ProcessMonitorClient instance based on the provided parameters.
   ///
   /// Connection modes (in priority order):

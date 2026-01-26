@@ -26,7 +26,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Base URL of the ProcessMonitor HTTP API.
   final String baseUrl;
 
-  /// ProcessMonitor instance ID to target.
+  @override
   final String instanceId;
 
   final http.Client _client;
