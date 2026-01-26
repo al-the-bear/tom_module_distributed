@@ -17,6 +17,14 @@ class RemoteApiServer {
   /// Server port.
   final int port;
 
+  /// Address pattern to bind to.
+  ///
+  /// Can be:
+  /// - `null` - bind to all interfaces (InternetAddress.anyIPv4)
+  /// - A full IP like `192.168.1.100` - bind to that specific IP
+  /// - A partial pattern like `192.` or `192.168.` - find first matching local IP
+  final String? bindAddress;
+
   /// Registry service.
   final RegistryService registryService;
 
@@ -33,10 +41,12 @@ class RemoteApiServer {
   final void Function(String message)? logger;
 
   HttpServer? _server;
+  String? _boundAddress;
 
   /// Creates a remote API server.
   RemoteApiServer({
     required this.port,
+    this.bindAddress,
     required this.registryService,
     required this.processControl,
     required this.getStatus,
@@ -47,11 +57,52 @@ class RemoteApiServer {
   /// Whether the server is running.
   bool get isRunning => _server != null;
 
+  /// The actual address the server is bound to (available after start).
+  String? get boundAddress => _boundAddress;
+
   /// Starts the server.
   Future<void> start() async {
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    _log('Remote API server started on port $port');
+    final address = await _resolveBindAddress();
+    _server = await HttpServer.bind(address, port);
+    _boundAddress = address is InternetAddress ? address.address : address.toString();
+    _log('Remote API server started on $_boundAddress:$port');
     _server!.listen(_handleRequest);
+  }
+
+  /// Resolves the bind address based on the [bindAddress] pattern.
+  Future<dynamic> _resolveBindAddress() async {
+    if (bindAddress == null) {
+      return InternetAddress.anyIPv4;
+    }
+
+    // Check if it's a complete IP address (4 octets)
+    final parts = bindAddress!.split('.');
+    if (parts.length == 4 && parts.every((p) => int.tryParse(p) != null)) {
+      return InternetAddress(bindAddress!);
+    }
+
+    // It's a pattern - find matching local IP
+    final pattern = bindAddress!.endsWith('.') ? bindAddress! : '$bindAddress.';
+
+    try {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+      );
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (addr.address.startsWith(pattern)) {
+            _log('Resolved bind pattern "$bindAddress" to ${addr.address}');
+            return addr;
+          }
+        }
+      }
+    } catch (e) {
+      _log('Error listing network interfaces: $e');
+    }
+
+    throw StateError(
+      'No network interface found matching pattern "$bindAddress"',
+    );
   }
 
   /// Stops the server.

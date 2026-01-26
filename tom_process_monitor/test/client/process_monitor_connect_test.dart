@@ -115,21 +115,102 @@ void main() {
     });
 
     group('with no parameters (auto-discovery)', () {
-      // Note: These tests will fail if no ProcessMonitor server is running.
-      // They are skipped by default and should be run manually during
-      // integration testing with a running server.
+      late String tempDir;
+      late RegistryService registryService;
+      late ProcessControl processControl;
+      late RemoteApiServer server;
+      late int port;
 
-      test(
-        'attempts discovery and throws DiscoveryFailedException when no server',
-        () async {
-          // When no server is running, discovery should fail
-          expect(
-            () => ProcessMonitorClient.connect(),
-            throwsA(isA<DiscoveryFailedException>()),
-          );
-        },
-        skip: 'Requires no ProcessMonitor server running on localhost:19881',
-      );
+      Future<MonitorStatus> mockGetStatus() async {
+        return MonitorStatus(
+          instanceId: 'discovery-test',
+          pid: 12345,
+          startedAt: DateTime.now(),
+          uptime: 100,
+          state: 'running',
+          standaloneMode: false,
+          managedProcessCount: 0,
+          runningProcessCount: 0,
+        );
+      }
+
+      setUp(() async {
+        tempDir = Directory.systemTemp.createTempSync('pm_discover_test_').path;
+        registryService = RegistryService(directory: tempDir, instanceId: 'test');
+        await registryService.initialize();
+        processControl = ProcessControl(logDirectory: tempDir);
+
+        // Find an available port
+        final tempServer = await ServerSocket.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        port = tempServer.port;
+        await tempServer.close();
+
+        server = RemoteApiServer(
+          port: port,
+          registryService: registryService,
+          processControl: processControl,
+          getStatus: mockGetStatus,
+        );
+        await server.start();
+      });
+
+      tearDown(() async {
+        await server.stop();
+        final dir = Directory(tempDir);
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
+      });
+
+      test('discovers server on localhost', () async {
+        final client = await RemoteProcessMonitorClient.discover(
+          port: port,
+          timeout: const Duration(seconds: 2),
+        );
+
+        expect(client, isA<RemoteProcessMonitorClient>());
+        expect(client.instanceId, equals('default'));
+        // Verify we can actually communicate with the server
+        final status = await client.getMonitorStatus();
+        expect(status.instanceId, equals('discovery-test'));
+      });
+
+      test('passes instanceId to discovered client', () async {
+        final client = await RemoteProcessMonitorClient.discover(
+          port: port,
+          instanceId: 'my-instance',
+          timeout: const Duration(seconds: 2),
+        );
+
+        expect(client.instanceId, equals('my-instance'));
+      });
+
+      test('ProcessMonitorClient.connect() with custom port discovers server', () async {
+        final client = await ProcessMonitorClient.connect(
+          port: port,
+          instanceId: 'connected-instance',
+          timeout: const Duration(seconds: 2),
+        );
+
+        expect(client, isA<RemoteProcessMonitorClient>());
+        expect(client.instanceId, equals('connected-instance'));
+      });
+
+      test('throws DiscoveryFailedException when no server on port', () async {
+        // Use a port where no server is running
+        final unusedPort = port + 1000;
+
+        expect(
+          () => RemoteProcessMonitorClient.discover(
+            port: unusedPort,
+            timeout: const Duration(milliseconds: 500),
+          ),
+          throwsA(isA<DiscoveryFailedException>()),
+        );
+      });
     });
   });
 
@@ -237,6 +318,135 @@ void main() {
         expect(client.instanceId, isNotNull);
         expect(client.instanceId, equals('accessible-id'));
       });
+    });
+  });
+
+  group('RemoteApiServer bindAddress', () {
+    late String tempDir;
+    late RegistryService registryService;
+    late ProcessControl processControl;
+    late int port;
+
+    Future<MonitorStatus> mockGetStatus() async {
+      return MonitorStatus(
+        instanceId: 'bind-test',
+        pid: 12345,
+        startedAt: DateTime.now(),
+        uptime: 100,
+        state: 'running',
+        standaloneMode: false,
+        managedProcessCount: 0,
+        runningProcessCount: 0,
+      );
+    }
+
+    setUp(() async {
+      tempDir = Directory.systemTemp.createTempSync('pm_bind_test_').path;
+      registryService = RegistryService(directory: tempDir, instanceId: 'test');
+      await registryService.initialize();
+      processControl = ProcessControl(logDirectory: tempDir);
+
+      // Find an available port
+      final tempServer = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      port = tempServer.port;
+      await tempServer.close();
+    });
+
+    tearDown(() async {
+      final dir = Directory(tempDir);
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('binds to all interfaces when bindAddress is null', () async {
+      final server = RemoteApiServer(
+        port: port,
+        bindAddress: null,
+        registryService: registryService,
+        processControl: processControl,
+        getStatus: mockGetStatus,
+      );
+
+      await server.start();
+      expect(server.isRunning, isTrue);
+      expect(server.boundAddress, equals('0.0.0.0'));
+      await server.stop();
+    });
+
+    test('binds to specific IP when full address provided', () async {
+      final server = RemoteApiServer(
+        port: port,
+        bindAddress: '127.0.0.1',
+        registryService: registryService,
+        processControl: processControl,
+        getStatus: mockGetStatus,
+      );
+
+      await server.start();
+      expect(server.isRunning, isTrue);
+      expect(server.boundAddress, equals('127.0.0.1'));
+      await server.stop();
+    });
+
+    test('resolves partial pattern to matching local IP', () async {
+      // Get a local non-loopback IP for testing
+      String? localIp;
+      try {
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+        );
+        for (final interface in interfaces) {
+          for (final addr in interface.addresses) {
+            if (!addr.isLoopback) {
+              localIp = addr.address;
+              break;
+            }
+          }
+          if (localIp != null) break;
+        }
+      } catch (_) {
+        // Skip if can't get network interfaces
+      }
+
+      if (localIp == null) {
+        // Skip test if no non-loopback IP available
+        return;
+      }
+
+      // Use first octet as pattern
+      final pattern = '${localIp.split('.')[0]}.';
+
+      final server = RemoteApiServer(
+        port: port,
+        bindAddress: pattern,
+        registryService: registryService,
+        processControl: processControl,
+        getStatus: mockGetStatus,
+      );
+
+      await server.start();
+      expect(server.isRunning, isTrue);
+      expect(server.boundAddress, startsWith(pattern));
+      await server.stop();
+    });
+
+    test('throws when pattern matches no interface', () async {
+      final server = RemoteApiServer(
+        port: port,
+        bindAddress: '240.',  // Reserved range, unlikely to exist
+        registryService: registryService,
+        processControl: processControl,
+        getStatus: mockGetStatus,
+      );
+
+      expect(
+        () => server.start(),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 }

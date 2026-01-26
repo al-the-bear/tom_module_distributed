@@ -27,6 +27,14 @@ class ProcessMonitor {
   /// PID of the watcher process (if started by watcher).
   final int? watcherPid;
 
+  /// Address pattern to bind HTTP servers to.
+  ///
+  /// Can be:
+  /// - `null` - bind to all interfaces (InternetAddress.anyIPv4)
+  /// - A full IP like `192.168.1.100` - bind to that specific IP
+  /// - A partial pattern like `192.` or `192.168.` - find first matching local IP
+  final String? bindAddress;
+
   late final RegistryService _registryService;
   late final ProcessControl _processControl;
   late final LogManager _logManager;
@@ -50,6 +58,7 @@ class ProcessMonitor {
     String? directory,
     this.instanceId = 'default',
     this.watcherPid,
+    this.bindAddress,
   }) : directory = directory ?? _resolveDefaultDirectory() {
     _registryService = RegistryService(
       directory: this.directory,
@@ -198,6 +207,7 @@ class ProcessMonitor {
   Future<void> _startRemoteServer(int port) async {
     _remoteApiServer = RemoteApiServer(
       port: port,
+      bindAddress: bindAddress,
       registryService: _registryService,
       processControl: _processControl,
       getStatus: _getStatus,
