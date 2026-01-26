@@ -11,6 +11,7 @@ import 'dart:io';
 
 import '../ledger_api/ledger_api.dart';
 import '../ledger_local/file_ledger.dart';
+import 'http_retry.dart';
 
 /// HTTP client for remote ledger access.
 ///
@@ -462,28 +463,52 @@ class RemoteLedgerClient extends Ledger {
     _operations.remove(operationId);
   }
 
-  /// Make a POST request to the server.
+  /// Make a POST request to the server with retry logic.
+  ///
+  /// Retries on connection errors with exponential backoff:
+  /// 2, 4, 8, 16, 32 seconds (up to 62 seconds total).
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> body,
   ) async {
-    final uri = Uri.parse('$serverUrl$path');
-    final request = await _httpClient.postUrl(uri);
-    request.headers.contentType = ContentType.json;
-    request.write(jsonEncode(body));
+    return withRetry(
+      () async {
+        final uri = Uri.parse('$serverUrl$path');
+        final request = await _httpClient.postUrl(uri);
+        request.headers.contentType = ContentType.json;
+        request.write(jsonEncode(body));
 
-    final response = await request.close();
-    final responseBody = await utf8.decoder.bind(response).join();
-    final data = jsonDecode(responseBody) as Map<String, dynamic>;
+        final response = await request.close();
+        final responseBody = await utf8.decoder.bind(response).join();
+        final data = jsonDecode(responseBody) as Map<String, dynamic>;
 
-    if (response.statusCode != 200) {
-      throw RemoteLedgerException(
-        data['error'] as String? ?? 'Unknown error',
-        statusCode: response.statusCode,
-      );
-    }
+        // Retry on server errors (5xx)
+        if (response.statusCode >= 500 && response.statusCode < 600) {
+          throw RemoteLedgerException(
+            data['error'] as String? ?? 'Server error',
+            statusCode: response.statusCode,
+          );
+        }
 
-    return data;
+        if (response.statusCode != 200) {
+          throw RemoteLedgerException(
+            data['error'] as String? ?? 'Unknown error',
+            statusCode: response.statusCode,
+          );
+        }
+
+        return data;
+      },
+      shouldRetry: (error) {
+        // Retry on RemoteLedgerException with 5xx status
+        if (error is RemoteLedgerException) {
+          final code = error.statusCode;
+          return code != null && code >= 500 && code < 600;
+        }
+        // Default retry behavior for connection errors
+        return true;
+      },
+    );
   }
 
   /// Dispose of the client.

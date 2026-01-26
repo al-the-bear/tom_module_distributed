@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../exceptions/permission_denied_exception.dart';
+import '../services/http_retry.dart';
 import '../exceptions/process_not_found_exception.dart';
 import '../models/monitor_status.dart';
 import '../models/partner_discovery_config.dart';
@@ -200,7 +201,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Register a new remote process.
   @override
   Future<void> register(ProcessConfig config) async {
-    final response = await _client.post(
+    final response = await _postWithRetry(
       Uri.parse('$baseUrl/processes'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(config.toJson()),
@@ -212,7 +213,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Remove a remote process from the registry.
   @override
   Future<void> deregister(String processId) async {
-    final response = await _client.delete(
+    final response = await _deleteWithRetry(
       Uri.parse('$baseUrl/processes/$processId'),
     );
 
@@ -224,7 +225,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Enable a remote process.
   @override
   Future<void> enable(String processId) async {
-    final response = await _client.post(
+    final response = await _postWithRetry(
       Uri.parse('$baseUrl/processes/$processId/enable'),
     );
 
@@ -234,7 +235,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Disable a remote process.
   @override
   Future<void> disable(String processId) async {
-    final response = await _client.post(
+    final response = await _postWithRetry(
       Uri.parse('$baseUrl/processes/$processId/disable'),
     );
 
@@ -246,7 +247,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Set autostart for a remote process.
   @override
   Future<void> setAutostart(String processId, bool autostart) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/processes/$processId/autostart'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'autostart': autostart}),
@@ -260,7 +261,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Start a remote process.
   @override
   Future<void> start(String processId) async {
-    final response = await _client.post(
+    final response = await _postWithRetry(
       Uri.parse('$baseUrl/processes/$processId/start'),
     );
 
@@ -270,7 +271,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Stop a remote process.
   @override
   Future<void> stop(String processId) async {
-    final response = await _client.post(
+    final response = await _postWithRetry(
       Uri.parse('$baseUrl/processes/$processId/stop'),
     );
 
@@ -280,7 +281,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Restart a remote process.
   @override
   Future<void> restart(String processId) async {
-    final response = await _client.post(
+    final response = await _postWithRetry(
       Uri.parse('$baseUrl/processes/$processId/restart'),
     );
 
@@ -292,7 +293,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get status of a specific process.
   @override
   Future<ProcessStatus> getStatus(String processId) async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/processes/$processId'),
     );
 
@@ -305,7 +306,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get status of all processes.
   @override
   Future<Map<String, ProcessStatus>> getAllStatus() async {
-    final response = await _client.get(Uri.parse('$baseUrl/processes'));
+    final response = await _getWithRetry(Uri.parse('$baseUrl/processes'));
 
     _checkResponse(response);
     final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -320,7 +321,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get ProcessMonitor instance status.
   @override
   Future<MonitorStatus> getMonitorStatus() async {
-    final response = await _client.get(Uri.parse('$baseUrl/monitor/status'));
+    final response = await _getWithRetry(Uri.parse('$baseUrl/monitor/status'));
 
     _checkResponse(response);
     return MonitorStatus.fromJson(
@@ -333,7 +334,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Enable or disable remote HTTP API access.
   @override
   Future<void> setRemoteAccess(bool enabled) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/remote-access'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'startRemoteAccess': enabled}),
@@ -345,7 +346,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get current remote access configuration.
   @override
   Future<RemoteAccessConfig> getRemoteAccessConfig() async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/config/remote-access'),
     );
 
@@ -377,7 +378,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
       body['allowRemoteMonitorRestart'] = allowMonitorRestart;
     }
 
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/remote-access'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
@@ -389,7 +390,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Set trusted hosts list.
   @override
   Future<void> setTrustedHosts(List<String> hosts) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/trusted-hosts'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'trustedHosts': hosts}),
@@ -401,7 +402,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get trusted hosts list.
   @override
   Future<List<String>> getTrustedHosts() async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/config/trusted-hosts'),
     );
 
@@ -417,7 +418,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get the current executable whitelist.
   @override
   Future<List<String>> getRemoteExecutableWhitelist() async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/config/executable-whitelist'),
     );
 
@@ -429,7 +430,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Set the executable whitelist.
   @override
   Future<void> setRemoteExecutableWhitelist(List<String> patterns) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/executable-whitelist'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'patterns': patterns}),
@@ -441,7 +442,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get the current executable blacklist.
   @override
   Future<List<String>> getRemoteExecutableBlacklist() async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/config/executable-blacklist'),
     );
 
@@ -453,7 +454,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Set the executable blacklist.
   @override
   Future<void> setRemoteExecutableBlacklist(List<String> patterns) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/executable-blacklist'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'patterns': patterns}),
@@ -467,7 +468,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Enable or disable standalone mode.
   @override
   Future<void> setStandaloneMode(bool enabled) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/standalone-mode'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'enabled': enabled}),
@@ -479,7 +480,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get current standalone mode setting.
   @override
   Future<bool> isStandaloneMode() async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/config/standalone-mode'),
     );
 
@@ -491,7 +492,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Get partner discovery configuration.
   @override
   Future<PartnerDiscoveryConfig> getPartnerDiscoveryConfig() async {
-    final response = await _client.get(
+    final response = await _getWithRetry(
       Uri.parse('$baseUrl/config/partner-discovery'),
     );
 
@@ -504,7 +505,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Set partner discovery configuration.
   @override
   Future<void> setPartnerDiscoveryConfig(PartnerDiscoveryConfig config) async {
-    final response = await _client.put(
+    final response = await _putWithRetry(
       Uri.parse('$baseUrl/config/partner-discovery'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(config.toJson()),
@@ -518,9 +519,35 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Restart the ProcessMonitor itself.
   @override
   Future<void> restartMonitor() async {
-    final response = await _client.post(Uri.parse('$baseUrl/monitor/restart'));
+    final response = await _postWithRetry(Uri.parse('$baseUrl/monitor/restart'));
 
     _checkResponse(response);
+  }
+
+  // --- Private HTTP helpers with retry ---
+
+  Future<http.Response> _getWithRetry(Uri uri) async {
+    return withRetry(() => _client.get(uri));
+  }
+
+  Future<http.Response> _postWithRetry(
+    Uri uri, {
+    Map<String, String>? headers,
+    String? body,
+  }) async {
+    return withRetry(() => _client.post(uri, headers: headers, body: body));
+  }
+
+  Future<http.Response> _putWithRetry(
+    Uri uri, {
+    Map<String, String>? headers,
+    String? body,
+  }) async {
+    return withRetry(() => _client.put(uri, headers: headers, body: body));
+  }
+
+  Future<http.Response> _deleteWithRetry(Uri uri) async {
+    return withRetry(() => _client.delete(uri));
   }
 
   void _checkResponse(http.Response response) {

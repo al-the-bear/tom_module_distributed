@@ -24,5 +24,8 @@ export 'src/ledger_local/file_ledger.dart';
 // Remote Ledger Client - HTTP client for remote access
 export 'src/ledger_client/remote_ledger_client.dart';
 
+// HTTP Retry utilities
+export 'src/ledger_client/http_retry.dart';
+
 // Server Discovery - auto-discovery for remote servers
 export 'src/ledger_client/server_discovery.dart';

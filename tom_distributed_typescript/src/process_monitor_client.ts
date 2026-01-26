@@ -1,7 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
+import axiosRetry, { isNetworkOrIdempotentRequestError } from 'axios-retry';
 
 export interface MonitorOptions {
   baseUrl?: string;
+  /** Enable retry with exponential backoff (2, 4, 8, 16, 32 seconds) */
+  enableRetry?: boolean;
 }
 
 export interface ProcessStatus {
@@ -12,6 +15,9 @@ export interface ProcessStatus {
   uptime?: number;
 }
 
+/** Default retry delays in milliseconds: 2, 4, 8, 16, 32 seconds */
+const DEFAULT_RETRY_DELAYS = [2000, 4000, 8000, 16000, 32000];
+
 export class ProcessMonitorClient {
   private client: AxiosInstance;
 
@@ -19,6 +25,24 @@ export class ProcessMonitorClient {
     this.client = axios.create({
       baseURL: options.baseUrl || 'http://localhost:19881',
     });
+
+    // Configure retry with exponential backoff
+    if (options.enableRetry !== false) {
+      axiosRetry(this.client, {
+        retries: DEFAULT_RETRY_DELAYS.length,
+        retryDelay: (retryCount: number) => {
+          // Use configured delays (2, 4, 8, 16, 32 seconds)
+          const delay = DEFAULT_RETRY_DELAYS[retryCount - 1] || DEFAULT_RETRY_DELAYS[DEFAULT_RETRY_DELAYS.length - 1];
+          console.log(`Retry attempt ${retryCount}, waiting ${delay}ms...`);
+          return delay;
+        },
+        retryCondition: (error: any) => {
+          // Retry on network errors or 5xx server errors
+          return isNetworkOrIdempotentRequestError(error) || 
+                 (error.response?.status ?? 0) >= 500;
+        },
+      });
+    }
   }
 
   /**
