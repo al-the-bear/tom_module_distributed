@@ -134,24 +134,29 @@ The `ProcessMonitorClient` abstract class provides a unified interface for inter
 import 'package:tom_process_monitor/tom_process_monitor.dart';
 
 void main() async {
+  // Auto-discover a ProcessMonitor on the network (default behavior)
+  final client = await ProcessMonitorClient.connect();
+  
   // Create a local client (file-based registry)
-  final localClient = ProcessMonitorClient.connect(
+  final localClient = await ProcessMonitorClient.connect(
     directory: '~/.tom/process_monitor',
   );
   
-  // Create a remote client (HTTP API)
-  final remoteClient = ProcessMonitorClient.connect(
-    baseUrl: 'http://localhost:19881',
-  );
-  
-  // You can also create specific implementations directly:
-  final local = LocalProcessMonitorClient(
-    directory: '~/.tom/process_monitor',
-    instanceId: 'default',
-  );
-  
-  final remote = RemoteProcessMonitorClient(
+  // Create a remote client with explicit URL
+  final remoteClient = await ProcessMonitorClient.connect(
     baseUrl: 'http://192.168.1.100:19881',
+  );
+  
+  // Specify target instance (applies to both local and remote)
+  final watcherClient = await ProcessMonitorClient.connect(
+    instanceId: 'watcher',
+    directory: '~/.tom/process_monitor',
+  );
+  
+  // Auto-discover with custom port and timeout
+  final customClient = await ProcessMonitorClient.connect(
+    port: 19882,
+    timeout: Duration(seconds: 10),
   );
 }
 ```

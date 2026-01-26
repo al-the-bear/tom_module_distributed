@@ -13,20 +13,23 @@ import 'remote_process_monitor_client.dart';
 /// Abstract base class for process monitor clients.
 ///
 /// Provides a unified interface for managing processes through both local
-/// file-based and remote HTTP-based clients. Use the [connect] factory method
+/// file-based and remote HTTP-based clients. Use the [connect] static method
 /// to create an appropriate implementation based on your configuration.
 ///
 /// ## Usage
 ///
 /// ```dart
+/// // Auto-discover a remote ProcessMonitor (default behavior)
+/// final monitor = await ProcessMonitorClient.connect();
+///
 /// // Local connection
-/// final monitor = ProcessMonitorClient.connect(
+/// final monitor = await ProcessMonitorClient.connect(
 ///   directory: '/var/process_monitor',
 ///   instanceId: 'my-instance',
 /// );
 ///
-/// // Remote connection
-/// final monitor = ProcessMonitorClient.connect(
+/// // Remote connection with explicit URL
+/// final monitor = await ProcessMonitorClient.connect(
 ///   baseUrl: 'http://192.168.1.100:8080',
 /// );
 ///
@@ -40,25 +43,30 @@ import 'remote_process_monitor_client.dart';
 abstract class ProcessMonitorClient {
   /// Creates a ProcessMonitorClient instance based on the provided parameters.
   ///
-  /// Exactly one of [directory] or [baseUrl] must be specified.
-  ///
-  /// - If [directory] is provided, creates a local [LocalProcessMonitorClient]
-  ///   that communicates via file-based registry.
-  /// - If [baseUrl] is provided, creates a [RemoteProcessMonitorClient]
-  ///   that communicates via HTTP.
+  /// Connection modes (in priority order):
+  /// 1. If [directory] is provided, creates a local [LocalProcessMonitorClient]
+  ///    that communicates via file-based registry.
+  /// 2. If [baseUrl] is provided, creates a [RemoteProcessMonitorClient]
+  ///    that communicates via HTTP to the specified endpoint.
+  /// 3. If neither is provided, uses [RemoteProcessMonitorClient.discover()]
+  ///    to auto-discover a ProcessMonitor instance on the network.
   ///
   /// Parameters:
+  /// - [instanceId]: The ProcessMonitor instance to target (defaults to 'default')
   /// - [directory]: Path to the local ProcessMonitor directory (for local mode)
-  /// - [instanceId]: Client identifier for local mode (defaults to hostname)
   /// - [baseUrl]: HTTP endpoint for remote ProcessMonitor server (for remote mode)
+  /// - [port]: Port for auto-discovery when neither directory nor baseUrl specified
+  /// - [timeout]: Timeout for auto-discovery
   ///
-  /// Throws [ArgumentError] if both or neither of [directory] and [baseUrl]
-  /// are specified.
-  factory ProcessMonitorClient.connect({
+  /// Throws [ArgumentError] if both [directory] and [baseUrl] are specified.
+  /// Throws [DiscoveryFailedException] if auto-discovery fails.
+  static Future<ProcessMonitorClient> connect({
+    String instanceId = 'default',
     String? directory,
-    String? instanceId,
     String? baseUrl,
-  }) {
+    int port = 19881,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
     final hasDirectory = directory != null;
     final hasBaseUrl = baseUrl != null;
 
@@ -69,20 +77,26 @@ abstract class ProcessMonitorClient {
       );
     }
 
-    if (!hasDirectory && !hasBaseUrl) {
-      throw ArgumentError(
-        'Must specify either directory (for local mode) or baseUrl (for remote mode).',
-      );
-    }
-
     if (hasDirectory) {
       return LocalProcessMonitorClient(
         directory: directory,
-        instanceId: instanceId ?? 'default',
+        instanceId: instanceId,
       );
-    } else {
-      return RemoteProcessMonitorClient(baseUrl: baseUrl!);
     }
+
+    if (hasBaseUrl) {
+      return RemoteProcessMonitorClient(
+        baseUrl: baseUrl,
+        instanceId: instanceId,
+      );
+    }
+
+    // Default: auto-discover
+    return RemoteProcessMonitorClient.discover(
+      port: port,
+      timeout: timeout,
+      instanceId: instanceId,
+    );
   }
 
   // ---------------------------------------------------------------------------

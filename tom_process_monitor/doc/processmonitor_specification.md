@@ -816,18 +816,19 @@ The client API provides a unified interface for interacting with ProcessMonitor,
 abstract class ProcessMonitorClient {
   /// Creates a ProcessMonitorClient instance based on the provided parameters.
   ///
-  /// Exactly one of [directory] or [baseUrl] must be specified.
+  /// Connection modes (in priority order):
+  /// 1. If [directory] is provided, creates a local [LocalProcessMonitorClient]
+  /// 2. If [baseUrl] is provided, creates a [RemoteProcessMonitorClient]
+  /// 3. If neither is provided, uses auto-discovery to find a remote instance
   ///
-  /// - If [directory] is provided, creates a local [LocalProcessMonitorClient]
-  ///   that communicates via file-based registry.
-  /// - If [baseUrl] is provided, creates a [RemoteProcessMonitorClient]
-  ///   that communicates via HTTP.
-  ///
-  /// Throws [ArgumentError] if both or neither parameters are specified.
-  factory ProcessMonitorClient.connect({
+  /// Throws [ArgumentError] if both [directory] and [baseUrl] are specified.
+  /// Throws [DiscoveryFailedException] if auto-discovery fails.
+  static Future<ProcessMonitorClient> connect({
+    String instanceId = 'default',
     String? directory,
-    String? instanceId,
     String? baseUrl,
+    int port = 19881,
+    Duration timeout = const Duration(seconds: 5),
   });
   
   // --- Registration ---
@@ -1600,22 +1601,28 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Base URL of the ProcessMonitor HTTP API.
   final String baseUrl;
   
-  /// Default: http://localhost:19881
-  RemoteProcessMonitorClient({String? baseUrl})
-      : baseUrl = baseUrl ?? 'http://localhost:19881';
+  /// ProcessMonitor instance ID to target.
+  final String instanceId;
+  
+  /// Default: http://localhost:19881, instanceId: 'default'
+  RemoteProcessMonitorClient({
+    String? baseUrl,
+    this.instanceId = 'default',
+  }) : baseUrl = baseUrl ?? 'http://localhost:19881';
   
   /// Auto-discover a ProcessMonitor instance.
   ///
   /// Discovery order:
-  /// 1. Try localhost:19881
-  /// 2. Try 127.0.0.1:19881
-  /// 3. Try 0.0.0.0:19881
-  /// 4. Scan local subnet (if network interfaces accessible)
+  /// 1. Try localhost on specified port
+  /// 2. Try 127.0.0.1 on specified port
+  /// 3. Try all local machine IP addresses
+  /// 4. Scan all /24 subnets for each local IP
   ///
   /// Throws [DiscoveryFailedException] if no instance found.
   static Future<RemoteProcessMonitorClient> discover({
     int port = 19881,
     Duration timeout = const Duration(seconds: 5),
+    String instanceId = 'default',
   });
   
   /// Scan a subnet for ProcessMonitor instances.
@@ -2887,8 +2894,8 @@ await aliveness.start();
 ### Basic Local Usage
 
 ```dart
-// Create local client using factory method
-final client = ProcessMonitorClient.connect(
+// Create local client using connect method
+final client = await ProcessMonitorClient.connect(
   directory: '~/.tom/process_monitor',
 );
 
@@ -2940,18 +2947,37 @@ await client.deregister('my-api');
 ### Remote Client Usage
 
 ```dart
-// Create remote client using factory method
-final remote = ProcessMonitorClient.connect(
+// Auto-discover a ProcessMonitor (default behavior with no parameters)
+final client = await ProcessMonitorClient.connect();
+
+// Create remote client with explicit URL
+final remote = await ProcessMonitorClient.connect(
   baseUrl: 'http://192.168.1.100:19881',
 );
 
-// Or create directly
+// Target a specific instance
+final watcherRemote = await ProcessMonitorClient.connect(
+  instanceId: 'watcher',
+  baseUrl: 'http://192.168.1.100:19882',
+);
+
+// Auto-discover with custom port and timeout
+final discovered = await ProcessMonitorClient.connect(
+  port: 19882,
+  timeout: Duration(seconds: 10),
+);
+
+// Or use RemoteProcessMonitorClient directly
 final remoteClient = RemoteProcessMonitorClient(
   baseUrl: 'http://192.168.1.100:19881',
+  instanceId: 'watcher',
 );
 
-// Auto-discover a ProcessMonitor instance on the network
-final discovered = await RemoteProcessMonitorClient.discover();
+// Auto-discover using static method
+final autoDiscovered = await RemoteProcessMonitorClient.discover(
+  port: 19881,
+  instanceId: 'default',
+);
 
 // Register a remote process
 await remote.register(ProcessConfig(

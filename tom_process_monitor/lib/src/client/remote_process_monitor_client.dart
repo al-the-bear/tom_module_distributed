@@ -26,12 +26,20 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// Base URL of the ProcessMonitor HTTP API.
   final String baseUrl;
 
+  /// ProcessMonitor instance ID to target.
+  final String instanceId;
+
   final http.Client _client;
 
   /// Creates a remote process monitor client.
-  RemoteProcessMonitorClient({String? baseUrl})
-    : baseUrl = baseUrl ?? 'http://localhost:19881',
-      _client = http.Client();
+  ///
+  /// - [baseUrl]: The HTTP endpoint (defaults to 'http://localhost:19881')
+  /// - [instanceId]: The target ProcessMonitor instance (defaults to 'default')
+  RemoteProcessMonitorClient({
+    String? baseUrl,
+    this.instanceId = 'default',
+  }) : baseUrl = baseUrl ?? 'http://localhost:19881',
+       _client = http.Client();
 
   /// Auto-discover a ProcessMonitor instance.
   ///
@@ -45,10 +53,15 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
   /// or VPN connections), all subnets are scanned to find servers on any
   /// connected network.
   ///
+  /// - [port]: The port to scan (defaults to 19881)
+  /// - [timeout]: Connection timeout for discovery (defaults to 5 seconds)
+  /// - [instanceId]: The target ProcessMonitor instance (defaults to 'default')
+  ///
   /// Throws [DiscoveryFailedException] if no instance is found.
   static Future<RemoteProcessMonitorClient> discover({
     int port = 19881,
     Duration timeout = const Duration(seconds: 5),
+    String instanceId = 'default',
   }) async {
     final client = http.Client();
 
@@ -93,7 +106,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
       // Try priority candidates first (localhost, local IPs)
       for (final url in candidateUrls) {
         if (await _tryConnect(client, url, timeout)) {
-          return RemoteProcessMonitorClient(baseUrl: url);
+          return RemoteProcessMonitorClient(baseUrl: url, instanceId: instanceId);
         }
       }
 
@@ -105,7 +118,10 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
           timeout: const Duration(milliseconds: 500),
         );
         if (found.isNotEmpty) {
-          return RemoteProcessMonitorClient(baseUrl: found.first);
+          return RemoteProcessMonitorClient(
+            baseUrl: found.first,
+            instanceId: instanceId,
+          );
         }
       }
 

@@ -2,8 +2,9 @@ import 'package:tom_process_monitor/tom_process_monitor.dart';
 
 /// Example demonstrating ProcessMonitor usage.
 void main() async {
-  // Create a ProcessMonitor client using the factory method
-  final client = ProcessMonitorClient.connect(
+  // Create a ProcessMonitor client using the connect method
+  // Default behavior: auto-discovers a remote ProcessMonitor
+  final client = await ProcessMonitorClient.connect(
     directory: '~/.tom/process_monitor',
   );
 
