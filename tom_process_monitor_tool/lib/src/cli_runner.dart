@@ -51,51 +51,11 @@ class CliRunner {
         'restart',
         negatable: false,
         help: 'Restart the ProcessMonitor instance.',
-      );
-
-    return parser;
-  }
-
-  /// Parses command-line arguments for the monitor_watcher command.
-  ArgParser createWatcherParser() {
-    final parser = ArgParser()
-      ..addFlag(
-        'help',
-        abbr: 'h',
-        negatable: false,
-        help: 'Show this help message.',
-      )
-      ..addFlag(
-        'version',
-        negatable: false,
-        help: 'Show version information.',
       )
       ..addOption(
-        'directory',
-        abbr: 'd',
-        help: 'Base directory for ProcessMonitor files. '
-            'Defaults to ~/.tom/process_monitor/',
-      )
-      ..addFlag(
-        'foreground',
-        abbr: 'f',
-        negatable: false,
-        help: 'Run in foreground (do not detach).',
-      )
-      ..addFlag(
-        'stop',
-        negatable: false,
-        help: 'Stop the running watcher instance.',
-      )
-      ..addFlag(
-        'status',
-        negatable: false,
-        help: 'Show status of the watcher instance.',
-      )
-      ..addFlag(
-        'restart',
-        negatable: false,
-        help: 'Restart the watcher instance.',
+        'instance',
+        help: 'Instance ID of the ProcessMonitor.',
+        hide: true,
       );
 
     return parser;
@@ -130,6 +90,7 @@ class CliRunner {
     final stop = results['stop'] as bool;
     final status = results['status'] as bool;
     final restart = results['restart'] as bool;
+    final instanceId = results['instance'] as String? ?? 'default';
 
     // Use remote client to interact with running instance
     final remoteClient = RemoteProcessMonitorClient(
@@ -150,62 +111,7 @@ class CliRunner {
 
     // Start the ProcessMonitor
     return _startMonitor(
-      instanceId: 'default',
-      directory: directory,
-      foreground: foreground,
-    );
-  }
-
-  /// Runs the monitor_watcher CLI command.
-  Future<int> runWatcher(List<String> args) async {
-    final parser = createWatcherParser();
-    final ArgResults results;
-
-    try {
-      results = parser.parse(args);
-    } on FormatException catch (e) {
-      stderr.writeln('Error: ${e.message}');
-      stderr.writeln();
-      _printUsage('monitor_watcher', parser);
-      return 1;
-    }
-
-    if (results['help'] as bool) {
-      _printUsage('monitor_watcher', parser);
-      return 0;
-    }
-
-    if (results['version'] as bool) {
-      stdout.writeln('monitor_watcher version 1.0.0');
-      return 0;
-    }
-
-    final directory = results['directory'] as String?;
-    final foreground = results['foreground'] as bool;
-    final stop = results['stop'] as bool;
-    final status = results['status'] as bool;
-    final restart = results['restart'] as bool;
-
-    // Use remote client to interact with running instance
-    final remoteClient = RemoteProcessMonitorClient(
-      baseUrl: 'http://localhost:19882',
-    );
-
-    if (stop) {
-      return _stopMonitor(remoteClient, 'Watcher');
-    }
-
-    if (status) {
-      return _showStatus(remoteClient, 'Watcher');
-    }
-
-    if (restart) {
-      return _restartMonitor(remoteClient, 'Watcher');
-    }
-
-    // Start the watcher
-    return _startMonitor(
-      instanceId: 'watcher',
+      instanceId: instanceId,
       directory: directory,
       foreground: foreground,
     );
@@ -310,6 +216,7 @@ class CliRunner {
       final processArgs = <String>[
         script,
         '--foreground',
+        '--instance=$instanceId',
         if (directory != null) '--directory=$directory',
       ];
 

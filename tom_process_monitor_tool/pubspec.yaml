@@ -13,6 +13,9 @@ dependencies:
   tom_process_monitor:
     path: ../tom_process_monitor
 
+executables:
+  process_monitor: process_monitor
+
 dev_dependencies:
   lints: ^6.0.0
   test: ^1.25.6
