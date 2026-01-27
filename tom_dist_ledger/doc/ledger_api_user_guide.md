@@ -13,6 +13,7 @@ A practical guide to using the `tom_dist_ledger` package for coordinating distri
 5. [Creating and Joining Operations](#creating-and-joining-operations)
 6. [Working with Calls](#working-with-calls)
 7. [Spawned Calls and Workers](#spawned-calls-and-workers)
+   - [Wrapping Callback-Based APIs](#wrapping-callback-based-apis)
 8. [Heartbeats and Crash Detection](#heartbeats-and-crash-detection)
 9. [Error Handling](#error-handling)
 10. [Best Practices](#best-practices)
@@ -480,7 +481,7 @@ final worker = operation.execStdioWorker<WorkerResult>(
   deserializer: (stdout) => WorkerResult.fromJson(jsonDecode(stdout)),
 );
 
-final result = await worker.await_();
+final result = await worker.await();
 ```
 
 ### Contained Crashes
@@ -506,6 +507,115 @@ if (optionalCall.isSuccess) {
   print('Using fallback: ${optionalCall.result}');
 }
 ```
+
+### Wrapping Callback-Based APIs
+
+When working with callback-based APIs (event emitters, WebSocket responses, etc.), use a `Completer` to bridge callbacks to futures:
+
+```dart
+// Example: API that delivers results via callback
+abstract class SomeApi {
+  Handle startWork({
+    required void Function(int percent) onProgress,
+    required void Function(String result) onResult,
+    required void Function(Object error) onError,
+  });
+}
+
+final spawnedCall = operation.spawnCall<String>(
+  work: (call, op) async {
+    // Create a Completer to bridge callback to Future
+    final completer = Completer<String>();
+    
+    final handle = someApi.startWork(
+      onProgress: (percent) {
+        print('Progress: $percent%');
+        // Check for cancellation during progress
+        if (call.isCancelled) {
+          handle.cancel();
+          if (!completer.isCompleted) {
+            completer.completeError(Exception('Cancelled'));
+          }
+        }
+      },
+      onResult: (result) {
+        if (!completer.isCompleted) {
+          completer.complete(result);  // This completes the SpawnedCall
+        }
+      },
+      onError: (error) {
+        if (!completer.isCompleted) {
+          completer.completeError(error);  // This fails the SpawnedCall
+        }
+      },
+    );
+    
+    // Wire up cancellation - when cancel() is called on SpawnedCall,
+    // this cleanup runs
+    call.onCancel = () async {
+      handle.cancel();
+      if (!completer.isCompleted) {
+        completer.completeError(Exception('Cancelled'));
+      }
+    };
+    
+    return completer.future;
+  },
+);
+
+// Now await the result normally
+final result = await spawnedCall.await();
+```
+
+### WebSocket Response Example
+
+```dart
+final spawnedCall = operation.spawnCall<ResponseMessage>(
+  work: (call, op) async {
+    final completer = Completer<ResponseMessage>();
+    final requestId = generateId();
+    
+    // Set up listener for the response
+    late StreamSubscription<ResponseMessage> subscription;
+    subscription = ws.messages.listen((message) {
+      if (message.requestId == requestId) {
+        subscription.cancel();
+        if (!completer.isCompleted) {
+          completer.complete(message);
+        }
+      }
+    });
+    
+    ws.send(RequestMessage(type: 'request', requestId: requestId));
+    
+    // Handle timeout
+    final timer = Timer(Duration(seconds: 30), () {
+      subscription.cancel();
+      if (!completer.isCompleted) {
+        completer.completeError(TimeoutException('Request timed out'));
+      }
+    });
+    
+    // Handle cancellation
+    call.onCancel = () async {
+      timer.cancel();
+      subscription.cancel();
+      ws.send(CancelMessage(requestId: requestId));
+      if (!completer.isCompleted) {
+        completer.completeError(Exception('Cancelled'));
+      }
+    };
+    
+    return completer.future;
+  },
+);
+```
+
+Key points:
+- Use `Completer<T>` to bridge callbacks to futures
+- Always check `!completer.isCompleted` before completing to avoid errors
+- Set `call.onCancel` to handle cleanup when the call is cancelled
+- Use `Timer` for timeouts and cancel it in cleanup
 
 ---
 

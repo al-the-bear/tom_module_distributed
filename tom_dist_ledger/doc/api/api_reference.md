@@ -1466,12 +1466,12 @@ final worker = operation.execStdioWorker<Map>(...);
 worker.kill();
 ```
 
-#### await_
+#### await
 
 Wait for the call to complete and return the result.
 
 ```dart
-Future<T> await_()
+Future<T> await()
 ```
 
 **Returns:** The result of type `T`.
@@ -1482,7 +1482,7 @@ Future<T> await_()
 
 ```dart
 final call = operation.spawnCall<int>(work: () async => 42);
-final value = await call.await_();  // Returns 42
+final value = await call.await();  // Returns 42
 print('Got: $value');
 ```
 
@@ -1942,7 +1942,7 @@ print('Worker started: ${worker.callId}');
 
 // Wait for result
 try {
-  final result = await worker.await_();
+  final result = await worker.await();
   print('Worker result: $result');
 } catch (e) {
   print('Worker failed: ${worker.error}');

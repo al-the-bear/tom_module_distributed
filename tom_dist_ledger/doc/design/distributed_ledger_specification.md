@@ -388,7 +388,7 @@ print('Result: ${spawned.result}');
 Spawned calls provide:
 - Immediate access to `callId`
 - Typed results via `result` property
-- Control methods: `cancel()`, `kill()`, `await_()`
+- Control methods: `cancel()`, `kill()`, `await()`
 - Status via `isCompleted`, `isSuccess`, `isFailed`, `isCancelled`
 
 ### Spawning with Work Function
@@ -450,12 +450,12 @@ call.kill(ProcessSignal.sigkill);  // Sends SIGKILL
 
 Only works if a process was attached via `workWithCall` or exec helpers.
 
-#### await_()
+#### await()
 
 Wait for completion and get typed result:
 
 ```dart
-final result = await call.await_();  // Returns T
+final result = await call.await();  // Returns T
 // Throws StateError if call failed
 ```
 
@@ -628,7 +628,7 @@ final worker = operation.execStdioWorker<WorkerResult>(
   onExit: (exitCode) => print('Worker exited: $exitCode'),
 );
 
-final result = await worker.await_();
+final result = await worker.await();
 ```
 
 ### execServerRequest
@@ -927,7 +927,7 @@ final task = operation.spawnCall<List<ProcessedItem>>(
 
 // Later, if user wants to cancel:
 await task.cancel();
-final partialResults = await task.await_();
+final partialResults = await task.await();
 ```
 
 ### Example 5: Error Handling with Fallbacks

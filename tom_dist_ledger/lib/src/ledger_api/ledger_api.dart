@@ -1426,7 +1426,7 @@ class _LedgerOperation implements CallLifecycle {
   ///
   /// // Or use the direct await pattern:
   /// try {
-  ///   final value = await call.await_();
+  ///   final value = await call.await();
   ///   print('Got: $value');
   /// } catch (e) {
   ///   print('Failed: $e');

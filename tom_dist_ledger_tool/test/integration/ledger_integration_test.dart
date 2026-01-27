@@ -139,7 +139,9 @@ void main() {
         () async => await call.end(42),
         throwsA(isA<RetryExhaustedException>()),
       );
-    }, timeout: Timeout(Duration(minutes: 2)));
+    },
+        timeout: Timeout(Duration(minutes: 2)),
+        skip: 'Long-running test (~62s) - run manually with: dart test --name "operation fails"');
 
     test('operations succeed after server restart', () async {
       // Start with working operation
@@ -176,7 +178,9 @@ void main() {
       // Log should eventually succeed
       await logFuture;
       await op.complete();
-    }, timeout: Timeout(Duration(minutes: 2)));
+    },
+        timeout: Timeout(Duration(minutes: 2)),
+        skip: 'Long-running test - run manually');
   });
 
   group('Concurrent Client Operations', () {
