@@ -1650,7 +1650,7 @@ void main() {
     });
   });
 
-  group('New API - log with LogLevel', () {
+  group('New API - log with DLLogLevel', () {
     late Directory tempDir;
     late LocalLedger ledger;
 
@@ -1668,9 +1668,9 @@ void main() {
       final operation = await ledger.createOperation();
       final operationId = operation.operationId;
 
-      await operation.log('Info message', level: LogLevel.info);
-      await operation.log('Warning message', level: LogLevel.warning);
-      await operation.log('Error message', level: LogLevel.error);
+      await operation.log('Info message', level: DLLogLevel.info);
+      await operation.log('Warning message', level: DLLogLevel.warning);
+      await operation.log('Error message', level: DLLogLevel.error);
 
       final logFile = File('${tempDir.path}/$operationId.operation.log');
       final content = logFile.readAsStringSync();
@@ -2689,12 +2689,12 @@ void main() {
     });
   });
 
-  group('LogLevel extension', () {
+  group('DLLogLevel extension', () {
     test('all log levels have correct name', () {
-      expect(LogLevel.debug.name, equals('DEBUG'));
-      expect(LogLevel.info.name, equals('INFO'));
-      expect(LogLevel.warning.name, equals('WARNING'));
-      expect(LogLevel.error.name, equals('ERROR'));
+      expect(DLLogLevel.debug.name, equals('DEBUG'));
+      expect(DLLogLevel.info.name, equals('INFO'));
+      expect(DLLogLevel.warning.name, equals('WARNING'));
+      expect(DLLogLevel.error.name, equals('ERROR'));
     });
   });
 

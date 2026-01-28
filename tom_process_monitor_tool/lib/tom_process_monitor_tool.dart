@@ -5,4 +5,5 @@
 library;
 
 export 'src/cli_runner.dart';
+export 'src/commands/monitor_watcher_command.dart';
 export 'src/commands/process_monitor_command.dart';

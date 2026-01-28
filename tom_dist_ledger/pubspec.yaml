@@ -4,6 +4,7 @@ description: >
   operations with heartbeat monitoring, abort handling, and resource tracking.
 version: 0.1.0
 repository: https://github.com/al-the-bear/tom_module_distributed
+publish_to: none
 
 environment:
   sdk: ^3.10.4
@@ -11,9 +12,12 @@ environment:
 dependencies:
   tom_d4rt:
     path: ../../tom_module_d4rt/tom_d4rt
+  tom_distributed_common:
+    path: ../tom_distributed_common
 
 dev_dependencies:
   lints: ^6.0.0
   test: ^1.25.6
+  build_runner: ^2.10.4
   tom_d4rt_generator:
     path: ../../tom_module_d4rt/tom_d4rt_generator

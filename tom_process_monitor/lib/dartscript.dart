@@ -4,8 +4,6 @@ library;
 import 'package:tom_d4rt/d4rt.dart';
 import 'src/d4rt_bridges/tom_process_monitor_bridges.dart' as all_bridges;
 
-export 'tom_process_monitor.dart';
-
 /// Combined bridge registration for tom_process_monitor.
 class TomProcessMonitorBridges {
   /// Register all bridges with D4rt interpreter.
@@ -17,14 +15,12 @@ class TomProcessMonitorBridges {
     );
   }
 
-  /// Legacy method for backward compatibility.
-  /// The [importPath] parameter is ignored (kept for backward compatibility).
-  @Deprecated('Use register() instead')
-  static void registerAllBridges(D4rt interpreter, [String? importPath]) {
-    register(interpreter);
+  /// Register all bridges with D4rt interpreter (legacy API).
+  static void registerAllBridges(D4rt interpreter, String importPath) {
+    all_bridges.AllBridge.registerBridges(interpreter, importPath);
   }
 
-  /// Get all bridge classes.
+  /// Get all bridge classes (legacy API).
   static List<BridgedClass> bridgeClasses() {
     return [
       ...all_bridges.AllBridge.bridgeClasses(),

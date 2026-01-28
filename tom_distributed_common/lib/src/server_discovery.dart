@@ -1,7 +1,7 @@
-/// Auto-discovery for LedgerServer instances.
+/// Auto-discovery for distributed services on the network.
 ///
-/// This library provides utilities to automatically discover a running
-/// LedgerServer on the local network by scanning known addresses.
+/// This library provides utilities to automatically discover running
+/// distributed services on the local network by scanning known addresses.
 library;
 
 import 'dart:async';
@@ -49,8 +49,16 @@ class DiscoveryOptions {
   /// Maximum concurrent connection attempts.
   final int maxConcurrent;
 
+  /// Path to the status endpoint (e.g., '/status' or '/monitor/status').
+  final String statusPath;
+
   /// Logger function for discovery progress.
   final void Function(String message)? logger;
+
+  /// Optional validator for the status response.
+  /// Return true if the server matches what you're looking for.
+  /// If null, any valid JSON response is accepted.
+  final bool Function(Map<String, dynamic> status)? statusValidator;
 
   /// Creates discovery options.
   const DiscoveryOptions({
@@ -58,11 +66,46 @@ class DiscoveryOptions {
     this.timeout = const Duration(milliseconds: 500),
     this.scanSubnet = true,
     this.maxConcurrent = 20,
+    this.statusPath = '/status',
     this.logger,
+    this.statusValidator,
   });
+
+  /// Creates a copy with updated values.
+  DiscoveryOptions copyWith({
+    int? port,
+    Duration? timeout,
+    bool? scanSubnet,
+    int? maxConcurrent,
+    String? statusPath,
+    void Function(String message)? logger,
+    bool Function(Map<String, dynamic> status)? statusValidator,
+  }) {
+    return DiscoveryOptions(
+      port: port ?? this.port,
+      timeout: timeout ?? this.timeout,
+      scanSubnet: scanSubnet ?? this.scanSubnet,
+      maxConcurrent: maxConcurrent ?? this.maxConcurrent,
+      statusPath: statusPath ?? this.statusPath,
+      logger: logger ?? this.logger,
+      statusValidator: statusValidator ?? this.statusValidator,
+    );
+  }
 }
 
-/// Discovers LedgerServer instances on the network.
+/// Exception thrown when auto-discovery fails to find a service.
+class DiscoveryFailedException implements Exception {
+  /// The error message.
+  final String message;
+
+  /// Creates a discovery failed exception.
+  DiscoveryFailedException(this.message);
+
+  @override
+  String toString() => 'DiscoveryFailedException: $message';
+}
+
+/// Discovers distributed services on the network.
 ///
 /// The discovery process scans addresses in this order:
 /// 1. localhost (127.0.0.1)
@@ -76,17 +119,21 @@ class DiscoveryOptions {
 /// ## Usage
 ///
 /// ```dart
-/// final discovered = await ServerDiscovery.discover();
+/// // Find a specific service
+/// final discovered = await ServerDiscovery.discover(
+///   DiscoveryOptions(
+///     port: 19880,
+///     statusPath: '/status',
+///     statusValidator: (status) => status['service'] == 'my_service',
+///   ),
+/// );
+///
 /// if (discovered != null) {
 ///   print('Found server at ${discovered.serverUrl}');
-///   final client = RemoteLedgerClient(
-///     serverUrl: discovered.serverUrl,
-///     participantId: 'my_client',
-///   );
 /// }
 /// ```
 class ServerDiscovery {
-  /// Discover a LedgerServer on the network.
+  /// Discover a distributed service on the network.
   ///
   /// Returns the first discovered server, or null if none found.
   static Future<DiscoveredServer?> discover([
@@ -104,7 +151,23 @@ class ServerDiscovery {
     return null;
   }
 
-  /// Discover all LedgerServers on the network.
+  /// Discover a distributed service, throwing if not found.
+  ///
+  /// Same as [discover] but throws [DiscoveryFailedException] if no server
+  /// is found.
+  static Future<DiscoveredServer> discoverOrThrow([
+    DiscoveryOptions options = const DiscoveryOptions(),
+  ]) async {
+    final result = await discover(options);
+    if (result == null) {
+      throw DiscoveryFailedException(
+        'No server found on port ${options.port}',
+      );
+    }
+    return result;
+  }
+
+  /// Discover all distributed services on the network.
   ///
   /// Returns a list of all discovered servers.
   static Future<List<DiscoveredServer>> discoverAll([
@@ -116,8 +179,7 @@ class ServerDiscovery {
     // Scan in batches for better performance
     for (var i = 0; i < candidates.length; i += options.maxConcurrent) {
       final batch = candidates.skip(i).take(options.maxConcurrent).toList();
-      final futures =
-          batch.map((url) => _tryConnect(url, options));
+      final futures = batch.map((url) => _tryConnect(url, options));
       final batchResults = await Future.wait(futures);
 
       for (final result in batchResults) {
@@ -142,7 +204,7 @@ class ServerDiscovery {
     candidates.add('http://localhost:$port');
 
     // 2. Get local machine's IP addresses
-    final localIps = await _getLocalIpAddresses();
+    final localIps = await getLocalIpAddresses();
     for (final ip in localIps) {
       candidates.add('http://$ip:$port');
     }
@@ -160,7 +222,7 @@ class ServerDiscovery {
         if (scannedSubnets.contains(subnet)) continue;
         scannedSubnets.add(subnet);
 
-        final subnetAddresses = _getSubnetAddresses(ip);
+        final subnetAddresses = getSubnetAddresses(ip);
         for (final subnetIp in subnetAddresses) {
           final url = 'http://$subnetIp:$port';
           if (!candidates.contains(url)) {
@@ -173,8 +235,10 @@ class ServerDiscovery {
     return candidates;
   }
 
-  /// Get local IP addresses of the machine.
-  static Future<List<String>> _getLocalIpAddresses() async {
+  /// Get local IPv4 addresses of the machine (excluding loopback).
+  ///
+  /// Returns a list of IPv4 addresses from all network interfaces.
+  static Future<List<String>> getLocalIpAddresses() async {
     final addresses = <String>[];
 
     try {
@@ -198,7 +262,10 @@ class ServerDiscovery {
   }
 
   /// Get all addresses in the /24 subnet of the given IP.
-  static List<String> _getSubnetAddresses(String ip) {
+  ///
+  /// Returns addresses from .1 to .254 (excluding .0 and .255),
+  /// and excluding the input IP itself.
+  static List<String> getSubnetAddresses(String ip) {
     final addresses = <String>[];
     final parts = ip.split('.');
 
@@ -227,7 +294,7 @@ class ServerDiscovery {
     client.connectionTimeout = options.timeout;
 
     try {
-      final statusUrl = '$url/status';
+      final statusUrl = '$url${options.statusPath}';
       options.logger?.call('Trying $statusUrl...');
 
       final request = await client.getUrl(Uri.parse(statusUrl));
@@ -237,9 +304,13 @@ class ServerDiscovery {
         final body = await response.transform(utf8.decoder).join();
         final json = _parseJson(body);
 
-        if (json != null && json['service'] == 'tom_dist_ledger') {
-          options.logger?.call('Found server at $url');
-          return DiscoveredServer(serverUrl: url, status: json);
+        if (json != null) {
+          // Check with validator if provided
+          if (options.statusValidator == null ||
+              options.statusValidator!(json)) {
+            options.logger?.call('Found server at $url');
+            return DiscoveredServer(serverUrl: url, status: json);
+          }
         }
       }
     } on TimeoutException {

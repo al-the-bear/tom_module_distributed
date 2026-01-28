@@ -80,7 +80,7 @@ void main(List<String> args) async {
     );
 
     stderr.writeln('[$participantId] ✅ Joined operation');
-    await operation.log('Worker joined', level: LogLevel.info);
+    await operation.log('Worker joined', level: DLLogLevel.info);
 
     // Push our own call frame
     stderr.writeln('[$participantId] Pushing call frame...');
@@ -96,7 +96,7 @@ void main(List<String> args) async {
 
     // Do simulated work
     stderr.writeln('[$participantId] Working for ${workDuration}ms...');
-    await operation.log('Starting work', level: LogLevel.debug);
+    await operation.log('Starting work', level: DLLogLevel.debug);
     
     // Simulate work in chunks
     final chunks = 5;
@@ -106,7 +106,7 @@ void main(List<String> args) async {
       stderr.writeln('[$participantId] Progress: ${((i + 1) / chunks * 100).toInt()}%');
     }
 
-    await operation.log('Work completed', level: LogLevel.info);
+    await operation.log('Work completed', level: DLLogLevel.info);
     stderr.writeln('[$participantId] Work complete!');
 
     // Pop our call frame

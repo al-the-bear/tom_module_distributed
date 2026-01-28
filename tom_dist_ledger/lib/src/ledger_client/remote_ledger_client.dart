@@ -9,9 +9,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:tom_distributed_common/tom_distributed_common.dart';
+
 import '../ledger_api/ledger_api.dart';
 import '../ledger_local/file_ledger.dart';
-import 'http_retry.dart';
 
 /// HTTP client for remote ledger access.
 ///
@@ -1216,7 +1217,7 @@ class RemoteOperation implements Operation, CallLifecycle {
   }
 
   @override
-  Future<void> log(String message, {LogLevel level = LogLevel.info}) async {
+  Future<void> log(String message, {DLLogLevel level = DLLogLevel.info}) async {
     await _operation.client._post('/operation/log', {
       'operationId': operationId,
       'message': message,

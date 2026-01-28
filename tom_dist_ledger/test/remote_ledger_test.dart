@@ -793,7 +793,7 @@ void main() {
         final operationId = operation.operationId;
 
         await operation.log('Test message 1');
-        await operation.log('Test message 2', level: LogLevel.warning);
+        await operation.log('Test message 2', level: DLLogLevel.warning);
 
         final logFile = File('${tempDir.path}/$operationId.operation.log');
         expect(logFile.existsSync(), isTrue);

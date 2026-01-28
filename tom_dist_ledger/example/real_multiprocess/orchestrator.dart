@@ -52,7 +52,7 @@ void main() async {
     print('   Start time: ${operation.startTimeIso}');
     print('   Ledger path: ${tempDir.path}\n');
 
-    await operation.log('Operation started by orchestrator', level: LogLevel.info);
+    await operation.log('Operation started by orchestrator', level: DLLogLevel.info);
 
     // Push orchestrator's call frame
     await operation.createCallFrame(callId: 'orchestrator-main');
@@ -142,7 +142,7 @@ void main() async {
     print('📌 Orchestrator popped call frame\n');
 
     // Complete the operation
-    await operation.log('All workers completed', level: LogLevel.info);
+    await operation.log('All workers completed', level: DLLogLevel.info);
     await operation.complete();
     print('✅ Operation completed!\n');
 

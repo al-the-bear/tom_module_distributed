@@ -263,7 +263,7 @@ class LocalOperation implements Operation {
 
   /// Write an entry to the operation log.
   @override
-  Future<void> log(String message, {LogLevel level = LogLevel.info}) =>
+  Future<void> log(String message, {DLLogLevel level = DLLogLevel.info}) =>
       _operation.log(message, level: level);
 
   /// Complete the operation (for initiator only).
@@ -860,7 +860,7 @@ class _LedgerOperation implements CallLifecycle {
   // ─────────────────────────────────────────────────────────────
 
   /// Write an entry to the operation log.
-  Future<void> log(String message, {LogLevel level = LogLevel.info}) async {
+  Future<void> log(String message, {DLLogLevel level = DLLogLevel.info}) async {
     final timestamp = DateTime.now().toIso8601String();
     final line = '$timestamp [${level.name}] $message';
     await _ledger._appendLog(operationId, line);
@@ -1042,7 +1042,7 @@ class _LedgerOperation implements CallLifecycle {
     final duration = now.difference(activeCall.startedAt);
     await log(
       'CALL_FAILED callId=$callId duration=${duration.inMilliseconds}ms error=$error',
-      level: LogLevel.error,
+      level: DLLogLevel.error,
     );
 
     // Call cleanup callback
@@ -1316,7 +1316,7 @@ class _LedgerOperation implements CallLifecycle {
         },
       );
 
-      await log('CALL_FAILED callId=$callId error=$e', level: LogLevel.error);
+      await log('CALL_FAILED callId=$callId error=$e', level: DLLogLevel.error);
 
       // Cleanup active call tracking
       final activeCall = _activeCalls.remove(callId);
@@ -2045,7 +2045,7 @@ class _LedgerOperation implements CallLifecycle {
         crashedCallIds.add(call.callId);
         await log(
           'CRASH_DETECTED callId=${call.callId} reason=Stale heartbeat',
-          level: LogLevel.error,
+          level: DLLogLevel.error,
         );
       }
     }

@@ -205,15 +205,15 @@ class OperationFailedException implements Exception {
 }
 
 /// Log levels for operation logging.
-enum LogLevel { debug, info, warning, error }
+enum DLLogLevel { debug, info, warning, error }
 
-/// Extension to convert LogLevel to string.
-extension LogLevelExtension on LogLevel {
+/// Extension to convert DLLogLevel to string.
+extension DLLogLevelExtension on DLLogLevel {
   String get name => switch (this) {
-    LogLevel.debug => 'DEBUG',
-    LogLevel.info => 'INFO',
-    LogLevel.warning => 'WARNING',
-    LogLevel.error => 'ERROR',
+    DLLogLevel.debug => 'DEBUG',
+    DLLogLevel.info => 'INFO',
+    DLLogLevel.warning => 'WARNING',
+    DLLogLevel.error => 'ERROR',
   };
 }
 

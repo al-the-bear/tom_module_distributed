@@ -13,14 +13,11 @@
 
 include: package:lints/recommended.yaml
 
-# Suppress lints for generated bridge code
-analyzer:
-  exclude:
-    - lib/src/d4rt_bridges/**
-  errors:
-    unnecessary_cast: ignore
-    body_might_complete_normally: ignore
-    unnecessary_nullable_for_final_variable_declarations: ignore
+# Uncomment the following section to specify additional rules.
+
+# linter:
+#   rules:
+#     - camel_case_types
 
 # analyzer:
 #   exclude:

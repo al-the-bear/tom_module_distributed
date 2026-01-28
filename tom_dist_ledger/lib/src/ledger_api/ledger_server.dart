@@ -468,9 +468,9 @@ class LedgerServer {
         return;
       }
 
-      final level = LogLevel.values.firstWhere(
+      final level = DLLogLevel.values.firstWhere(
         (l) => l.name == levelStr,
-        orElse: () => LogLevel.info,
+        orElse: () => DLLogLevel.info,
       );
 
       await operation.log(message, level: level);
@@ -578,7 +578,7 @@ class LedgerServer {
       await internalOp.deleteCallFrame(callId: callId);
       await internalOp.log(
         'CALL_FAILED callId=$callId error=${error ?? "unknown"}',
-        level: LogLevel.error,
+        level: DLLogLevel.error,
       );
 
       _sendJson(request.response, {'success': true});

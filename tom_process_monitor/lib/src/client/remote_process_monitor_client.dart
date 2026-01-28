@@ -1,10 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:tom_distributed_common/tom_distributed_common.dart';
 
 import '../exceptions/permission_denied_exception.dart';
-import '../services/http_retry.dart';
 import '../exceptions/process_not_found_exception.dart';
 import '../models/monitor_status.dart';
 import '../models/partner_discovery_config.dart';
@@ -12,15 +11,6 @@ import '../models/process_config.dart';
 import '../models/process_status.dart';
 import '../models/remote_access_config.dart';
 import 'process_monitor_base.dart';
-
-/// Exception thrown when auto-discovery fails to find a ProcessMonitor instance.
-class DiscoveryFailedException implements Exception {
-  final String message;
-  DiscoveryFailedException(this.message);
-
-  @override
-  String toString() => 'DiscoveryFailedException: $message';
-}
 
 /// Remote client API for interacting with ProcessMonitor via HTTP.
 class RemoteProcessMonitorClient implements ProcessMonitorClient {
@@ -44,6 +34,7 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
 
   /// Auto-discover a ProcessMonitor instance.
   ///
+  /// Uses the common [ServerDiscovery] to find a ProcessMonitor server.
   /// Discovery order:
   /// 1. Try localhost on default port (19881)
   /// 2. Try 127.0.0.1 on default port
@@ -64,75 +55,24 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
     Duration timeout = const Duration(seconds: 5),
     String instanceId = 'default',
   }) async {
-    final client = http.Client();
+    final discovered = await ServerDiscovery.discover(
+      DiscoveryOptions(
+        port: port,
+        timeout: timeout,
+        statusPath: '/monitor/status',
+      ),
+    );
 
-    try {
-      // List of URLs to try (priority order)
-      final candidateUrls = <String>[
-        'http://localhost:$port',
-        'http://127.0.0.1:$port',
-      ];
-
-      // Collect local IPs and their subnets
-      final localIps = <String>[];
-      final subnets = <String>{};
-
-      try {
-        final interfaces = await NetworkInterface.list(
-          type: InternetAddressType.IPv4,
-        );
-        for (final interface in interfaces) {
-          for (final addr in interface.addresses) {
-            if (!addr.isLoopback) {
-              final ip = addr.address;
-              localIps.add(ip);
-
-              // Extract subnet
-              final parts = ip.split('.');
-              if (parts.length == 4) {
-                subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
-              }
-            }
-          }
-        }
-      } catch (_) {
-        // Ignore network interface errors
-      }
-
-      // Add local machine IPs
-      for (final ip in localIps) {
-        candidateUrls.add('http://$ip:$port');
-      }
-
-      // Try priority candidates first (localhost, local IPs)
-      for (final url in candidateUrls) {
-        if (await _tryConnect(client, url, timeout)) {
-          return RemoteProcessMonitorClient(baseUrl: url, instanceId: instanceId);
-        }
-      }
-
-      // Scan all subnets
-      for (final subnet in subnets) {
-        final found = await scanSubnet(
-          subnet,
-          port: port,
-          timeout: const Duration(milliseconds: 500),
-        );
-        if (found.isNotEmpty) {
-          return RemoteProcessMonitorClient(
-            baseUrl: found.first,
-            instanceId: instanceId,
-          );
-        }
-      }
-
+    if (discovered == null) {
       throw DiscoveryFailedException(
-        'No ProcessMonitor instance found. Tried: ${candidateUrls.join(', ')}',
+        'No ProcessMonitor instance found on port $port',
       );
-    } finally {
-      // Don't close client here - the returned RemoteProcessMonitorClient
-      // will create its own client
     }
+
+    return RemoteProcessMonitorClient(
+      baseUrl: discovered.serverUrl,
+      instanceId: instanceId,
+    );
   }
 
   /// Scans a subnet for ProcessMonitor instances.
@@ -144,50 +84,22 @@ class RemoteProcessMonitorClient implements ProcessMonitorClient {
     int port = 19881,
     Duration timeout = const Duration(milliseconds: 500),
   }) async {
-    final client = http.Client();
-    final found = <String>[];
-
-    try {
-      // Scan in parallel batches to avoid too many connections
-      final batchSize = 20;
-      for (var start = 1; start < 255; start += batchSize) {
-        final end = (start + batchSize).clamp(1, 255);
-        final futures = <Future<bool>>[];
-        final urls = <String>[];
-
-        for (var i = start; i < end; i++) {
-          final url = 'http://$subnet.$i:$port';
-          urls.add(url);
-          futures.add(_tryConnect(client, url, timeout));
-        }
-
-        final results = await Future.wait(futures);
-        for (var i = 0; i < results.length; i++) {
-          if (results[i]) {
-            found.add(urls[i]);
-          }
-        }
-      }
-    } finally {
-      client.close();
+    // Build candidate list for this subnet only
+    final candidates = <String>[];
+    for (var i = 1; i < 255; i++) {
+      candidates.add('http://$subnet.$i:$port');
     }
 
-    return found;
-  }
+    final results = await ServerDiscovery.discoverAll(
+      DiscoveryOptions(
+        port: port,
+        timeout: timeout,
+        scanSubnet: false, // We're providing specific candidates
+        statusPath: '/monitor/status',
+      ),
+    );
 
-  static Future<bool> _tryConnect(
-    http.Client client,
-    String url,
-    Duration timeout,
-  ) async {
-    try {
-      final response = await client
-          .get(Uri.parse('$url/monitor/status'))
-          .timeout(timeout);
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
+    return results.map((s) => s.serverUrl).toList();
   }
 
   /// Disposes the client.

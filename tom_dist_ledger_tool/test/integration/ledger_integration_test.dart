@@ -106,7 +106,7 @@ void main() {
     test('client logs messages during operation', () async {
       final op = await ledgerClient.createOperation();
       await op.log('Test log message');
-      await op.log('Warning message', level: LogLevel.warning);
+      await op.log('Warning message', level: DLLogLevel.warning);
       await op.complete();
     });
   });

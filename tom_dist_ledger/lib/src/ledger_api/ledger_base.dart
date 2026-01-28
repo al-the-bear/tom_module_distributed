@@ -166,7 +166,7 @@ abstract class Operation {
   FutureOr<void> leave({bool cancelPendingCalls = false});
 
   /// Write an entry to the operation log.
-  Future<void> log(String message, {LogLevel level = LogLevel.info});
+  Future<void> log(String message, {DLLogLevel level = DLLogLevel.info});
 
   /// Complete the operation (for initiator only).
   Future<void> complete();
