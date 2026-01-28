@@ -11,16 +11,8 @@
         "_generated.dart"
       ],
       "excludeClasses": [
-        "Ledger",
-        "LocalOperation",
-        "OperationCallback",
-        "CallCallback",
-        "OperationHelper",
         "LedgerServer",
-        "RemoteLedgerClient",
-        "LedgerCallback",
-        "SpawnedCall",
-        "RemoteOperation"
+        "RemoteLedgerClient"
       ]
     }
   ],
