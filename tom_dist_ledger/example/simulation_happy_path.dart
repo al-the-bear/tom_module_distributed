@@ -2,7 +2,7 @@
 ///
 /// Demonstrates the complete DPL simulation with all participants:
 /// - CLI (initiator)
-/// - DartScript Bridge (subprocess supervisor)
+/// - VS Code Bridge (subprocess supervisor)
 /// - VS Code Extension
 /// - Copilot Chat (external call)
 ///

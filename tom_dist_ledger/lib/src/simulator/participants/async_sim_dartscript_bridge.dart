@@ -1,6 +1,6 @@
 import '../async_simulation.dart';
 
-/// Async simulated DartScript Bridge using Ledger API.
+/// Async simulated VS Code Bridge using Ledger API.
 class AsyncSimDartScriptBridge extends AsyncSimParticipant {
   AsyncSimDartScriptBridge({
     required super.basePath,
