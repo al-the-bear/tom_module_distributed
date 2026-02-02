@@ -25,4 +25,4 @@ export 'src/ledger_local/file_ledger.dart';
 export 'src/ledger_client/remote_ledger_client.dart';
 
 // Common distributed utilities (HTTP retry, server discovery)
-export 'package:tom_distributed_common/tom_distributed_common.dart';
+export 'package:tom_basics_network/tom_basics_network.dart';

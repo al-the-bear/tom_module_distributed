@@ -57,7 +57,7 @@ int _parsePort(List<String> arguments) {
   return 19880;
 }
 
-/// Parse base path from arguments, defaults to current directory.
+/// Parse base path from arguments, defaults to ~/.tom/distributed_ledger.
 String _parseBasePath(List<String> arguments) {
   for (final arg in arguments) {
     if (arg.startsWith('--path=')) {
@@ -70,7 +70,15 @@ String _parseBasePath(List<String> arguments) {
       }
     }
   }
-  return Directory.current.path;
+  return _getDefaultLedgerPath();
+}
+
+/// Returns the default ledger storage path: ~/.tom/distributed_ledger
+String _getDefaultLedgerPath() {
+  final home = Platform.environment['HOME'] ?? 
+               Platform.environment['USERPROFILE'] ?? 
+               Directory.current.path;
+  return '$home/.tom/distributed_ledger';
 }
 
 /// Prints usage information.
@@ -84,7 +92,7 @@ Usage:
 Options:
   --port=<port>    Port to listen on (default: 19880)
   -p <port>        Port to listen on
-  --path=<path>    Base path for ledger storage (default: current directory)
+  --path=<path>    Base path for ledger storage (default: ~/.tom/distributed_ledger)
   -d <path>        Base path for ledger storage
   -h, --help       Show this help message
 ''');

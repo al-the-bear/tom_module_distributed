@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:tom_distributed_common/tom_distributed_common.dart';
+import 'package:tom_basics_network/tom_basics_network.dart';
 
 import '../exceptions/permission_denied_exception.dart';
 import '../exceptions/process_not_found_exception.dart';

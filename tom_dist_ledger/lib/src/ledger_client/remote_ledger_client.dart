@@ -9,7 +9,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:tom_distributed_common/tom_distributed_common.dart';
+import 'package:tom_basics_network/tom_basics_network.dart';
 
 import '../ledger_api/ledger_api.dart';
 import '../ledger_local/file_ledger.dart';

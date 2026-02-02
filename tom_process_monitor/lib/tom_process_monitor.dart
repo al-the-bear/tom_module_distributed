@@ -37,7 +37,7 @@ export 'src/services/aliveness_server_helper.dart';
 export 'src/services/log_manager.dart';
 
 // Common distributed utilities (HTTP retry, server discovery)
-export 'package:tom_distributed_common/tom_distributed_common.dart';
+export 'package:tom_basics_network/tom_basics_network.dart';
 
 // Client APIs
 export 'src/client/process_monitor_base.dart';

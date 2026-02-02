@@ -14,8 +14,8 @@ dependencies:
   args: ^2.5.0
   tom_d4rt:
     path: ../../tom_module_d4rt/tom_d4rt
-  tom_distributed_common:
-    path: ../tom_distributed_common
+  tom_basics_network:
+    path: ../../tom_module_basics/tom_basics_network
 
 dev_dependencies:
   lints: ^6.0.0

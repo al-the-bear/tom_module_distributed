@@ -1,13 +1,14 @@
-name: tom_distributed_common
-description: A starting point for Dart libraries or applications.
+name: tom_distributed_orchestration_tool
+description: A sample command-line application.
 version: 1.0.0
 # repository: https://github.com/my_org/my_repo
 
 environment:
   sdk: ^3.10.4
 
+# Add regular dependencies here.
 dependencies:
-  http: ^1.2.0
+  path: ^1.9.0
 
 dev_dependencies:
   lints: ^6.0.0
