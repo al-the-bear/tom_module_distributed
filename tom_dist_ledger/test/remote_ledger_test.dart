@@ -417,7 +417,7 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<int>(
-          work: (_, __) async {
+          work: (call, op) async {
             await Future.delayed(const Duration(milliseconds: 100));
             return 42;
           },
@@ -438,7 +438,7 @@ void main() {
         var workExecuted = false;
 
         final spawned = operation.spawnCall<String>(
-          work: (_, __) async {
+          work: (call, op) async {
             workExecuted = true;
             return 'done';
           },
@@ -472,7 +472,7 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<int>(
-          work: (_, __) async {
+          work: (call, op) async {
             throw Exception('Work failed');
           },
           failOnCrash: false,
@@ -490,7 +490,7 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned = operation.spawnCall<String>(
-          work: (_, __) async {
+          work: (call, op) async {
             throw Exception('Work failed');
           },
           callback: CallCallback<String>(onCallCrashed: () async => 'fallback'),
@@ -512,7 +512,7 @@ void main() {
         int? completionResult;
 
         final spawned = operation.spawnCall<int>(
-          work: (_, __) async => 42,
+          work: (call, op) async => 42,
           callback: CallCallback<int>(
             onCompletion: (result) async {
               completionCalled = true;
@@ -536,7 +536,7 @@ void main() {
         var cleanupCalled = false;
 
         final spawned = operation.spawnCall<int>(
-          work: (_, __) async => throw Exception('fail'),
+          work: (call, op) async => throw Exception('fail'),
           callback: CallCallback<int>(
             onCleanup: () async {
               cleanupCalled = true;
@@ -591,14 +591,14 @@ void main() {
         final operation = await client.createOperation();
 
         final spawned1 = operation.spawnCall<int>(
-          work: (_, __) async {
+          work: (call, op) async {
             await Future.delayed(const Duration(milliseconds: 200));
             return 1;
           },
         );
 
         final spawned2 = operation.spawnCall<int>(
-          work: (_, __) async {
+          work: (call, op) async {
             await Future.delayed(const Duration(milliseconds: 200));
             return 2;
           },
@@ -621,9 +621,9 @@ void main() {
       test('waits for multiple spawned calls', () async {
         final operation = await client.createOperation();
 
-        final call1 = operation.spawnCall<int>(work: (_, __) async => 1);
-        final call2 = operation.spawnCall<int>(work: (_, __) async => 2);
-        final call3 = operation.spawnCall<int>(work: (_, __) async => 3);
+        final call1 = operation.spawnCall<int>(work: (call, op) async => 1);
+        final call2 = operation.spawnCall<int>(work: (call, op) async => 2);
+        final call3 = operation.spawnCall<int>(work: (call, op) async => 3);
 
         final result = await operation.sync([call1, call2, call3]);
 
@@ -639,11 +639,11 @@ void main() {
         final operation = await client.createOperation();
 
         final call1 = operation.spawnCall<int>(
-          work: (_, __) async => 1,
+          work: (call, op) async => 1,
           failOnCrash: false,
         );
         final call2 = operation.spawnCall<int>(
-          work: (_, __) async => throw Exception('fail'),
+          work: (call, op) async => throw Exception('fail'),
           failOnCrash: false,
         );
 
@@ -661,8 +661,8 @@ void main() {
 
         var completionCalled = false;
 
-        final call1 = operation.spawnCall<int>(work: (_, __) async => 1);
-        final call2 = operation.spawnCall<int>(work: (_, __) async => 2);
+        final call1 = operation.spawnCall<int>(work: (call, op) async => 1);
+        final call2 = operation.spawnCall<int>(work: (call, op) async => 2);
 
         await operation.sync(
           [call1, call2],
@@ -682,7 +682,7 @@ void main() {
         final operation = await client.createOperation();
 
         final call = operation.spawnCall<String>(
-          work: (_, __) async => 'result',
+          work: (call, op) async => 'result',
         );
 
         final result = await operation.awaitCall(call);
@@ -1078,14 +1078,14 @@ void main() {
 
       // Spawn calls from both clients
       final spawned1 = op1.spawnCall<int>(
-        work: (_, __) async {
+        work: (call, op) async {
           await Future.delayed(const Duration(milliseconds: 50));
           return 1;
         },
       );
 
       final spawned2 = op2.spawnCall<int>(
-        work: (_, __) async {
+        work: (call, op) async {
           await Future.delayed(const Duration(milliseconds: 50));
           return 2;
         },
@@ -1146,12 +1146,12 @@ void main() {
       final remoteOp = await client.createOperation();
 
       // All these calls should compile - same as local
-      final spawn1 = remoteOp.spawnCall<int>(work: (_, __) async => 1);
+      final spawn1 = remoteOp.spawnCall<int>(work: (call, op) async => 1);
       final spawn2 = remoteOp.spawnCall<String>(
         work: (call, _) async => call.callId,
       );
       final spawn3 = remoteOp.spawnCall<void>(
-        work: (_, __) async {},
+        work: (call, op) async {},
         description: 'test',
         failOnCrash: false,
         callback: CallCallback<void>(
@@ -1172,8 +1172,8 @@ void main() {
       );
       final remoteOp = await client.createOperation();
 
-      final spawn1 = remoteOp.spawnCall<int>(work: (_, __) async => 1);
-      final spawn2 = remoteOp.spawnCall<int>(work: (_, __) async => 2);
+      final spawn1 = remoteOp.spawnCall<int>(work: (call, op) async => 1);
+      final spawn2 = remoteOp.spawnCall<int>(work: (call, op) async => 2);
 
       // Same as local
       final result = await remoteOp.sync(

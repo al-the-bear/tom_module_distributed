@@ -122,7 +122,7 @@ void main() {
       var heartbeatCount = 0;
       cliOperation.startHeartbeat(
         interval: const Duration(milliseconds: 100),
-        onSuccess: (_, __) => heartbeatCount++,
+        onSuccess: (response, operation) => heartbeatCount++,
       );
 
       final cliCall = await cliOperation.startCall<void>(description: 'cli-main');
