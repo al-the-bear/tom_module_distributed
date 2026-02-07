@@ -372,7 +372,7 @@ class RemoteLedgerClient extends Ledger {
     final response = await _post('/operation/create', {
       'participantId': participantId,
       'participantPid': participantPid,
-      if (description != null) 'description': description,
+      'description': ?description,
     });
 
     final operationId = response['operationId'] as String;
