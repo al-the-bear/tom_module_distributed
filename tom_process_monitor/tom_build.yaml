@@ -7,6 +7,8 @@ d4rtgen:
   barrelPath: lib/d4rt_bridges.dart
   generateDartscript: true
   dartscriptPath: lib/dartscript.dart
+  generateTestRunner: true
+  testRunnerPath: bin/d4rtrun.b.dart
   registrationClass: TomProcessMonitorBridges
   modules:
     - name: all
