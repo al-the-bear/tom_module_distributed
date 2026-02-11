@@ -1,0 +1,6 @@
+# Local development overrides - use workspace paths
+dependency_overrides:
+  tom_d4rt:
+    path: ../../tom_module_d4rt/tom_d4rt
+  tom_d4rt_generator:
+    path: ../../tom_module_d4rt/tom_d4rt_generator
