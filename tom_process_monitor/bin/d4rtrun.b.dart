@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Test runner for tom_process_monitor
-// Generated: 2026-02-08T12:09:55.994949
+// Generated: 2026-02-14T12:48:07.969212
 //
 // Usage:
 //   dart run bin/d4rtrun.b.dart <script.dart|.d4rt>  Run a D4rt script file
@@ -31,7 +31,20 @@ void _registerBridges(D4rt d4rt) {
   );
 }
 
-void main(List<String> args) {
+/// Logs D4 invocations to a debug file.
+const String _d4InvocationsLogPath = '/Users/alexiskyaw/Desktop/Code/tom2/d4_invocations.log';
+
+void _logD4Invocation(String mode, String input) {
+  final timestamp = DateTime.now().toIso8601String();
+  final logLine = '$timestamp | $mode | $input\n';
+  try {
+    File(_d4InvocationsLogPath).writeAsStringSync(logLine, mode: FileMode.append);
+  } catch (_) {
+    // Ignore logging failures
+  }
+}
+
+Future<void> main(List<String> args) async {
   if (args.isEmpty) {
     stderr.writeln('Usage:');
     stderr.writeln('  dart run bin/d4rtrun.b.dart <script.dart|.d4rt>  Run a D4rt script file');
@@ -48,7 +61,7 @@ void main(List<String> args) {
       stderr.writeln('Error: --test requires a script file path argument.');
       exit(1);
     }
-    _runTestScript(args[1]);
+    await _runTestScript(args[1]);
     return;
   }
 
@@ -57,7 +70,7 @@ void main(List<String> args) {
       stderr.writeln('Error: --test-eval requires <init-file> and <expression-file> arguments.');
       exit(1);
     }
-    _runTestEval(args[1], args[2]);
+    await _runTestEval(args[1], args[2]);
     return;
   }
 
@@ -85,6 +98,7 @@ void main(List<String> args) {
 
 /// Run a D4rt script file using execute().
 void _runFile(String filePath) {
+  _logD4Invocation('FILE', filePath);
   final file = File(filePath);
   if (!file.existsSync()) {
     stderr.writeln('Error: File not found: $filePath');
@@ -94,7 +108,12 @@ void _runFile(String filePath) {
   final source = file.readAsStringSync();
   final d4rt = D4rt();
   _registerBridges(d4rt);
+  // Grant all permissions for full access
   d4rt.grant(FilesystemPermission.any);
+  d4rt.grant(NetworkPermission.any);
+  d4rt.grant(ProcessRunPermission.any);
+  d4rt.grant(IsolatePermission.any);
+  d4rt.grant(DangerousPermission.any);
 
   try {
     final result = d4rt.execute(
@@ -115,9 +134,15 @@ void _runFile(String filePath) {
 
 /// Evaluate an expression using eval().
 void _runExpression(String expression) {
+  _logD4Invocation('EXPR', expression);
   final d4rt = D4rt();
   _registerBridges(d4rt);
+  // Grant all permissions for full access
   d4rt.grant(FilesystemPermission.any);
+  d4rt.grant(NetworkPermission.any);
+  d4rt.grant(ProcessRunPermission.any);
+  d4rt.grant(IsolatePermission.any);
+  d4rt.grant(DangerousPermission.any);
 
   // Initialize the interpreter with the import script
   d4rt.execute(source: _initSource);
@@ -137,6 +162,7 @@ void _runExpression(String expression) {
 
 /// Evaluate file content using eval().
 void _runEvalFile(String filePath) {
+  _logD4Invocation('EVAL-FILE', filePath);
   final file = File(filePath);
   if (!file.existsSync()) {
     stderr.writeln('Error: File not found: $filePath');
@@ -146,7 +172,12 @@ void _runEvalFile(String filePath) {
   final source = file.readAsStringSync();
   final d4rt = D4rt();
   _registerBridges(d4rt);
+  // Grant all permissions for full access
   d4rt.grant(FilesystemPermission.any);
+  d4rt.grant(NetworkPermission.any);
+  d4rt.grant(ProcessRunPermission.any);
+  d4rt.grant(IsolatePermission.any);
+  d4rt.grant(DangerousPermission.any);
 
   // Initialize the interpreter with the import script
   d4rt.execute(source: _initSource);
@@ -194,7 +225,9 @@ void _runInitEval() {
 /// Run a D4rt script in test mode with structured output capture.
 /// Uses runZonedGuarded with ZoneSpecification to capture all print()
 /// output and unhandled exceptions. Results are output as JSON.
-void _runTestScript(String filePath) {
+/// Properly awaits async main() functions.
+Future<void> _runTestScript(String filePath) async {
+  _logD4Invocation('TEST', filePath);
   final file = File(filePath);
   if (!file.existsSync()) {
     _emitTestResult('', ['File not found: $filePath']);
@@ -204,20 +237,37 @@ void _runTestScript(String filePath) {
   final source = file.readAsStringSync();
   final capturedOutput = StringBuffer();
   final capturedExceptions = <String>[];
+  final completer = Completer<void>();
 
   runZonedGuarded(
-    () {
-      final d4rt = D4rt();
-      _registerBridges(d4rt);
-      d4rt.grant(FilesystemPermission.any);
-      d4rt.execute(
-        source: source,
-        basePath: File(filePath).parent.path,
-        allowFileSystemImports: true,
-      );
+    () async {
+      try {
+        final d4rt = D4rt();
+        _registerBridges(d4rt);
+        // Grant all permissions for full access
+        d4rt.grant(FilesystemPermission.any);
+        d4rt.grant(NetworkPermission.any);
+        d4rt.grant(ProcessRunPermission.any);
+        d4rt.grant(IsolatePermission.any);
+        d4rt.grant(DangerousPermission.any);
+        final result = d4rt.execute(
+          source: source,
+          basePath: File(filePath).parent.path,
+          allowFileSystemImports: true,
+        );
+        // Await if result is a Future (async main)
+        if (result is Future) {
+          await result;
+        }
+        completer.complete();
+      } catch (e, st) {
+        capturedExceptions.add('$e\n$st');
+        completer.complete();
+      }
     },
     (error, stackTrace) {
       capturedExceptions.add('$error\n$stackTrace');
+      if (!completer.isCompleted) completer.complete();
     },
     zoneSpecification: ZoneSpecification(
       print: (self, parent, zone, line) {
@@ -226,13 +276,16 @@ void _runTestScript(String filePath) {
     ),
   );
 
+  await completer.future;
   _emitTestResult(capturedOutput.toString(), capturedExceptions);
   if (capturedExceptions.isNotEmpty) exit(2);
 }
 
 /// Evaluate file content in test mode with structured output capture.
 /// Initializes with [initFilePath], then evaluates [evalFilePath].
-void _runTestEval(String initFilePath, String evalFilePath) {
+/// Properly awaits async init scripts.
+Future<void> _runTestEval(String initFilePath, String evalFilePath) async {
+  _logD4Invocation('TEST-EVAL', '$initFilePath | $evalFilePath');
   final initFile = File(initFilePath);
   final evalFile = File(evalFilePath);
   if (!initFile.existsSync()) {
@@ -248,23 +301,40 @@ void _runTestEval(String initFilePath, String evalFilePath) {
   final evalSource = evalFile.readAsStringSync();
   final capturedOutput = StringBuffer();
   final capturedExceptions = <String>[];
+  final completer = Completer<void>();
 
   runZonedGuarded(
-    () {
-      final d4rt = D4rt();
-      _registerBridges(d4rt);
-      d4rt.grant(FilesystemPermission.any);
-      // Initialize with the init script
-      d4rt.execute(
-        source: initSource,
-        basePath: File(initFilePath).parent.path,
-        allowFileSystemImports: true,
-      );
-      // Evaluate the expression file
-      d4rt.eval(evalSource);
+    () async {
+      try {
+        final d4rt = D4rt();
+        _registerBridges(d4rt);
+        // Grant all permissions for full access
+        d4rt.grant(FilesystemPermission.any);
+        d4rt.grant(NetworkPermission.any);
+        d4rt.grant(ProcessRunPermission.any);
+        d4rt.grant(IsolatePermission.any);
+        d4rt.grant(DangerousPermission.any);
+        // Initialize with the init script
+        final initResult = d4rt.execute(
+          source: initSource,
+          basePath: File(initFilePath).parent.path,
+          allowFileSystemImports: true,
+        );
+        // Await if init result is a Future (async main)
+        if (initResult is Future) {
+          await initResult;
+        }
+        // Evaluate the expression file
+        d4rt.eval(evalSource);
+        completer.complete();
+      } catch (e, st) {
+        capturedExceptions.add('$e\n$st');
+        completer.complete();
+      }
     },
     (error, stackTrace) {
       capturedExceptions.add('$error\n$stackTrace');
+      if (!completer.isCompleted) completer.complete();
     },
     zoneSpecification: ZoneSpecification(
       print: (self, parent, zone, line) {
@@ -273,6 +343,7 @@ void _runTestEval(String initFilePath, String evalFilePath) {
     ),
   );
 
+  await completer.future;
   _emitTestResult(capturedOutput.toString(), capturedExceptions);
   if (capturedExceptions.isNotEmpty) exit(2);
 }

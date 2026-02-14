@@ -1,6 +1,6 @@
 // D4rt Bridge - Generated file, do not edit
 // Dartscript registration for tom_process_monitor
-// Generated: 2026-02-08T12:09:55.994423
+// Generated: 2026-02-14T12:48:07.968980
 
 /// D4rt Bridge Registration for tom_process_monitor
 library;
@@ -22,6 +22,10 @@ class TomProcessMonitorBridges {
       d4rt,
       'lib/tom_process_monitor.dart',
     );
+    // Register under sub-package barrels for direct imports
+    for (final barrel in all_bridges.AllBridge.subPackageBarrels()) {
+      all_bridges.AllBridge.registerBridges(d4rt, barrel);
+    }
   }
 
   /// Get import block for all modules.
