@@ -6,7 +6,7 @@
 library;
 
 import 'package:tom_d4rt/d4rt.dart';
-import 'src\d4rt_bridges\tom_dist_ledger_bridges.b.dart' as all_bridges;
+import 'src/d4rt_bridges/tom_dist_ledger_bridges.b.dart' as all_bridges;
 
 /// Combined bridge registration for tom_dist_ledger.
 class TomDistLedgerBridges {
@@ -14,14 +14,8 @@ class TomDistLedgerBridges {
   static void register([D4rt? interpreter]) {
     final d4rt = interpreter ?? D4rt();
 
-    all_bridges.AllBridge.registerBridges(
-      d4rt,
-      'tom_dist_ledger.dart',
-    );
-    all_bridges.AllBridge.registerBridges(
-      d4rt,
-      'lib/tom_dist_ledger.dart',
-    );
+    all_bridges.AllBridge.registerBridges(d4rt, 'tom_dist_ledger.dart');
+    all_bridges.AllBridge.registerBridges(d4rt, 'lib/tom_dist_ledger.dart');
     // Register under sub-package barrels for direct imports
     for (final barrel in all_bridges.AllBridge.subPackageBarrels()) {
       all_bridges.AllBridge.registerBridges(d4rt, barrel);
