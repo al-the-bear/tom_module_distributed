@@ -1,5 +1,12 @@
 # ProcessMonitor CLI Guide
 
+> **This package does not build `process_monitor`.** The CLI is implemented here
+> (`lib/src/cli_runner.dart`, `lib/src/commands/`) but the package has no `bin/`,
+> so there is no entry point to compile. The binaries you run are built outside
+> this workspace; `CLAUDE.md` says where they are installed. Everything below
+> describes the command's behaviour, which is accurate — it is the *build* that
+> is missing, not the tool.
+
 This guide covers the command-line interface tool for ProcessMonitor: `process_monitor`.
 
 ## Overview

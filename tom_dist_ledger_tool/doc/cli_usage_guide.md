@@ -1,5 +1,10 @@
 # Ledger Server CLI Guide
 
+> **This package does not build a command-line tool.** It has no `bin/` and no
+> `executables:`, so `distledger` is not produced by this workspace. The server
+> entry point lives in `lib/src/ledger_server_main.dart` and can be driven from
+> Dart; the command described below has no binary behind it today.
+
 Guide to running the Distributed Ledger HTTP Server using the command-line tool.
 
 ---

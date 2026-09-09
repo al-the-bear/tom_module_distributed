@@ -1,6 +1,11 @@
 # Tom Distributed Ledger Tool
 
-Command-line tool for running a Distributed Ledger HTTP Server.
+> **No command-line tool is built from this package.** It has no `bin/` and no
+> `executables:`, so `distledger` does not exist as a binary — see
+> `_copilot_guidelines/tool_dependencies.md`, "Retired tools". The server itself
+> is real and lives in `lib/src/ledger_server_main.dart`.
+
+Library for running a Distributed Ledger HTTP Server.
 
 ## Overview
 

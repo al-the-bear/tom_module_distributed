@@ -13,8 +13,14 @@ dependencies:
   tom_process_monitor:
     path: ../tom_process_monitor
 
-executables:
-  process_monitor: process_monitor
+# NO `executables:` BLOCK. It declared `process_monitor: process_monitor`, which
+# names `bin/process_monitor.dart` -- and this package has no `bin/` at all, so
+# the target did not exist and `dart pub global activate` would have failed on
+# it. The CLI itself IS implemented, in `lib/src/cli_runner.dart` and
+# `lib/src/commands/`; what is missing is the entry point that calls it. The
+# installed binaries are built outside this workspace (see `CLAUDE.md`), so the
+# declaration is removed rather than a stub added -- adding one is a decision
+# for whoever owns the build, not a way to silence a pubspec.
 
 dev_dependencies:
   lints: ^6.0.0
